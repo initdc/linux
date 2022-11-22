@@ -1,0 +1,33 @@
+From 960f8a489b21e826e7b2d1d681a254a9270c43dd Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Fri, 8 Aug 2014 15:35:44 +0200
+Subject: [PATCH 357/429] hsu: unset the pm runtime_auto flag for the hsu
+ driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Runtime PM causes issue at boot time, let's disable it
+until the system is fully started.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ drivers/tty/serial/mfd_pci.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/tty/serial/mfd_pci.c b/drivers/tty/serial/mfd_pci.c
+index 381736434de2..66c7138837bc 100644
+--- a/drivers/tty/serial/mfd_pci.c
++++ b/drivers/tty/serial/mfd_pci.c
+@@ -174,7 +174,7 @@ static int serial_hsu_pci_port_probe(struct pci_dev *pdev,
+ 	pci_set_drvdata(pdev, up);
+ 
+ 	pm_runtime_put_noidle(&pdev->dev);
+-	pm_runtime_allow(&pdev->dev);
++	pm_runtime_forbid(&pdev->dev);
+ 	return 0;
+ err:
+ 	pci_disable_device(pdev);
+-- 
+2.37.3
+

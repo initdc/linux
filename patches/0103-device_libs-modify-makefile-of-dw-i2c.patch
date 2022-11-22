@@ -1,0 +1,28 @@
+From 78a1439e776e25a677dd9a49c573579ba7f2fa01 Mon Sep 17 00:00:00 2001
+From: Jason Chen <jason.cj.chen@intel.com>
+Date: Tue, 10 Sep 2013 17:50:49 +0800
+Subject: [PATCH 103/429] device_libs: modify makefile of dw i2c
+
+Make dw i2c data valiable for CORE CONFIG.
+
+Signed-off-by: Jason Chen <jason.cj.chen@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index aca255216ed3..10f0ee775b36 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -28,7 +28,7 @@ endif
+ obj-$(subst m,y,$(CONFIG_SENSORS_THERMAL_MRFLD)) += platform_mrfl_thermal.o
+ obj-$(subst m,y,$(CONFIG_INTEL_SCU_FLIS)) += platform_scu_flis.o
+ # I2C Devices
+-obj-$(subst m,y,$(CONFIG_I2C_DESIGNWARE_PCI_FORK)) += platform_dw_i2c.o
++obj-$(subst m,y,$(CONFIG_I2C_DESIGNWARE_CORE_FORK)) += platform_dw_i2c.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_EMC1403)) += platform_emc1403.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_LIS3LV02D)) += platform_lis331.o
+ obj-$(subst m,y,$(CONFIG_GPIO_PCA953X)) += platform_max7315.o
+-- 
+2.37.3
+

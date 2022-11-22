@@ -1,0 +1,40 @@
+From 804c6ad07b3cc05af591fe07ef04b1fe286951e9 Mon Sep 17 00:00:00 2001
+From: David Cohen <david.a.cohen@intel.com>
+Date: Thu, 16 May 2013 12:45:14 -0700
+Subject: [PATCH 011/429] intel-mid: fix compilation when SFI support is not
+ selected
+
+get_gpio_by_name() function is implemented only when SFI support is
+selected. Because it is always used regardless SFI, compilation is
+erroneously broken when not selected.
+
+This patch implements dummy get_gpio_by_name() when SFI is not selected
+to avoid compilation issue.
+
+Signed-off-by: David Cohen <david.a.cohen@intel.com>
+---
+ arch/x86/include/asm/intel-mid.h | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/intel-mid.h b/arch/x86/include/asm/intel-mid.h
+index 4d8a0dc85533..957c1b0888c0 100644
+--- a/arch/x86/include/asm/intel-mid.h
++++ b/arch/x86/include/asm/intel-mid.h
+@@ -15,8 +15,13 @@
+ #include <linux/pci.h>
+ #include <linux/platform_device.h>
+ 
+-extern int intel_mid_pci_init(void);
++#ifdef CONFIG_SFI
+ extern int get_gpio_by_name(const char *name);
++#else
++static inline int get_gpio_by_name(const char *name) { return -1; }
++#endif
++
++extern int intel_mid_pci_init(void);
+ extern void intel_delayed_device_register(void *dev,
+ 			void (*delayed_callback)(void *dev_desc));
+ extern void intel_scu_device_register(struct platform_device *pdev);
+-- 
+2.37.3
+

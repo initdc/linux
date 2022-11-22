@@ -1,0 +1,76 @@
+From 561c97d5edc84cef140993ca22691ae30cd18e6c Mon Sep 17 00:00:00 2001
+From: Dyut Kumar Sil <dyut.k.sil@intel.com>
+Date: Thu, 7 Nov 2013 11:36:23 +0530
+Subject: [PATCH 112/429] intel_soc_mrfld: Mark LSS11 as reserved LSS in MRFLD
+
+LSS11 is not being used in Merrifield. This patch make changes
+so that PMU driver treat LSS11 as reserved.
+
+Signed-off-by: Dyut Kumar Sil <dyut.k.sil@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_mrfld.c | 16 ++++++++--------
+ arch/x86/platform/intel-mid/intel_soc_mrfld.h |  2 +-
+ 2 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.c b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+index 0054c3b44d03..6a631ccceb93 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+@@ -52,16 +52,16 @@ static int mrfld_pmu_init(void)
+ 	mid_pmu_cxt->os_sss[0] = (SSMSK(D0I3_MASK, PMU_RESERVED_LSS_03)	|
+ 				SSMSK(D0I3_MASK, PMU_HSI_LSS_05)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_07)	|
++				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_11)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_12)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_13)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_14)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_15));
+ 
+-	/* Put LSS8 and LSS11 as unused on  PRh */
+-	if (INTEL_MID_BOARD(3, PHONE, MRFL, BB, PRO, PRH)) {
++	/* Put LSS8 as unused on PRh */
++	if (INTEL_MID_BOARD(3, PHONE, MRFL, BB, PRO, PRHA)) {
+ 		mid_pmu_cxt->os_sss[0] |= \
+-			(SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08)|
+-			SSMSK(D0I3_MASK, PMU_AUDIO_DMA0_11));
++			SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08);
+ 	}
+ 
+ 	mid_pmu_cxt->os_sss[1] = (SSMSK(D0I3_MASK, PMU_RESERVED_LSS_16-16)|
+@@ -236,16 +236,16 @@ void platform_update_all_lss_states(struct pmu_ss_states *pmu_config,
+ 				(SSMSK(D0I3_MASK, PMU_RESERVED_LSS_03)	|
+ 				SSMSK(D0I3_MASK, PMU_HSI_LSS_05)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_07)	|
++				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_11)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_12)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_13)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_14)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_15));
+ 
+-	/* Put LSS8 and LSS11 as unused on  PRh */
+-	if (INTEL_MID_BOARD(3, PHONE, MRFL, BB, PRO, PRH)) {
++	/* Put LSS8 as unused on PRh */
++	if (INTEL_MID_BOARD(3, PHONE, MRFL, BB, PRO, PRHA)) {
+ 		pmu_config->pmu2_states[0] |= \
+-			(SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08)|
+-			SSMSK(D0I3_MASK, PMU_AUDIO_DMA0_11));
++			SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08);
+ 	}
+ 
+ 	pmu_config->pmu2_states[1] =
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.h b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+index 7a83eb9dcb9f..f3e69797044e 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.h
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+@@ -74,7 +74,7 @@
+ #define PMU_USB_MPH_LSS_08		8
+ #define PMU_USB3_LSS_09			9
+ #define PMU_AUDIO_LSS_10		10
+-#define PMU_AUDIO_DMA0_11		11
++#define PMU_RESERVED_LSS_11		11
+ #define PMU_RESERVED_LSS_12		12
+ #define PMU_RESERVED_LSS_13		13
+ #define PMU_RESERVED_LSS_14		14
+-- 
+2.37.3
+

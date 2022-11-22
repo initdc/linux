@@ -1,0 +1,34 @@
+From 29c5b62a4fb6d3c733f41bac82d096de65911db5 Mon Sep 17 00:00:00 2001
+From: Zhenming Zhao <zhenmingx.zhao@intel.com>
+Date: Fri, 17 Jul 2015 19:08:47 +0800
+Subject: [PATCH 414/429] DMA: DMA enabled blocks system entering s0i3 state
+
+SPI interface enables DMA which causes DMA channels are always in use
+that blocks system entering s0i3 state.
+
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ drivers/dma/intel_mid_dma.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/dma/intel_mid_dma.c b/drivers/dma/intel_mid_dma.c
+index 9f38076772ab..b0274ce768f6 100644
+--- a/drivers/dma/intel_mid_dma.c
++++ b/drivers/dma/intel_mid_dma.c
+@@ -1980,11 +1980,12 @@ int dma_suspend(struct device *dev)
+ 	int i;
+ 	struct middma_device *device = dev_get_drvdata(dev);
+ 	pr_debug("MDMA: dma_suspend called\n");
+-
++#if 0
+ 	for (i = 0; i < device->max_chan; i++) {
+ 		if (device->ch[i].in_use)
+ 			return -EAGAIN;
+ 	}
++#endif
+ 	dmac1_mask_periphral_intr(device);
+ 	device->state = SUSPENDED;
+ 
+-- 
+2.37.3
+

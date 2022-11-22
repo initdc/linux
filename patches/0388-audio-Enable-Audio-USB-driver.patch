@@ -1,0 +1,29 @@
+From 59c4960f26bf6fb8dff74e64d8dc88644b909910 Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Thu, 27 Nov 2014 21:33:00 +0100
+Subject: [PATCH 388/429] audio: Enable Audio USB driver
+
+This patch aims to build-in the generic audio USB sound driver.
+This enables the detection of audio device on USB host port.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 732b0c5ad594..9855c12273cb 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -2413,7 +2413,7 @@ CONFIG_SND_ALOOP=y
+ # CONFIG_SND_PCI is not set
+ # CONFIG_SND_SPI is not set
+ CONFIG_SND_USB=y
+-# CONFIG_SND_USB_AUDIO is not set
++CONFIG_SND_USB_AUDIO=y
+ # CONFIG_SND_USB_UA101 is not set
+ # CONFIG_SND_USB_USX2Y is not set
+ # CONFIG_SND_USB_CAIAQ is not set
+-- 
+2.37.3
+

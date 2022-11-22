@@ -1,0 +1,36 @@
+From e9804ff71983db98aacc10af411b28de802b7e47 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Thu, 7 Nov 2013 21:36:14 +0800
+Subject: [PATCH 230/429] dwc-otg: Fix ACA-Dock can't work when battery lower
+ than 20%.
+
+When battery lower than 20%, EM will notify USB OTG driver that VBus
+can't be drive. USB OTG driver will giveup to start host mode when
+battery is low. But haven't consider the ACA-Dock case.
+
+This patch is add one more condition for low battery case. If charger
+type is ACA-Dock, then can be ignore the low battery. Because ACA-Dock
+will drive VBus for its upstream port.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/otg.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index 32866da5104e..a1f28695ccfc 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -645,8 +645,7 @@ stay_host:
+ 	}
+ 
+ 	/* Higher priority first */
+-	if (otg_events & OEVT_A_DEV_SESS_END_DET_EVNT ||
+-			user_events & USER_A_BUS_DROP) {
++	if (otg_events & OEVT_A_DEV_SESS_END_DET_EVNT) {
+ 		otg_dbg(otg, "OEVT_A_DEV_SESS_END_DET_EVNT\n");
+ 
+ 		/* ACA-Dock plug out */
+-- 
+2.37.3
+

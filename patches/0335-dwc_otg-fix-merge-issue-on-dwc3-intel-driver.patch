@@ -1,0 +1,69 @@
+From b53775f86abe0d90c8697ffa4c0159a4807b6ace Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Tue, 3 Jun 2014 11:41:45 +0200
+Subject: [PATCH 335/429] dwc_otg: fix merge issue on dwc3-intel driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The dwc3_intel_enable_vbus function is currently defined twice.
+It seems that commits 097ea327 and dedf72be weren't correctly
+applied during merge.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ drivers/usb/dwc3/dwc3-intel-mrfl.c | 30 ++++++++++++++++--------------
+ 1 file changed, 16 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-intel-mrfl.c b/drivers/usb/dwc3/dwc3-intel-mrfl.c
+index f4ab3a9a23fd..981c84193ab3 100644
+--- a/drivers/usb/dwc3/dwc3-intel-mrfl.c
++++ b/drivers/usb/dwc3/dwc3-intel-mrfl.c
+@@ -428,12 +428,12 @@ static int dwc3_intel_set_power(struct usb_phy *_otg,
+ 		return -EINVAL;
+ 	}
+ 
+-	spin_lock_irqsave(&otg->lock, flags);
+-	otg->charging_cap.ma = ma;
+-	spin_unlock_irqrestore(&otg->lock, flags);
+-
+-	dwc3_intel_notify_charger_type(otg,
+-			POWER_SUPPLY_CHARGER_EVENT_CONNECT);
++	if (ma == OTG_DEVICE_SUSPEND) {
++		spin_lock_irqsave(&otg->lock, flags);
++		cap.chrg_type = otg->charging_cap.chrg_type;
++		cap.ma = otg->charging_cap.ma;
++		cap.chrg_evt = POWER_SUPPLY_CHARGER_EVENT_SUSPEND;
++		spin_unlock_irqrestore(&otg->lock, flags);
+ 
+ 		/* mA is zero mean D+/D- opened cable.
+ 		 * If SMIP set, then notify 500mA.
+@@ -454,15 +454,17 @@ static int dwc3_intel_set_power(struct usb_phy *_otg,
+ 		else
+ 			cap.ma = 0;
+ 
+-int dwc3_intel_enable_vbus(struct dwc_otg2 *otg, int enable)
+-{
+-	int ret = 0;
+-	u8 ovrwr;
++		atomic_notifier_call_chain(&otg->usb2_phy.notifier,
++				USB_EVENT_CHARGER, &cap);
++		otg_dbg(otg, "Notify EM");
++		otg_dbg(otg, "POWER_SUPPLY_CHARGER_EVENT_SUSPEND\n");
+ 
+-	if (enable)
+-		ovrwr = 0x40;
+-	else
+-		ovrwr = 0x00;
++		return 0;
++	} else if (ma == OTG_DEVICE_RESUME) {
++		otg_dbg(otg, "Notify EM");
++		otg_dbg(otg, "POWER_SUPPLY_CHARGER_EVENT_CONNECT\n");
++		dwc3_intel_notify_charger_type(otg,
++				POWER_SUPPLY_CHARGER_EVENT_CONNECT);
+ 
+ 		return 0;
+ 	}
+-- 
+2.37.3
+

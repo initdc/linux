@@ -1,0 +1,88 @@
+From e9585c97f2f4d2b6d9d312c11cf38adf455b9eaf Mon Sep 17 00:00:00 2001
+From: "Liu, Chuansheng" <chuansheng.liu@intel.com>
+Date: Fri, 18 Oct 2013 10:43:41 +0800
+Subject: [PATCH 130/429] printk: fixing the deadlock when calling printk in
+ nmi handle
+
+Current printk implementation can not fully support that
+calling it in nmi handler for SMP arch.
+
+There is typical case in nmi handler function arch_trigger_all_cpu_backtrace_handler().
+
+In my platform, there are 2 CPUs, when function arch_trigger_all_cpu_backtrace()
+is called, 2 CPUs will recevied the nmi interrupts, and the
+arch_trigger_all_cpu_backtrace_handler() will called on 2 CPUs:
+
+case1:
+CPU0                                            CPU1
+calling arch_trigger_all_cpu_backtrace()        calling printk, and has obtain the logbuf_lock
+nmi interrupt received                          nmi interrupt received
+call arch_trigger_all_cpu_backtrace_handler()   call arch_trigger_all_cpu_backtrace_handler()
+Obtain arch_spin_lock(&lock);                   Waiting for arch_spin_lock(&lock);
+Continue to call printk()
+CPU0 will be blocked by logbuf_lock             CPU1 is blocked by arch_spin_lock(&lock)
+
+The deadlock will be happening.
+
+case2:
+CPU0                                             CPU1:(run dmesg command)
+calling arch_trigger_all_cpu_backtrace()         calling do_syslog
+                                                 Obtaining the logbuf_lock
+nmi interrupt received                           nmi interrupt received
+....
+The dealock will happen also somtimes.
+
+I just write a simple interface to run the arch_trigger_all_cpu_backtrace_handler() every 5s,
+it will trigger dead lock many times.
+
+The solution is when printk is called in nmi handler, we will use trylock instead of lock.
+And in nmi handler, do the call the console write function because normal console write function
+include many spin locks also. This fix can confirm the traces in nmi handler can be output successfully
+almost.
+
+This fix is posted in the LKML also https://lkml.org/lkml/2012/7/4/273.
+
+Signed-off-by: Liu, Chuansheng <chuansheng.liu@intel.com>
+---
+ kernel/printk.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/printk.c b/kernel/printk.c
+index fd0154a57d6e..63cba627a47a 100644
+--- a/kernel/printk.c
++++ b/kernel/printk.c
+@@ -1353,7 +1353,7 @@ static int console_trylock_for_printk(unsigned int cpu)
+ {
+ 	int retval = 0, wake = 0;
+ 
+-	if (console_trylock()) {
++	if (!in_nmi() && console_trylock()) {
+ 		retval = 1;
+ 
+ 		/*
+@@ -1532,7 +1532,13 @@ asmlinkage int vprintk_emit(int facility, int level,
+ 	}
+ 
+ 	lockdep_off();
+-	raw_spin_lock(&logbuf_lock);
++	if (unlikely(in_nmi())) {
++		if (!raw_spin_trylock(&logbuf_lock))
++			goto out_restore_lockdep_irqs;
++	} else {
++		raw_spin_lock(&logbuf_lock);
++	}
++
+ 	logbuf_cpu = this_cpu;
+ 
+ 	if (recursion_bug) {
+@@ -1628,6 +1634,7 @@ asmlinkage int vprintk_emit(int facility, int level,
+ 	if (console_trylock_for_printk(this_cpu))
+ 		console_unlock();
+ 
++out_restore_lockdep_irqs:
+ 	lockdep_on();
+ out_restore_irqs:
+ 	local_irq_restore(flags);
+-- 
+2.37.3
+

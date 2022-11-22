@@ -1,0 +1,299 @@
+From 5e0d867e394c78bbfdefd56f898a18902dca86c5 Mon Sep 17 00:00:00 2001
+From: "Richard A. Griffiths" <Richard.A.Griffiths@intel.com>
+Date: Wed, 10 Jul 2013 16:06:36 -0700
+Subject: [PATCH 029/429] section mismatches in several drivers
+
+Corrects section mismatches in several of the drivers.
+removed __init for functions called by ipc_probe.
+added fix for mismatch in watchdog_rpmsg_remove which
+only appears in 3.10.
+
+Conflicts:
+	arch/x86/platform/intel-mid/intel_mid_sfi.c
+
+Signed-off-by: David Cohen <david.a.cohen@intel.com>
+Signed-off-by: Richard A. Griffiths <Richard.A.Griffiths@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_mid_sfi.c |   3 +-
+ arch/x86/platform/intel-mid/mfld.c          |  72 ---------
+ arch/x86/platform/intel-mid/mrfl.c          | 161 ++++++++++++++++++++
+ drivers/platform/x86/intel_scu_ipc.c        |   2 +-
+ 4 files changed, 164 insertions(+), 74 deletions(-)
+ delete mode 100644 arch/x86/platform/intel-mid/mfld.c
+ create mode 100644 arch/x86/platform/intel-mid/mrfl.c
+
+diff --git a/arch/x86/platform/intel-mid/intel_mid_sfi.c b/arch/x86/platform/intel-mid/intel_mid_sfi.c
+index db697984483a..fad58df0ddd1 100644
+--- a/arch/x86/platform/intel-mid/intel_mid_sfi.c
++++ b/arch/x86/platform/intel-mid/intel_mid_sfi.c
+@@ -422,7 +422,8 @@ static void __init sfi_handle_sd_dev(struct sfi_device_table_entry *pentry,
+ 	pdata = dev->get_platform_data(&sd_info);
+ 	sd_info.platform_data = pdata;
+ }
+-struct devs_id *get_device_id(u8 type, char *name)
++
++struct devs_id __init *get_device_id(u8 type, char *name)
+ {
+ 	struct devs_id *dev = device_ids;
+ 
+diff --git a/arch/x86/platform/intel-mid/mfld.c b/arch/x86/platform/intel-mid/mfld.c
+deleted file mode 100644
+index 11a99196dbee..000000000000
+--- a/arch/x86/platform/intel-mid/mfld.c
++++ /dev/null
+@@ -1,72 +0,0 @@
+-/*
+- * mfld.c: Intel Medfield platform setup code
+- *
+- * (C) Copyright 2012 Intel Corporation
+- * Author:
+- *
+- * This program is free software; you can redistribute it and/or
+- * modify it under the terms of the GNU General Public License
+- * as published by the Free Software Foundation; version 2
+- * of the License.
+- */
+-
+-#include <linux/init.h>
+-#include <linux/kernel.h>
+-#include <linux/interrupt.h>
+-#include <linux/input.h>
+-#include <linux/platform_device.h>
+-#include <linux/mfd/intel_msic.h>
+-#include <linux/irq.h>
+-#include <linux/module.h>
+-#include <linux/notifier.h>
+-#include <linux/intel_pmic_gpio.h>
+-#include <linux/gpio.h>
+-#include <linux/gpio_keys.h>
+-
+-#include <asm/setup.h>
+-#include <asm/mpspec_def.h>
+-#include <asm/hw_irq.h>
+-#include <asm/apic.h>
+-#include <asm/io_apic.h>
+-#include <asm/intel-mid.h>
+-#include <asm/intel_mid_vrtc.h>
+-#include <asm/io.h>
+-#include <asm/i8259.h>
+-#include <asm/intel_scu_ipc.h>
+-#include <asm/apb_timer.h>
+-#include <asm/reboot.h>
+-
+-void intel_mid_power_off(void)
+-{
+-}
+-
+-unsigned long __init intel_mid_calibrate_tsc(void)
+-{
+-	unsigned long fast_calibrate;
+-	u32 lo, hi, ratio, fsb;
+-
+-	rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
+-	pr_debug("IA32 perf status is 0x%x, 0x%0x\n", lo, hi);
+-	ratio = (hi >> 8) & 0x1f;
+-	pr_debug("ratio is %d\n", ratio);
+-	if (!ratio) {
+-		pr_err("read a zero ratio, should be incorrect!\n");
+-		pr_err("force tsc ratio to 16 ...\n");
+-		ratio = 16;
+-	}
+-	rdmsr(MSR_FSB_FREQ, lo, hi);
+-	if ((lo & 0x7) == 0x7)
+-		fsb = PENWELL_FSB_FREQ_83SKU;
+-	else
+-		fsb = PENWELL_FSB_FREQ_100SKU;
+-	fast_calibrate = ratio * fsb;
+-	pr_debug("read penwell tsc %lu khz\n", fast_calibrate);
+-	lapic_timer_frequency = fsb * 1000 / HZ;
+-	/* mark tsc clocksource as reliable */
+-	set_cpu_cap(&boot_cpu_data, X86_FEATURE_TSC_RELIABLE);
+-
+-	if (fast_calibrate)
+-		return fast_calibrate;
+-
+-	return 0;
+-}
+diff --git a/arch/x86/platform/intel-mid/mrfl.c b/arch/x86/platform/intel-mid/mrfl.c
+new file mode 100644
+index 000000000000..0e952f8d759f
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/mrfl.c
+@@ -0,0 +1,161 @@
++/*
++ * mrfl.c: Intel Merrifield platform specific setup code
++ *
++ * (C) Copyright 2012 Intel Corporation
++ * Author: Mark F. Brown <mark.f.brown@intel.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/interrupt.h>
++#include <linux/irq.h>
++#include <linux/module.h>
++#include <asm/setup.h>
++#include <asm/intel-mid.h>
++#include <asm/processor.h>
++
++#define APIC_DIVISOR 16
++
++enum intel_mid_sim_type __intel_mid_sim_platform;
++EXPORT_SYMBOL_GPL(__intel_mid_sim_platform);
++
++static void (*intel_mid_timer_init)(void);
++
++static void tangier_arch_setup(void);
++
++/* tangier arch ops */
++static struct intel_mid_ops tangier_ops = {
++	.arch_setup = tangier_arch_setup,
++};
++
++static unsigned long __init tangier_calibrate_tsc(void)
++{
++	/* [REVERT ME] fast timer calibration method to be defined */
++	if ((intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_VP) ||
++	    (intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_HVP)) {
++		lapic_timer_frequency = 50000;
++		return 1000000;
++	}
++
++	if ((intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_SLE) ||
++	    (intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_NONE)) {
++
++		unsigned long fast_calibrate;
++		u32 lo, hi, ratio, fsb, bus_freq;
++
++		/* *********************** */
++		/* Compute TSC:Ratio * FSB */
++		/* *********************** */
++
++		/* Compute Ratio */
++		rdmsr(MSR_PLATFORM_INFO, lo, hi);
++		pr_debug("IA32 PLATFORM_INFO is 0x%x : %x\n", hi, lo);
++
++		ratio = (lo >> 8) & 0xFF;
++		pr_debug("ratio is %d\n", ratio);
++		if (!ratio) {
++			pr_err("Read a zero ratio, force tsc ratio to 4 ...\n");
++			ratio = 4;
++		}
++
++		/* Compute FSB */
++		rdmsr(MSR_FSB_FREQ, lo, hi);
++		pr_debug("Actual FSB frequency detected by SOC 0x%x : %x\n",
++			hi, lo);
++
++		bus_freq = lo & 0x7;
++		pr_debug("bus_freq = 0x%x\n", bus_freq);
++
++		if (bus_freq == 0)
++			fsb = FSB_FREQ_100SKU;
++		else if (bus_freq == 1)
++			fsb = FSB_FREQ_100SKU;
++		else if (bus_freq == 2)
++			fsb = FSB_FREQ_133SKU;
++		else if (bus_freq == 3)
++			fsb = FSB_FREQ_167SKU;
++		else if (bus_freq == 4)
++			fsb = FSB_FREQ_83SKU;
++		else if (bus_freq == 5)
++			fsb = FSB_FREQ_400SKU;
++		else if (bus_freq == 6)
++			fsb = FSB_FREQ_267SKU;
++		else if (bus_freq == 7)
++			fsb = FSB_FREQ_333SKU;
++		else {
++			BUG();
++			pr_err("Invalid bus_freq! Setting to minimal value!\n");
++			fsb = FSB_FREQ_100SKU;
++		}
++
++		/* TSC = FSB Freq * Resolved HFM Ratio */
++		fast_calibrate = ratio * fsb;
++		pr_debug("calculate tangier tsc %lu KHz\n", fast_calibrate);
++
++		/* ************************************ */
++		/* Calculate Local APIC Timer Frequency */
++		/* ************************************ */
++		lapic_timer_frequency = (fsb * 1000) / HZ;
++
++		pr_debug("Setting lapic_timer_frequency = %d\n",
++			lapic_timer_frequency);
++
++		/* mark tsc clocksource as reliable */
++		set_cpu_cap(&boot_cpu_data, X86_FEATURE_TSC_RELIABLE);
++
++		if (fast_calibrate)
++			return fast_calibrate;
++	}
++	return 0;
++}
++
++/* Allow user to enable simulator quirks settings for kernel */
++static int __init set_simulation_platform(char *str)
++{
++	int platform;
++
++	__intel_mid_sim_platform = INTEL_MID_CPU_SIMULATION_NONE;
++	if (get_option(&str, &platform)) {
++		__intel_mid_sim_platform = platform;
++		pr_info("simulator mode %d enabled.\n",
++			__intel_mid_sim_platform);
++		return 0;
++	}
++
++	return -EINVAL;
++}
++early_param("mrfld_simulation", set_simulation_platform);
++
++static void __init tangier_time_init(void)
++{
++	/* [REVERT ME] ARAT capability not set in VP. Force setting */
++	if (intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_VP ||
++	    intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_HVP)
++		set_cpu_cap(&boot_cpu_data, X86_FEATURE_ARAT);
++
++	if (intel_mid_timer_init)
++		intel_mid_timer_init();
++}
++
++static void __init tangier_arch_setup(void)
++{
++	x86_platform.calibrate_tsc = tangier_calibrate_tsc;
++	intel_mid_timer_init = x86_init.timers.timer_init;
++	x86_init.timers.timer_init = tangier_time_init;
++}
++
++void *get_tangier_ops()
++{
++	return &tangier_ops;
++}
++
++/* piggy back on anniedale ops right now */
++void *get_anniedale_ops()
++{
++	return &tangier_ops;
++}
+diff --git a/drivers/platform/x86/intel_scu_ipc.c b/drivers/platform/x86/intel_scu_ipc.c
+index 9215ed72bece..e641aeb951ab 100644
+--- a/drivers/platform/x86/intel_scu_ipc.c
++++ b/drivers/platform/x86/intel_scu_ipc.c
+@@ -577,7 +577,7 @@ static struct pci_driver ipc_driver = {
+ };
+ 
+ 
+-static int __init intel_scu_ipc_init(void)
++static int intel_scu_ipc_init(void)
+ {
+ 	platform = mrst_identify_cpu();
+ 	if (platform == 0)
+-- 
+2.37.3
+

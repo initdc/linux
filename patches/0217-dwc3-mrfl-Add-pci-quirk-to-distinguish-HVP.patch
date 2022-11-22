@@ -1,0 +1,44 @@
+From 58323431c1b8d0e7eda4b185da22971e5aaf4bb4 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Wed, 4 Sep 2013 16:09:43 +0800
+Subject: [PATCH 217/429] dwc3-mrfl: Add pci quirk to distinguish HVP
+
+Create USB PCI quirk to distinguish HVP and saltbay.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/otg.h              | 2 --
+ include/linux/usb/dwc3-intel-mrfl.h | 3 +++
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/usb/dwc3/otg.h b/drivers/usb/dwc3/otg.h
+index 5c0d0185252f..feac6f59b76b 100644
+--- a/drivers/usb/dwc3/otg.h
++++ b/drivers/usb/dwc3/otg.h
+@@ -98,8 +98,6 @@ struct dwc_device_par {
+ #define GUSB2PHYACC0_VCTRL(v)  ((v & 0xFF) << 8)
+ #define GUSB2PHYACC0_REGDATA(v)  (v & 0xFF)
+ #define GUSB2PHYACC0_REGDATA_MASK  0xFF
+-#define DATACON_TIMEOUT		750
+-#define DATACON_INTERVAL	10
+ 
+ #define GUSB3PIPECTL0                           0xc2c0
+ #define GUSB3PIPECTL_SUS_EN                     0x20000
+diff --git a/include/linux/usb/dwc3-intel-mrfl.h b/include/linux/usb/dwc3-intel-mrfl.h
+index 4cdbe29d26d9..f8168313cf98 100644
+--- a/include/linux/usb/dwc3-intel-mrfl.h
++++ b/include/linux/usb/dwc3-intel-mrfl.h
+@@ -158,7 +158,10 @@ struct intel_dwc_otg_pdata {
+ #define USBIDSTS_ID_RARBRC_STS(v)	((v & 0x3)  << 0)
+ #define USBIDSTS_ID_FLOAT_STS	(1 << 3)
+ #define PMIC_USBPHYCTRL_D0		(1 << 0)
++#define APBFC_EXIOTG3_MISC0_REG			0xF90FF85C
+ 
++#define DATACON_TIMEOUT		750
++#define DATACON_INTERVAL	10
+ #define VBUS_TIMEOUT	300
+ #define PCI_DEVICE_ID_DWC 0x119E
+ #endif /* __DWC3_INTEL_H */
+-- 
+2.37.3
+

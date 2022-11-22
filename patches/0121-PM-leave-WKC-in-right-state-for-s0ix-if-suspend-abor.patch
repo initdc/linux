@@ -1,0 +1,50 @@
+From 53f2e650606ee98b07e677c84622b9b751dc038d Mon Sep 17 00:00:00 2001
+From: Catalin Popescu <catalin.popescu@intel.com>
+Date: Fri, 15 Nov 2013 17:01:37 +0100
+Subject: [PATCH 121/429] PM: leave WKC in right state for s0ix if suspend
+ aborted in mid_s0ix_enter
+
+In function mid_s0ix_enter, pmu_prepare_wake will mask wakeup from
+AONT timers for s3. If s3 is aborted for any reason, we don't want
+to leave AONT timers masked until next suspend, otherwise if next
+to happen is s0ix, no timer could wakeup SoC from s0ix and we might
+miss to kick the kernel watchdog.
+
+Signed-off-by: Catalin Popescu <catalin.popescu@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_pmu.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 8f3802d52289..8beadb493a6d 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -411,6 +411,11 @@ int mid_s0ix_enter(int s0ix_state)
+ 	/* no need to proceed if schedule pending */
+ 	if (unlikely(need_resched())) {
+ 		pmu_stat_clear();
++		/*set wkc to appropriate value suitable for s0ix*/
++		writel(mid_pmu_cxt->ss_config->wake_state.wake_enable[0],
++		       &mid_pmu_cxt->pmu_reg->pm_wkc[0]);
++		writel(mid_pmu_cxt->ss_config->wake_state.wake_enable[1],
++		       &mid_pmu_cxt->pmu_reg->pm_wkc[1]);
+ 		up(&mid_pmu_cxt->scu_ready_sem);
+ 		goto ret;
+ 	}
+@@ -418,6 +423,13 @@ int mid_s0ix_enter(int s0ix_state)
+ 	/* entry function for pmu driver ops */
+ 	if (pmu_ops->enter(s0ix_state))
+ 		ret = s0ix_state;
++	else  {
++		/*set wkc to appropriate value suitable for s0ix*/
++		writel(mid_pmu_cxt->ss_config->wake_state.wake_enable[0],
++		       &mid_pmu_cxt->pmu_reg->pm_wkc[0]);
++		writel(mid_pmu_cxt->ss_config->wake_state.wake_enable[1],
++		       &mid_pmu_cxt->pmu_reg->pm_wkc[1]);
++	}
+ 
+ ret:
+ 	return ret;
+-- 
+2.37.3
+

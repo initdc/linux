@@ -1,0 +1,31 @@
+From 68647bddf39adebf9a3dab20cce2f1f12a5e8ac1 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Thu, 15 Aug 2013 14:42:37 +0800
+Subject: [PATCH 241/429] mmc: enable eMMC panic mode support on Merrifield
+ platform
+
+eMMC panic mode is needed for debug purpose. This patch
+enables it for Merrifield platform.
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index a606d93696f2..83344a17ee25 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -667,6 +667,9 @@ static int intel_mrfl_mmc_probe_slot(struct sdhci_pci_slot *slot)
+ 		break;
+ 	}
+ 
++	if (PCI_FUNC(slot->chip->pdev->devfn) == INTEL_MRFL_EMMC_0)
++		sdhci_alloc_panic_host(slot->host);
++
+ 	slot->host->mmc->caps2 |= MMC_CAP2_INIT_CARD_SYNC;
+ 
+ 	if (slot->data->platform_quirks & PLFM_QUIRK_NO_HIGH_SPEED) {
+-- 
+2.37.3
+

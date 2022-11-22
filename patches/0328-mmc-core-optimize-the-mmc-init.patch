@@ -1,0 +1,38 @@
+From 4f89b37e8b29c8e405b130866d583ed2b2124961 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Tue, 20 Aug 2013 11:06:34 +0800
+Subject: [PATCH 328/429] mmc: core: optimize the mmc init
+
+use usleep_range(5) for 200 times instead of mmc_delay(10) for 100
+times. In this case, mmc_send_op_cond can save some time
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/core/mmc_ops.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/mmc/core/mmc_ops.c b/drivers/mmc/core/mmc_ops.c
+index 49f04bc9d0eb..a3d06158c8e6 100644
+--- a/drivers/mmc/core/mmc_ops.c
++++ b/drivers/mmc/core/mmc_ops.c
+@@ -141,7 +141,7 @@ int mmc_send_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
+ 	cmd.arg = mmc_host_is_spi(host) ? 0 : ocr;
+ 	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R3 | MMC_CMD_BCR;
+ 
+-	for (i = 100; i; i--) {
++	for (i = 200; i; i--) {
+ 		err = mmc_wait_for_cmd(host, &cmd, 0);
+ 		if (err)
+ 			break;
+@@ -161,7 +161,7 @@ int mmc_send_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
+ 
+ 		err = -ETIMEDOUT;
+ 
+-		mmc_delay(10);
++		usleep_range(5000, 5500);
+ 	}
+ 
+ 	if (rocr && !mmc_host_is_spi(host))
+-- 
+2.37.3
+

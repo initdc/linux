@@ -1,0 +1,32 @@
+From c0f5f8339548c7d211bcebe83380e63122966ea1 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Thu, 4 Dec 2014 18:01:28 +0100
+Subject: [PATCH 391/429] i2c: enable i2c speed setting
+
+This patch allows the user to modify the speed rate of the i2c bus. Three speeds
+are available:
+- standard mode (100Kbit/s)
+- fast mode (400Kbit/s)
+- high speed mode (3.4Mbit/s)
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 9855c12273cb..d8da11b9b4a7 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -1544,7 +1544,7 @@ CONFIG_I2C_ALGOBIT=y
+ CONFIG_I2C_DESIGNWARE_CORE_FORK=y
+ CONFIG_I2C_DESIGNWARE_PCI_FORK=y
+ # CONFIG_I2C_DESIGNWARE_PLATFORM_FORK is not set
+-# CONFIG_I2C_DW_SPEED_MODE_DEBUG is not set
++CONFIG_I2C_DW_SPEED_MODE_DEBUG=y
+ CONFIG_I2C_PMIC=y
+ # CONFIG_I2C_DESIGNWARE_PCI is not set
+ # CONFIG_I2C_EG20T is not set
+-- 
+2.37.3
+

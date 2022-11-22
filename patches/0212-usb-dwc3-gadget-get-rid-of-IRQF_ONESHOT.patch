@@ -1,0 +1,90 @@
+From d7f8df8815a348ff2a81a6c0bf4d8295f3be6234 Mon Sep 17 00:00:00 2001
+From: Felipe Balbi <balbi@ti.com>
+Date: Tue, 20 Aug 2013 13:42:18 +0800
+Subject: [PATCH 212/429] usb: dwc3: gadget: get rid of IRQF_ONESHOT
+
+We can make use of bit 31 of the GEVNTSIZ(n)
+registers to mask/unmask interrupts from that
+particular interrupter.
+
+With that feature, we can easily drop IRQF_ONESHOT
+from our driver which makes it possible to
+properly change IRQ priorities when using RT
+patchset *and* it allows us to make use of the
+scheduler to choose the proper time to handle
+this IRQ thread.
+
+(cherry picked from commit e8adfc30ff9282a728fd8b666b6418308164c415)
+
+Signed-off-by: Felipe Balbi <balbi@ti.com>
+Signed-off-by: Jiebing Li <jiebing.li@intel.com>
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/core.h   |  4 ++++
+ drivers/usb/dwc3/gadget.c | 28 ++++++++++++++++++++++------
+ 2 files changed, 26 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/usb/dwc3/core.h b/drivers/usb/dwc3/core.h
+index c4a5d68d03d2..77611e96a2b7 100644
+--- a/drivers/usb/dwc3/core.h
++++ b/drivers/usb/dwc3/core.h
+@@ -195,6 +195,10 @@
+ #define DWC3_GTXFIFOSIZ_TXFDEF(n)	((n) & 0xffff)
+ #define DWC3_GTXFIFOSIZ_TXFSTADDR(n)	((n) & 0xffff0000)
+ 
++/* Global Event Size Registers */
++#define DWC3_GEVNTSIZ_INTMASK		(1 << 31)
++#define DWC3_GEVNTSIZ_SIZE(n)		((n) & 0xffff)
++
+ /* Global HWPARAMS1 Register */
+ #define DWC3_GHWPARAMS1_EN_PWROPT(n)	(((n) & (3 << 24)) >> 24)
+ #define DWC3_GHWPARAMS1_EN_PWROPT_NO	0
+diff --git a/drivers/usb/dwc3/gadget.c b/drivers/usb/dwc3/gadget.c
+index 86ba48e6619e..31688bb36ea3 100644
+--- a/drivers/usb/dwc3/gadget.c
++++ b/drivers/usb/dwc3/gadget.c
+@@ -1847,6 +1847,28 @@ static int dwc3_init_for_enumeration(struct dwc3 *dwc)
+ 	int			ret = 0;
+ 	u32			reg;
+ 
++	irq = platform_get_irq(to_platform_device(dwc->dev), 0);
++	ret = request_threaded_irq(irq, dwc3_interrupt, dwc3_thread_interrupt,
++			IRQF_SHARED, "dwc3", dwc);
++	if (ret) {
++		dev_err(dwc->dev, "failed to request irq #%d --> %d\n",
++				irq, ret);
++		goto err0;
++	}
++
++	spin_lock_irqsave(&dwc->lock, flags);
++
++	if (dwc->gadget_driver) {
++		dev_err(dwc->dev, "%s is already bound to %s\n",
++				dwc->gadget.name,
++				dwc->gadget_driver->driver.name);
++		ret = -EBUSY;
++		goto err1;
++	}
++
++	dwc->gadget_driver	= driver;
++
++>>>>>>> 18cc6d8... [BACKPORT]usb: dwc3: gadget: get rid of IRQF_ONESHOT
+ 	reg = dwc3_readl(dwc->regs, DWC3_DCFG);
+ 	reg &= ~(DWC3_DCFG_SPEED_MASK);
+ 
+@@ -3078,12 +3100,6 @@ static irqreturn_t dwc3_process_event_buf(struct dwc3 *dwc, u32 buf)
+ 	evt->count = count;
+ 	evt->flags |= DWC3_EVENT_PENDING;
+ 
+-	/* WORKAROUND: Add 4 us delay workaround to A-unit issue in A0 stepping.
+-	 * Can be removed after B0.
+-	 */
+-	if (dwc->is_otg && dwc->revision == DWC3_REVISION_210A)
+-		udelay(4);
+-
+ 	/* Mask interrupt */
+ 	reg = dwc3_readl(dwc->regs, DWC3_GEVNTSIZ(buf));
+ 	reg |= DWC3_GEVNTSIZ_INTMASK;
+-- 
+2.37.3
+

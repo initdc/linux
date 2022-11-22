@@ -1,0 +1,107 @@
+From 05f669373ea2f77b435ebad0e0753f1c442c74da Mon Sep 17 00:00:00 2001
+From: Shimin Zhou <shimingx.zhou@intel.com>
+Date: Tue, 24 Nov 2015 09:42:57 +0800
+Subject: [PATCH 420/429] spi: enable sending multiple SPI messages
+
+DMA will freeze when transfering 8 bytes/8 bits,
+16 bytes/16 bits, 32 bytes/32 bits. Disable it
+for temporary. Meanwhile, enable the functions
+to transfer multiple SPI messages by one time.
+
+Signed-off-by: Shimin Zhou <shimingx.zhou@intel.com>
+Signed-off-by: Chunguang Chen <chunguangx.chen@intel.com>
+---
+ .../intel-mid/device_libs/platform_spidev.c   |  2 +-
+ drivers/spi/intel_mid_ssp_spi.c               | 25 +++++++++----------
+ 2 files changed, 13 insertions(+), 14 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+index 40827d640115..cc7512943a2f 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+@@ -26,7 +26,7 @@ static struct intel_mid_ssp_spi_chip chip = {
+ 	.burst_size = DFLT_FIFO_BURST_SIZE,
+ 	.timeout = DFLT_TIMEOUT_VAL,
+ 	/* SPI DMA is currently usable on Tangier */
+-	.dma_enabled = true,
++	.dma_enabled = false,
+ 	.cs_control = tng_ssp_spi_cs_control,
+ 	.platform_pinmux = tng_ssp_spi_platform_pinmux,
+ };
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index 173a154f9f09..2b5801fcec93 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -695,8 +695,8 @@ void drain_trail(struct ssp_drv_context *sspc)
+ 		sspc->len = sspc->len - sspc->len_dma_rx;
+ 		sspc->cur_msg->actual_length = sspc->len_dma_rx;
+ 
+-		while ((sspc->tx != sspc->tx_end) ||
+-			(sspc->rx != sspc->rx_end)) {
++		while ((sspc->tx < sspc->tx_end) ||
++			(sspc->rx < sspc->rx_end)) {
+ 			sspc->read(sspc);
+ 			sspc->write(sspc);
+ 		}
+@@ -749,9 +749,6 @@ static void int_transfer_complete(struct ssp_drv_context *sspc)
+ 		sspc->cs_control(!sspc->cs_assert);
+ 
+ 	dev_dbg(dev, "End of transfer. SSSR:%08X\n", read_SSSR(reg));
+-	msg = sspc->cur_msg;
+-	if (likely(msg->complete))
+-		msg->complete(msg->context);
+ 	complete(&sspc->msg_done);
+ }
+ 
+@@ -980,7 +977,11 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 	dma_enabled = chip->dma_enabled;
+ 	spin_unlock_irqrestore(&sspc->lock, flags);
+ 
++	complete(&sspc->msg_done);
++
+ 	list_for_each_entry(transfer, &msg->transfers, transfer_list) {
++		wait_for_completion(&sspc->msg_done);
++		INIT_COMPLETION(sspc->msg_done);
+ 
+ 		/* Check transfer length */
+ 		if (unlikely((transfer->len > MAX_SPI_TRANSFER_SIZE) ||
+@@ -1184,6 +1185,8 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			/* Do the transfer syncronously */
+ 			queue_work(sspc->wq_poll_write, &sspc->poll_write);
+ 			poll_transfer((unsigned long)sspc);
++			unmap_dma_buffers(sspc);
++			complete(&sspc->msg_done);
+ 		}
+ 
+ 		if (list_is_last(&transfer->transfer_list, &msg->transfers)
+@@ -1194,13 +1197,11 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 
+ 	} /* end of list_for_each_entry */
+ 
++	wait_for_completion(&sspc->msg_done);
++
+ 	/* Now we are done with this entire message */
+-	if ((!dma_enabled) || (normal_enabled)) {
+-		unmap_dma_buffers(sspc);
+-		if (likely(msg->complete))
+-			msg->complete(msg->context);
+-		complete(&sspc->msg_done);
+-	}
++	if (likely(msg->complete))
++		msg->complete(msg->context);
+ 
+ 	return 0;
+ }
+@@ -1222,9 +1223,7 @@ static void pump_messages(struct work_struct *work)
+ 		list_del_init(&msg->queue);
+ 		sspc->cur_msg = msg;
+ 		spin_unlock_irqrestore(&sspc->lock, flags);
+-		INIT_COMPLETION(sspc->msg_done);
+ 		handle_message(sspc);
+-		wait_for_completion(&sspc->msg_done);
+ 		spin_lock_irqsave(&sspc->lock, flags);
+ 		sspc->cur_msg = NULL;
+ 	}
+-- 
+2.37.3
+

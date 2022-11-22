@@ -1,0 +1,33 @@
+From 36f778061f5df4b203d1df674e55bd51973f5f2d Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Wed, 17 Dec 2014 05:18:11 +0100
+Subject: [PATCH 395/429] Audio: DPCM check for null algo params
+
+Algo params memory is allocated during info. If info callback is not
+called for certain algo controls, then trying to send the respective
+params for that results in NULL pointer dereferencing.
+
+Return gracefully from send_algo_cmd if params is not allocated.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ sound/soc/intel/platform-libs/controls_v2_dpcm.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/sound/soc/intel/platform-libs/controls_v2_dpcm.c b/sound/soc/intel/platform-libs/controls_v2_dpcm.c
+index 290f220e9c86..311c04391a9b 100644
+--- a/sound/soc/intel/platform-libs/controls_v2_dpcm.c
++++ b/sound/soc/intel/platform-libs/controls_v2_dpcm.c
+@@ -281,6 +281,9 @@ static void sst_send_algo_cmd(struct sst_data *sst,
+ 	int len;
+ 	struct sst_cmd_set_params *cmd;
+ 
++	if (bc->params == NULL)
++		return;
++
+ 	len = sizeof(cmd->dst) + sizeof(cmd->command_id) + bc->max;
+ 
+ 	cmd = kzalloc(len + bc->max, GFP_KERNEL);
+-- 
+2.37.3
+

@@ -1,0 +1,218 @@
+From 6314c703e0c4842a7dd29f27f3d19f92e95b73de Mon Sep 17 00:00:00 2001
+From: Aymen Zayet <aymen.zayet@intel.com>
+Date: Wed, 31 Jul 2013 11:42:23 +0200
+Subject: [PATCH 054/429] Add sdhci platform data required for the SDIO.
+
+Major changes are:
+- Add required hooks to initialize wifi card from the SFI table.
+- Initialize sdhci-pci platform data.
+
+Signed-off-by: Aymen Zayet <aymen.zayet@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c           |  3 +
+ .../device_libs/pci/platform_sdhci_pci.c      | 76 +++++++++++++++++--
+ 2 files changed, 73 insertions(+), 6 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 108f2089077d..e8c275b75b78 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -77,6 +77,7 @@
+ 
+ /* WIFI devices */
+ #include "device_libs/platform_wl12xx.h"
++#include "device_libs/platform_bcm43xx.h"
+ 
+ static void __init *no_platform_data(void *info)
+ {
+@@ -86,6 +87,8 @@ static void __init *no_platform_data(void *info)
+ struct devs_id __initconst device_ids[] = {
+ 	/* SD devices */
+ 	{"wl12xx_clk_vmmc", SFI_DEV_TYPE_SD, 0, &wl12xx_platform_data, NULL},
++	{"bcm43xx_clk_vmmc", SFI_DEV_TYPE_SD, 0, &bcm43xx_platform_data, NULL},
++	{"bcm43xx_vmmc", SFI_DEV_TYPE_SD, 0, &bcm43xx_platform_data, NULL},
+ 
+ 	/* SPI devices */
+ 	{"bma023", SFI_DEV_TYPE_I2C, 1, &no_platform_data, NULL},
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+index 691baf6af12c..360d461d179f 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -18,7 +18,6 @@
+ #include <linux/lnw_gpio.h>
+ #include <linux/delay.h>
+ #include <asm/intel_scu_ipc.h>
+-#include <linux/hardirq.h>
+ #include <linux/intel_mid_pm.h>
+ #include <linux/hardirq.h>
+ #include <linux/mmc/sdhci.h>
+@@ -68,6 +67,14 @@ int sdhci_pdata_set_quirks(unsigned int quirks)
+ 	return 0;
+ }
+ 
++static int mrfl_sdio_setup(struct sdhci_pci_data *data);
++static void mrfl_sdio_cleanup(struct sdhci_pci_data *data);
++
++static void (*sdhci_embedded_control)(void *dev_id, void (*virtual_cd)
++					(void *dev_id, int card_present));
++
++static unsigned int sdhci_pdata_quirks;
++
+ /* MFLD platform data */
+ static struct sdhci_pci_data mfld_sdhci_pci_data[] = {
+ 	[EMMC0_INDEX] = {
+@@ -100,6 +107,8 @@ static struct sdhci_pci_data mfld_sdhci_pci_data[] = {
+ 			.slotno = 0,
+ 			.rst_n_gpio = -EINVAL,
+ 			.cd_gpio = -EINVAL,
++			.quirks = 0,
++			.platform_quirks = 0,
+ 			.setup = 0,
+ 			.cleanup = 0,
+ 	},
+@@ -137,16 +146,30 @@ static struct sdhci_pci_data clv_sdhci_pci_data[] = {
+ 			.slotno = 0,
+ 			.rst_n_gpio = -EINVAL,
+ 			.cd_gpio = -EINVAL,
++			.quirks = 0,
++			.platform_quirks = 0,
+ 			.setup = 0,
+ 			.cleanup = 0,
+ 	},
+ };
+ 
++/* Board specific cleanup related to SDIO goes here */
++static void mrfl_sdio_cleanup(struct sdhci_pci_data *data)
++{
++}
++
++
++/* Board specific setup related to SDIO goes here */
++static int mrfl_sdio_setup(struct sdhci_pci_data *data)
++{
++	return 0;
++}
++
+ /* MRFL platform data */
+ static struct sdhci_pci_data mrfl_sdhci_pci_data[] = {
+ 	[EMMC0_INDEX] = {
+ 			.pdev = NULL,
+-			.slotno = 0,
++			.slotno = EMMC0_INDEX,
+ 			.rst_n_gpio = -EINVAL,
+ 			.cd_gpio = -EINVAL,
+ 			.quirks = 0,
+@@ -157,7 +180,7 @@ static struct sdhci_pci_data mrfl_sdhci_pci_data[] = {
+ 	},
+ 	[EMMC1_INDEX] = {
+ 			.pdev = NULL,
+-			.slotno = 0,
++			.slotno = EMMC1_INDEX,
+ 			.rst_n_gpio = 97,
+ 			.cd_gpio = -EINVAL,
+ 			.quirks = 0,
+@@ -167,7 +190,7 @@ static struct sdhci_pci_data mrfl_sdhci_pci_data[] = {
+ 	},
+ 	[SD_INDEX] = {
+ 			.pdev = NULL,
+-			.slotno = 0,
++			.slotno = SD_INDEX,
+ 			.rst_n_gpio = -EINVAL,
+ 			.cd_gpio = 77,
+ 			.quirks = 0,
+@@ -175,6 +198,28 @@ static struct sdhci_pci_data mrfl_sdhci_pci_data[] = {
+ 			.setup = 0,
+ 			.cleanup = 0,
+ 	},
++	[SDIO_INDEX] = {
++			.pdev = NULL,
++			.slotno = SDIO_INDEX,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = -EINVAL,
++			.quirks = 0,
++			.platform_quirks = 0,
++			.setup = mrfl_sdio_setup,
++			.cleanup = mrfl_sdio_cleanup,
++	},
++};
++
++/* Board specific setup related to SDIO goes here */
++
++static int byt_sdio_setup(struct sdhci_pci_data *data)
++{
++	return 0;
++}
++
++
++/* BYT platform data */
++static struct sdhci_pci_data byt_sdhci_pci_data[] = {
+ 	[SDIO_INDEX] = {
+ 			.pdev = NULL,
+ 			.slotno = 0,
+@@ -182,8 +227,8 @@ static struct sdhci_pci_data mrfl_sdhci_pci_data[] = {
+ 			.cd_gpio = -EINVAL,
+ 			.quirks = 0,
+ 			.platform_quirks = 0,
+-			.setup = 0,
+-			.cleanup = 0,
++			.setup = byt_sdio_setup,
++			.cleanup = NULL,
+ 	},
+ };
+ 
+@@ -204,6 +249,7 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 	case PCI_DEVICE_ID_INTEL_MFD_SDIO1:
+ 		pdata = &mfld_sdhci_pci_data[SDIO_INDEX];
+ 		pdata->quirks = sdhci_pdata_quirks;
++		pdata->register_embedded_control = sdhci_embedded_control;
+ 		break;
+ 	case PCI_DEVICE_ID_INTEL_CLV_EMMC0:
+ 		pdata = &clv_sdhci_pci_data[EMMC0_INDEX];
+@@ -219,6 +265,7 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 	case PCI_DEVICE_ID_INTEL_CLV_SDIO1:
+ 		pdata = &clv_sdhci_pci_data[SDIO_INDEX];
+ 		pdata->quirks = sdhci_pdata_quirks;
++		pdata->register_embedded_control = sdhci_embedded_control;
+ 		break;
+ 	case PCI_DEVICE_ID_INTEL_MRFL_MMC:
+ 		switch (PCI_FUNC(pdev->devfn)) {
+@@ -276,6 +323,8 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 				pdata->platform_quirks |=
+ 					PLFM_QUIRK_NO_HOST_CTRL_HW;
+ 				pdata->quirks = sdhci_pdata_quirks;
++				pdata->register_embedded_control =
++					sdhci_embedded_control;
+ 			break;
+ 		default:
+ 			pr_err("%s func %s: Invalid PCI Dev func no. (%d)\n",
+@@ -283,12 +332,27 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 			break;
+ 		}
+ 		break;
++	case PCI_DEVICE_ID_INTEL_BYT_SDIO:
++		pr_err("setting quirks/embedded controls on SDIO");
++		pdata = &byt_sdhci_pci_data[SDIO_INDEX];
++		pdata->quirks = sdhci_pdata_quirks;
++		pdata->register_embedded_control = sdhci_embedded_control;
++		break;
+ 	default:
+ 		break;
+ 	}
+ 	return pdata;
+ }
+ 
++int sdhci_pdata_set_embedded_control(void (*fnp)
++			(void *dev_id, void (*virtual_cd)
++			(void *dev_id, int card_present)))
++{
++	WARN_ON(sdhci_embedded_control);
++	sdhci_embedded_control = fnp;
++	return 0;
++}
++
+ struct sdhci_pci_data *mmc_sdhci_pci_get_data(struct pci_dev *pci_dev, int slotno)
+ {
+ 	return get_sdhci_platform_data(pci_dev);
+-- 
+2.37.3
+

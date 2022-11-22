@@ -1,0 +1,141 @@
+From 825c22539f3e598fd9c5710719bcfd46c527175d Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Wed, 14 Aug 2013 19:28:22 +0800
+Subject: [PATCH 040/429] sdhci driver changes to support broadcom.
+
+This patch is used to support broadcom 43xx combo device
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ .../intel-mid/device_libs/pci/platform_sdhci_pci.c | 14 ++++++++++++++
+ .../intel-mid/device_libs/pci/platform_sdhci_pci.h |  1 +
+ drivers/mmc/host/sdhci-pci.c                       | 10 ++++++++++
+ drivers/mmc/host/sdhci.c                           |  6 ++++++
+ 4 files changed, 31 insertions(+)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+index cdc6f133d7e7..691baf6af12c 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -21,6 +21,7 @@
+ #include <linux/hardirq.h>
+ #include <linux/intel_mid_pm.h>
+ #include <linux/hardirq.h>
++#include <linux/mmc/sdhci.h>
+ 
+ #include "platform_sdhci_pci.h"
+ 
+@@ -57,6 +58,16 @@ static int panic_mode_emmc0_power_up(void *data)
+ }
+ #endif
+ 
++static unsigned int sdhci_pdata_quirks;
++
++int sdhci_pdata_set_quirks(unsigned int quirks)
++{
++	/*Should not be set more than once*/
++	WARN_ON(sdhci_pdata_quirks);
++	sdhci_pdata_quirks = quirks;
++	return 0;
++}
++
+ /* MFLD platform data */
+ static struct sdhci_pci_data mfld_sdhci_pci_data[] = {
+ 	[EMMC0_INDEX] = {
+@@ -192,6 +203,7 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 		break;
+ 	case PCI_DEVICE_ID_INTEL_MFD_SDIO1:
+ 		pdata = &mfld_sdhci_pci_data[SDIO_INDEX];
++		pdata->quirks = sdhci_pdata_quirks;
+ 		break;
+ 	case PCI_DEVICE_ID_INTEL_CLV_EMMC0:
+ 		pdata = &clv_sdhci_pci_data[EMMC0_INDEX];
+@@ -206,6 +218,7 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 		break;
+ 	case PCI_DEVICE_ID_INTEL_CLV_SDIO1:
+ 		pdata = &clv_sdhci_pci_data[SDIO_INDEX];
++		pdata->quirks = sdhci_pdata_quirks;
+ 		break;
+ 	case PCI_DEVICE_ID_INTEL_MRFL_MMC:
+ 		switch (PCI_FUNC(pdev->devfn)) {
+@@ -262,6 +275,7 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 					INTEL_MID_CPU_SIMULATION_HVP)
+ 				pdata->platform_quirks |=
+ 					PLFM_QUIRK_NO_HOST_CTRL_HW;
++				pdata->quirks = sdhci_pdata_quirks;
+ 			break;
+ 		default:
+ 			pr_err("%s func %s: Invalid PCI Dev func no. (%d)\n",
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+index 45e71a5636f4..e9c98f340eda 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+@@ -17,5 +17,6 @@
+ #define SD_INDEX	2
+ #define SDIO_INDEX	3
+ 
++int sdhci_pdata_set_quirks(unsigned int quirks);
+ #endif
+ 
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 7ef0a0aef43c..42a7898125cf 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -30,6 +30,10 @@
+ 
+ #include "sdhci.h"
+ 
++/* Settle down values copied from broadcom reference design. */
++#define DELAY_CARD_INSERTED	200
++#define DELAY_CARD_REMOVED	50
++
+ /*
+  * PCI device IDs
+  */
+@@ -1381,6 +1385,9 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
+ 		}
+ 		slot->rst_n_gpio = slot->data->rst_n_gpio;
+ 		slot->cd_gpio = slot->data->cd_gpio;
++
++		if (slot->data->quirks)
++			host->quirks2 |= slot->data->quirks;
+ 	}
+ 
+ 	host->hw_name = "PCI";
+@@ -1423,6 +1430,9 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
+ 	host->mmc->slotno = slotno;
+ 	host->mmc->caps2 |= MMC_CAP2_NO_PRESCAN_POWERUP;
+ 
++	if (host->quirks2 & SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY)
++		host->mmc->pm_flags |= MMC_PM_IGNORE_PM_NOTIFY;
++
+ 	ret = sdhci_add_host(host);
+ 	if (ret)
+ 		goto remove;
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 836e2ac36a0d..c87133adef9e 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1402,6 +1402,9 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
+ 
+ 	spin_lock_irqsave(&host->lock, flags);
+ 
++	if (host->quirks2 & SDHCI_QUIRK2_ADVERTISE_2V0_FORCE_1V8)
++		ios->vdd = 7;
++
+ 	if (host->flags & SDHCI_DEVICE_DEAD) {
+ 		spin_unlock_irqrestore(&host->lock, flags);
+ 		if (host->vmmc && ios->power_mode == MMC_POWER_OFF)
+@@ -3081,6 +3084,9 @@ int sdhci_add_host(struct sdhci_host *host)
+ 				   SDHCI_MAX_CURRENT_MULTIPLIER;
+ 	}
+ 
++	if (host->quirks2 & SDHCI_QUIRK2_ADVERTISE_2V0_FORCE_1V8)
++		ocr_avail |= MMC_VDD_20_21;
++
+ 	mmc->ocr_avail = ocr_avail;
+ 	mmc->ocr_avail_sdio = ocr_avail;
+ 	if (host->ocr_avail_sdio)
+-- 
+2.37.3
+

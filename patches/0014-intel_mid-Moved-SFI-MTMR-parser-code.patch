@@ -1,0 +1,42 @@
+From a9dead29f69d9779389f8e4412b6706865a9449a Mon Sep 17 00:00:00 2001
+From: Sathyanarayanan Kuppuswamy <sathyanarayanan.kuppuswamy@intel.com>
+Date: Tue, 25 Jun 2013 17:03:07 -0700
+Subject: [PATCH 014/429] intel_mid: Moved SFI MTMR parser code
+
+If intel_mid_timer_options is not correctly timer init function
+returns without parsing mtmr table. So moving the parsing code
+to the beginning of timer init function.
+
+Signed-off-by: Sathyanarayanan Kuppuswamy <sathyanarayanan.kuppuswamy@intel.com>
+---
+ arch/x86/platform/intel-mid/intel-mid.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel-mid.c b/arch/x86/platform/intel-mid/intel-mid.c
+index 4c30b80bfded..8730e8a97f43 100644
+--- a/arch/x86/platform/intel-mid/intel-mid.c
++++ b/arch/x86/platform/intel-mid/intel-mid.c
+@@ -76,6 +76,10 @@ static void intel_mid_reboot(void)
+ 
+ static void __init intel_mid_time_init(void)
+ {
++
++#ifdef CONFIG_SFI
++	sfi_table_parse(SFI_SIG_MTMR, NULL, NULL, sfi_parse_mtmr);
++#endif
+ 	switch (intel_mid_timer_options) {
+ 	case INTEL_MID_TIMER_APBT_ONLY:
+ 		break;
+@@ -90,9 +94,6 @@ static void __init intel_mid_time_init(void)
+ 		x86_cpuinit.setup_percpu_clockev = setup_secondary_APIC_clock;
+ 		return;
+ 	}
+-#ifdef CONFIG_SFI
+-	sfi_table_parse(SFI_SIG_MTMR, NULL, NULL, sfi_parse_mtmr);
+-#endif
+ 	/* we need at least one APB timer */
+ 	pre_init_apic_IRQ0();
+ 	apbt_time_init();
+-- 
+2.37.3
+

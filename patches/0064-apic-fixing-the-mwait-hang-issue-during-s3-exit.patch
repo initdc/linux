@@ -1,0 +1,72 @@
+From fd287e24eb04620e7548f75279402b126e7b5d0a Mon Sep 17 00:00:00 2001
+From: Vishwesh M Rudramuni <vishwesh.m.rudramuni@intel.com>
+Date: Fri, 1 Sep 2006 22:52:17 +0530
+Subject: [PATCH 064/429] apic: fixing the mwait hang issue during s3 exit
+
+This patch was missed in the pmu driver s3 enabling. This is a very
+important patch where we dont disable lapic when we are entering S3.
+In cases where there is a mwait failure & scu aborts, pmu interrupt
+will not be forwarded to IA as lapic is suspended & system will hang
+with bothcpu's in mwait state. hence in this patch we try to have a
+seperate lapic_suspend/resume routines specific to our platform.
+
+Original patch was altered by David Cohen in kernel 3.4. This patch
+merges the changes done by David and Vishwesh.
+
+Signed-off-by: Vishwesh M Rudramuni <vishwesh.m.rudramuni@intel.com>
+Signed-off-by: Sathyanarayanan Kuppuswamy <sathyanarayanan.kuppuswamy@intel.com>
+---
+ arch/x86/kernel/apic/apic.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/arch/x86/kernel/apic/apic.c b/arch/x86/kernel/apic/apic.c
+index 9620d18cb638..5dcd51b51553 100644
+--- a/arch/x86/kernel/apic/apic.c
++++ b/arch/x86/kernel/apic/apic.c
+@@ -54,6 +54,7 @@
+ #include <asm/mce.h>
+ #include <asm/tsc.h>
+ #include <asm/hypervisor.h>
++#include <asm/intel-mid.h>
+ 
+ unsigned int num_processors;
+ 
+@@ -2231,6 +2232,19 @@ static int lapic_suspend(void)
+ 	unsigned long flags;
+ 	int maxlvt;
+ 
++	/*
++	 * On intel_mid, the suspend flow is a bit different, and the lapic
++	 * hw implementation, and integration is not supporting standard
++	 * suspension.
++	 * This implementation is only putting high value to the timer, so that
++	 * AONT global timer will be updated with this big value at s0i3 entry,
++	 * and wont produce timer based wake up event.
++	 */
++	if (intel_mid_identify_cpu() != 0) {
++		apic_write(APIC_TMICT, ~0);
++		return 0;
++	}
++
+ 	if (!apic_pm_state.active)
+ 		return 0;
+ 
+@@ -2269,6 +2283,15 @@ static void lapic_resume(void)
+ 	unsigned long flags;
+ 	int maxlvt;
+ 
++	/*
++	 * On intel_mid, the resume flow is a bit different.
++	 * Refer explanation on lapic_suspend.
++	 */
++	if (intel_mid_identify_cpu() != 0) {
++		apic_write(APIC_TMICT, 10);
++		return;
++	}
++
+ 	if (!apic_pm_state.active)
+ 		return;
+ 
+-- 
+2.37.3
+

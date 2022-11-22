@@ -1,0 +1,95 @@
+From 1b9a938c162e1c08f2b8617b941785c71a55a9a4 Mon Sep 17 00:00:00 2001
+From: Yunpeng Gao <yunpeng.gao@intel.com>
+Date: Sun, 29 Sep 2013 18:55:29 +0800
+Subject: [PATCH 069/429] mmc: host: enable SD card on Merrifield
+
+On current Merrifield platform, it needs to power on
+SD card level shifter to enable SD card work.
+Submit this patch to do this on K310 kernel.
+
+Signed-off-by: Yunpeng Gao <yunpeng.gao@intel.com>
+---
+ .../device_libs/pci/platform_sdhci_pci.c      | 36 +++++++++++++++++--
+ .../device_libs/pci/platform_sdhci_pci.h      |  5 +++
+ 2 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+index b8a20f18c650..df07139cb32f 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -18,6 +18,7 @@
+ #include <linux/lnw_gpio.h>
+ #include <linux/delay.h>
+ #include <asm/intel_scu_ipc.h>
++#include <asm/intel_scu_pmic.h>
+ #include <linux/intel_mid_pm.h>
+ #include <linux/hardirq.h>
+ #include <linux/mmc/sdhci.h>
+@@ -238,6 +239,37 @@ static struct sdhci_pci_data clv_sdhci_pci_data[] = {
+ 	},
+ };
+ 
++/* Board specific setup related to SD goes here */
++static int mrfl_sd_setup(struct sdhci_pci_data *data)
++{
++	u8 vldocnt = 0;
++	int err;
++
++	/*
++	 * Change necessary GPIO pin mode for SD card working.
++	 * This is something should be done in IA firmware.
++	 * But, anyway, just do it here in case IA firmware
++	 * forget to do so.
++	 */
++	lnw_gpio_set_alt(MRFLD_GPIO_SDIO_0_CD, 0);
++
++	err = intel_scu_ipc_ioread8(MRFLD_PMIC_VLDOCNT, &vldocnt);
++	if (err) {
++		pr_err("PMIC vldocnt IPC read error: %d\n", err);
++		return err;
++	}
++
++	vldocnt |= MRFLD_PMIC_VLDOCNT_VSWITCH_BIT;
++	err = intel_scu_ipc_iowrite8(MRFLD_PMIC_VLDOCNT, vldocnt);
++	if (err) {
++		pr_err("PMIC vldocnt IPC write error: %d\n", err);
++		return err;
++	}
++	msleep(20);
++
++	return 0;
++}
++
+ /* Board specific cleanup related to SD goes here */
+ static void mrfl_sd_cleanup(struct sdhci_pci_data *data)
+ {
+@@ -299,8 +331,8 @@ static struct sdhci_pci_data mrfl_sdhci_pci_data[] = {
+ 			.cd_gpio = 77,
+ 			.quirks = 0,
+ 			.platform_quirks = 0,
+-			.setup = 0,
+-			.cleanup = 0,
++			.setup = mrfl_sd_setup,
++			.cleanup = mrfl_sd_cleanup,
+ 	},
+ 	[SDIO_INDEX] = {
+ 			.pdev = NULL,
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+index 6901c8c97376..bfd212bb6417 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+@@ -17,6 +17,11 @@
+ #define SD_INDEX	2
+ #define SDIO_INDEX	3
+ 
++#define MRFLD_GPIO_SDIO_0_CD		77
++
++#define MRFLD_PMIC_VLDOCNT		0xaf
++#define MRFLD_PMIC_VLDOCNT_VSWITCH_BIT	0x02
++
+ int sdhci_pdata_set_quirks(unsigned int quirks);
+ int sdhci_pdata_set_embedded_control(void (*fnp)
+ 			(void *dev_id, void (*virtual_cd)
+-- 
+2.37.3
+

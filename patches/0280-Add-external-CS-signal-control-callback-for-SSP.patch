@@ -1,0 +1,120 @@
+From dfd857eaa5fb21146797692f8b439eb4a357b775 Mon Sep 17 00:00:00 2001
+From: Eric Xiong <eric.xiong@intel.com>
+Date: Thu, 31 Oct 2013 14:04:56 +0800
+Subject: [PATCH 280/429] Add external CS signal control callback for SSP
+
+Due to current on MRFL, we use SSP FS pin as CS signal,
+but FS signal will change after a bitwidth is transfered.
+So if user transfer data more than one bitwidth, CS signal
+will be deassert during a spi message. That will make
+some device can't work
+
+This patch will add cs_control callback function.
+User can set this callback function to SSP driver.
+And SSP driver will call this callback with ASSERT parameter
+befor a spi message start transfer and call this callback
+with DEASSERT parameter after this spi message have beend
+transfered.
+
+Signed-off-by: Eric Xiong <eric.xiong@intel.com>
+---
+ drivers/spi/intel_mid_ssp_spi.c       | 12 ++++++++++++
+ include/linux/spi/intel_mid_ssp_spi.h | 10 ++++++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index 936e0105364a..21c16f95f09d 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -727,6 +727,9 @@ static void int_transfer_complete(struct ssp_drv_context *sspc)
+ 	dump_trailer(dev, sspc->rx, sspc->len, 16);
+ #endif
+ 
++	if (sspc->cs_control)
++		sspc->cs_control(CS_DEASSERT);
++
+ 	dev_dbg(dev, "End of transfer. SSSR:%08X\n", read_SSSR(reg));
+ 	msg = sspc->cur_msg;
+ 	if (likely(msg->complete))
+@@ -750,6 +753,9 @@ static void poll_transfer_complete(struct ssp_drv_context *sspc)
+ 	sspc->cur_msg->actual_length += sspc->len - (sspc->rx_end - sspc->rx);
+ 
+ 	sspc->cur_msg->status = 0;
++	if (sspc->cs_control)
++		sspc->cs_control(CS_DEASSERT);
++
+ 	msg = sspc->cur_msg;
+ 	if (likely(msg->complete))
+ 		msg->complete(msg->context);
+@@ -969,6 +975,8 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 	sspc->len = transfer->len;
+ 	sspc->write = chip->write;
+ 	sspc->read = chip->read;
++	sspc->cs_control = chip->cs_control;
++	sspc->cs_change = transfer->cs_change;
+ 
+ 	if (likely(chip->dma_enabled)) {
+ 		sspc->dma_mapped = map_dma_buffers(sspc);
+@@ -1037,6 +1045,9 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			write_SSCR0(chip->cr0, reg);
+ 	}
+ 
++	if (sspc->cs_control)
++		sspc->cs_control(CS_ASSERT);
++
+ 	if (likely(chip->dma_enabled)) {
+ 		if (unlikely(sspc->quirks & QUIRKS_USE_PM_QOS))
+ 			pm_qos_update_request(&sspc->pm_qos_req,
+@@ -1127,6 +1138,7 @@ static int setup(struct spi_device *spi)
+ 			chip->cr1 |= SSCR1_LBM;
+ 
+ 		chip->dma_enabled = chip_info->dma_enabled;
++		chip->cs_control = chip_info->cs_control;
+ 
+ 	} else {
+ 		/* if no chip_info provided by protocol driver, */
+diff --git a/include/linux/spi/intel_mid_ssp_spi.h b/include/linux/spi/intel_mid_ssp_spi.h
+index 79bc3bffdff4..8819f084593c 100644
+--- a/include/linux/spi/intel_mid_ssp_spi.h
++++ b/include/linux/spi/intel_mid_ssp_spi.h
+@@ -220,6 +220,11 @@ DEFINE_SSP_REG(GAFR1_U, 0x44);
+ 				| SSCR1_RFT | SSCR1_TFT | SSCR1_MWDS \
+ 				| SSCR1_SPH | SSCR1_SPO | SSCR1_LBM)
+ 
++/* add CS control call back feature to give user capability
++to control CS signal by themselves*/
++#define CS_DEASSERT	0
++#define CS_ASSERT		1
++
+ struct callback_param {
+ 	void *drv_context;
+ 	u32 direction;
+@@ -295,6 +300,9 @@ struct ssp_drv_context {
+ 
+ 	unsigned long quirks;
+ 	u32 rx_fifo_threshold;
++
++	int cs_change;
++	void (*cs_control)(u32 command);
+ };
+ 
+ struct chip_data {
+@@ -308,6 +316,7 @@ struct chip_data {
+ 	u32 speed_hz;
+ 	int (*write)(struct ssp_drv_context *sspc);
+ 	int (*read)(struct ssp_drv_context *sspc);
++	void (*cs_control)(u32 command);
+ };
+ 
+ 
+@@ -325,6 +334,7 @@ struct intel_mid_ssp_spi_chip {
+ 	u32 timeout;
+ 	u8 enable_loopback;
+ 	u8 dma_enabled;
++	void (*cs_control)(u32 command);
+ };
+ 
+ #define SPI_DIB_NAME_LEN  16
+-- 
+2.37.3
+

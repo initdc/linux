@@ -1,0 +1,33 @@
+From 5eef1bb31d59a8384cb070f4208f384a6024c509 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Tue, 10 Sep 2013 19:26:20 +0800
+Subject: [PATCH 343/429] dwc-otg: start in idle state by default
+
+The entry point of the OTG state machine is the idle device mode, ie
+the system is the device and OTG cable is unplugged.
+
+This patch removes the forced transition to device mode which is the state
+used when an OTG cable is plugged.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/usb/dwc3/otg.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index 34cdf6e717b1..31ee4b90a69a 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -793,9 +793,6 @@ int otg_main_thread(void *data)
+ 	/* Allow the thread to be frozen */
+ 	set_freezable();
+ 
+-	/* Set device mode as default for EM driver WA */
+-	otg->user_events |= USER_ID_B_CHANGE_EVENT;
+-
+ 	otg_dbg(otg, "Thread running\n");
+ 	while (otg->state != DWC_STATE_TERMINATED) {
+ 		int next = DWC_STATE_B_IDLE;
+-- 
+2.37.3
+

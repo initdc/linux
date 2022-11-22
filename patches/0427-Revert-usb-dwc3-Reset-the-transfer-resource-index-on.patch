@@ -1,0 +1,33 @@
+From 2e4ace5b6845126b0b31c266ea4adb23feedcedb Mon Sep 17 00:00:00 2001
+From: Zhenming Zhao <zhenmingx.zhao@intel.com>
+Date: Sat, 5 Mar 2016 12:33:54 +0800
+Subject: [PATCH 427/429] Revert "usb: dwc3: Reset the transfer resource index
+ on SET_INTERFACE"
+
+This reverts commit aebda618718157a69c0dc0adb978d69bc2b8723c.
+Because of this patch, sometimes host can't ping the board successfully.
+Just revert it and this patch was applied between 3.10.84 to 3.10.85
+
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ drivers/usb/dwc3/ep0.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/drivers/usb/dwc3/ep0.c b/drivers/usb/dwc3/ep0.c
+index 89999583b4c8..73364ce24e7b 100644
+--- a/drivers/usb/dwc3/ep0.c
++++ b/drivers/usb/dwc3/ep0.c
+@@ -727,10 +727,6 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
+ 		dev_vdbg(dwc->dev, "USB_REQ_SET_ISOCH_DELAY\n");
+ 		ret = dwc3_ep0_set_isoch_delay(dwc, ctrl);
+ 		break;
+-	case USB_REQ_SET_INTERFACE:
+-		dev_vdbg(dwc->dev, "USB_REQ_SET_INTERFACE\n");
+-		dwc->start_config_issued = false;
+-		/* Fall through */
+ 	default:
+ 		dev_vdbg(dwc->dev, "Forwarding to gadget driver\n");
+ 		ret = dwc3_ep0_delegate_req(dwc, ctrl);
+-- 
+2.37.3
+

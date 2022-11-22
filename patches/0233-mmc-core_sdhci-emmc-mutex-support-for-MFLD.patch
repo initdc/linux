@@ -1,0 +1,496 @@
+From cb8b3f88f6765db1f9bbadb427ff2ff01542d001 Mon Sep 17 00:00:00 2001
+From: Chuanxiao Dong <chuanxiao.dong@intel.com>
+Date: Wed, 17 Jul 2013 14:03:42 +0800
+Subject: [PATCH 233/429] mmc: core_sdhci: emmc mutex support for MFLD
+
+One of the Medfield eMMC controller (PCI device id 0x0823, SDIO3)
+is a shared resource used by the SCU and the IA processors.
+SCU primarily uses the eMMC host controller to access the eMMC device's
+Boot Partition, while the IA CPU uses the eMMC host controller to
+access the eMMC device's User Partition.
+
+After the SCU hands off the system to the IA processor, the IA processor
+assumes ownership to the eMMC host controller. Due to absence of any
+arbitration at the eMMC host controller, this could result in concurrent
+eMMC host accesses resulting in bus contention and garbage data ending up
+in either of the partitions.
+
+To circumvent this from happening, eMMC host controller locking mechanism
+is employed, where at any one given time, only one agent, SCU or IA,
+may be allowed to access the host. This is achieved by implementing
+Dekker's Algorithm (http://en.wikipedia.org/wiki/Dekker's_algorithm)
+between the two processors.
+
+Before handing off the system to the IA processor, SCU must set up three
+housekeeping mutex variables allocated in the shared SRAM as follows:
+
+eMMC_Owner = IA (SCU and IA processors - RW, 32bit)
+IA_Req = FALSE (IA -RW, SCU - RO, 32bit)
+SCU_Req = FALSE (IA - RO, SCU - R/W, 32bit)
+
+There is no hardware based access control to these variables and so code
+executing on SCU and IA processors must follow access rules of
+Dekker's algorithm. Detail info about this algorithm can be found in
+comments and code of this patch.
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c |  23 +++-
+ drivers/mmc/host/sdhci.c     | 226 ++++++++++++++++++++++++++++++++++-
+ include/linux/mmc/sdhci.h    |  11 ++
+ 3 files changed, 256 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index c30ac29085c4..fd14302fd314 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -58,6 +58,7 @@
+ #define  PCI_SLOT_INFO_FIRST_BAR_MASK	0x07
+ 
+ #define MAX_SLOTS			8
++#define IPC_EMMC_MUTEX_CMD             0xEE
+ 
+ /* CLV SD card power resource */
+ 
+@@ -291,7 +292,7 @@ static void mfd_emmc_mutex_register(struct sdhci_pci_slot *slot)
+ #ifdef CONFIG_INTEL_SCU_IPC
+ 	int err;
+ 
+-	err = rpmsg_send_generic_command(IPC_EMMC_MUTEX_CMD, 0,
++	err = intel_scu_ipc_command(IPC_EMMC_MUTEX_CMD, 0,
+ 			NULL, 0, &mutex_var_addr, 1);
+ 	if (err) {
+ 		dev_err(&slot->chip->pdev->dev, "IPC error: %d\n", err);
+@@ -326,12 +327,31 @@ static void mfd_emmc_mutex_register(struct sdhci_pci_slot *slot)
+ 
+ static int mfd_emmc_probe_slot(struct sdhci_pci_slot *slot)
+ {
++	switch (slot->chip->pdev->device) {
++	case PCI_DEVICE_ID_INTEL_MFD_EMMC0:
++		mfd_emmc_mutex_register(slot);
++		break;
++	case PCI_DEVICE_ID_INTEL_MFD_EMMC1:
++		break;
++	}
+ 	slot->host->mmc->caps |= MMC_CAP_8_BIT_DATA | MMC_CAP_NONREMOVABLE;
+ 	slot->host->mmc->caps2 |= MMC_CAP2_BOOTPART_NOACC |
+ 				  MMC_CAP2_HC_ERASE_SZ;
+ 	return 0;
+ }
+ 
++static void mfd_emmc_remove_slot(struct sdhci_pci_slot *slot, int dead)
++{
++	switch (slot->chip->pdev->device) {
++	case PCI_DEVICE_ID_INTEL_MFD_EMMC0:
++		if (slot->host->sram_addr)
++			iounmap(slot->host->sram_addr);
++		break;
++	case PCI_DEVICE_ID_INTEL_MFD_EMMC1:
++		break;
++	}
++}
++
+ static int mfd_sdio_probe_slot(struct sdhci_pci_slot *slot)
+ {
+ 	slot->host->mmc->caps |= MMC_CAP_POWER_OFF_CARD | MMC_CAP_NONREMOVABLE;
+@@ -558,6 +578,7 @@ static const struct sdhci_pci_fixes sdhci_intel_mfd_emmc = {
+ 	.quirks		= SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
+ 	.allow_runtime_pm = true,
+ 	.probe_slot	= mfd_emmc_probe_slot,
++	.remove_slot	= mfd_emmc_remove_slot,
+ };
+ 
+ static const struct sdhci_pci_fixes sdhci_intel_pch_sdio = {
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 622912f2176a..15ea62342d24 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -54,6 +54,7 @@ static void sdhci_finish_command(struct sdhci_host *);
+ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode);
+ static void sdhci_tuning_timer(unsigned long data);
+ static void sdhci_enable_preset_value(struct sdhci_host *host, bool enable);
++static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios);
+ 
+ #ifdef CONFIG_PM_RUNTIME
+ static int sdhci_runtime_pm_get(struct sdhci_host *host);
+@@ -1319,6 +1320,199 @@ static int sdhci_set_power(struct sdhci_host *host, unsigned short power)
+ 	return power;
+ }
+ 
++/*
++ * One of the Medfield eMMC controller (PCI device id 0x0823, SDIO3) is
++ * a shared resource used by the SCU and the IA processors. SCU primarily
++ * uses the eMMC host controller to access the eMMC device's Boot Partition,
++ * while the IA CPU uses the eMMC host controller to access the eMMC device's
++ * User Partition.
++ *
++ * After the SCU hands off the system to the IA processor, the IA processor
++ * assumes ownership to the eMMC host controller. Due to absence of any
++ * arbitration at the eMMC host controller, this could result in concurrent
++ * eMMC host accesses resulting in bus contention and garbage data ending up
++ * in either of the partitions.
++ * To circumvent this from happening, eMMC host controller locking mechanism
++ * is employed, where at any one given time, only one agent, SCU or IA, may be
++ * allowed to access the host. This is achieved by implementing Dekker's
++ * Algorithm (http://en.wikipedia.org/wiki/Dekker's_algorithm) between the
++ * two processors.
++ *
++ * Before handing off the system to the IA processor, SCU must set up three
++ * housekeeping mutex variables allocated in the shared SRAM as follows:
++ *
++ * eMMC_Owner = IA (SCU and IA processors - RW, 32bit)
++ * IA_Req = FALSE (IA -RW, SCU - RO, 32bit)
++ * SCU_Req = FALSE (IA - RO, SCU - R/W, 32bit)
++ *
++ * There is no hardware based access control to these variables and so code
++ * executing on SCU and IA processors must follow below access rules
++ * (Dekker's algorithm):
++ *
++ * -----------------------------------------
++ * SCU Processor Implementation
++ * -----------------------------------------
++ * SCU_Req = TRUE;
++ * while (IA_Req == TRUE) {
++ *     if (eMMC_Owner != SCU){
++ *         SCU_Req = FALSE;
++ *         while (eMMC_Owner != SCU);
++ *         SCU_Req = TRUE;
++ *     }
++ * }
++ * // SCU now performs eMMC transactions here
++ * ...
++ * // When done, relinquish control to IA
++ * eMMC_Owner = IA;
++ * SCU_Req = FALSE;
++ *
++ * -----------------------------------------
++ * IA Processor Implementation
++ * -----------------------------------------
++ * IA_Req = TRUE;
++ * while (SCU_Req == TRUE) {
++ *     if (eMMC_Owner != IA){
++ *         IA_Req = FALSE;
++ *         while (eMMC_Owner != IA);
++ *         IA_Req = TRUE;
++ *     }
++ * }
++ * //IA now performs eMMC transactions here
++ * ...
++ * //When done, relinquish control to SCU
++ * eMMC_Owner = SCU;
++ * IA_Req = FALSE;
++ *
++ * ----------------------------------------
++ *
++ * sdhci_do_acquire_ownership- implement the Dekker's algorithm on IA side
++ * This function is only used for acquire ownership, not to re-cofnig host
++ * controller. Since in some scenarios, re-config is not useless. We can
++ * save some unused expenses.
++ * @mmc: mmc host
++ *
++* @return return value:
++* 0 - Acquried the ownership successfully. The last owner is IA
++* 1 - Acquried the ownership succesffully. The last owenr is SCU
++* -EBUSY - failed to acquire ownership within the timeout period
++	*/
++static int sdhci_do_acquire_ownership(struct mmc_host *mmc)
++{
++	struct sdhci_host *host;
++	unsigned long t1, t2;
++
++	host = mmc_priv(mmc);
++
++	if (!host->sram_addr)
++		return 0;
++
++	atomic_inc(&host->usage_cnt);
++
++	/* If IA has already hold the eMMC mutex, then just exit */
++	if (readl(host->sram_addr + DEKKER_IA_REQ_OFFSET))
++		return 0;
++
++	DBG("Acquire ownership - eMMC owner: %d, IA req: %d, SCU req: %d\n",
++			readl(host->sram_addr + DEKKER_EMMC_OWNER_OFFSET),
++			readl(host->sram_addr + DEKKER_IA_REQ_OFFSET),
++			readl(host->sram_addr + DEKKER_SCU_REQ_OFFSET));
++
++	writel(1, host->sram_addr + DEKKER_IA_REQ_OFFSET);
++
++	t1 = jiffies + 10 * HZ;
++	t2 = 500;
++
++	while (readl(host->sram_addr + DEKKER_SCU_REQ_OFFSET)) {
++		if (readl(host->sram_addr + DEKKER_EMMC_OWNER_OFFSET) !=
++				DEKKER_OWNER_IA) {
++			writel(0, host->sram_addr + DEKKER_IA_REQ_OFFSET);
++			while (t2) {
++				if (readl(host->sram_addr +
++					DEKKER_EMMC_OWNER_OFFSET) ==
++						DEKKER_OWNER_IA)
++					break;
++				usleep_range(8000, 12000);
++				t2--;
++			}
++			if (t2)
++				writel(1, host->sram_addr +
++						DEKKER_IA_REQ_OFFSET);
++			else
++				goto timeout;
++		}
++		if (time_after(jiffies, t1))
++			goto timeout;
++
++		cpu_relax();
++	}
++
++	/*
++	 * if the last owner is SCU, will do the re-config host controller
++	 * in the next
++	 */
++	return (readl(host->sram_addr + DEKKER_EMMC_OWNER_OFFSET) ==
++			DEKKER_OWNER_IA) ? 1 : 0;
++
++timeout:
++	pr_err(KERN_ERR "eMMC mutex timeout!\n"
++			"Dump Dekker's house keeping variables -"
++			"eMMC owner: %d, IA req: %d, SCU req: %d\n",
++			readl(host->sram_addr + DEKKER_EMMC_OWNER_OFFSET),
++			readl(host->sram_addr + DEKKER_IA_REQ_OFFSET),
++			readl(host->sram_addr + DEKKER_SCU_REQ_OFFSET));
++
++	/* Release eMMC mutex anyway */
++	writel(DEKKER_OWNER_SCU, host->sram_addr + DEKKER_EMMC_OWNER_OFFSET);
++	writel(0, host->sram_addr + DEKKER_IA_REQ_OFFSET);
++
++	return -EBUSY;
++}
++
++static int sdhci_acquire_ownership(struct mmc_host *mmc)
++{
++	int ret;
++
++	ret = sdhci_do_acquire_ownership(mmc);
++	if (ret) {
++		struct sdhci_host *host;
++		host = mmc_priv(mmc);
++		/* Re-config HC in case SCU has changed HC reg already */
++		pm_runtime_get_sync(mmc->parent);
++		/*
++		 * reinit host registers.
++		 * include reset host controller all,
++		 * reconfigure clock, pwr and other registers.
++		 */
++		sdhci_init(host, 0);
++		host->clock = 0;
++		host->pwr = 0;
++		sdhci_do_set_ios(host, &host->mmc->ios);
++		pm_runtime_put(mmc->parent);
++	}
++
++	return ret;
++}
++
++static void sdhci_release_ownership(struct mmc_host *mmc)
++{
++	struct sdhci_host *host;
++
++	host = mmc_priv(mmc);
++
++	if (!host->sram_addr)
++		return;
++
++	if (atomic_dec_and_test(&host->usage_cnt)) {
++		writel(DEKKER_OWNER_SCU,
++				host->sram_addr + DEKKER_EMMC_OWNER_OFFSET);
++		writel(0, host->sram_addr + DEKKER_IA_REQ_OFFSET);
++		DBG("Exit ownership-eMMC owner: %d,IA req: %d,SCU req: %d\n",
++			readl(host->sram_addr + DEKKER_EMMC_OWNER_OFFSET),
++			readl(host->sram_addr + DEKKER_IA_REQ_OFFSET),
++			readl(host->sram_addr + DEKKER_SCU_REQ_OFFSET));
++	}
++}
++
+ /*****************************************************************************\
+  *                                                                           *
+  * MMC callbacks                                                             *
+@@ -1334,6 +1528,8 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 
+ 	host = mmc_priv(mmc);
+ 
++	sdhci_acquire_ownership(host->mmc);
++
+ 	sdhci_runtime_pm_get(host);
+ 
+ 	present = mmc_gpio_get_cd(host->mmc);
+@@ -1603,9 +1799,11 @@ static void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+ {
+ 	struct sdhci_host *host = mmc_priv(mmc);
+ 
++	sdhci_acquire_ownership(mmc);
+ 	sdhci_runtime_pm_get(host);
+ 	sdhci_do_set_ios(host, ios);
+ 	sdhci_runtime_pm_put(host);
++	sdhci_release_ownership(mmc);
+ }
+ 
+ static int sdhci_do_get_cd(struct sdhci_host *host)
+@@ -1685,8 +1883,11 @@ static void sdhci_hw_reset(struct mmc_host *mmc)
+ {
+ 	struct sdhci_host *host = mmc_priv(mmc);
+ 
+-	if (host->ops && host->ops->hw_reset)
++	if (host->ops && host->ops->hw_reset) {
++		sdhci_acquire_ownership(mmc);
+ 		host->ops->hw_reset(host);
++		sdhci_release_ownership(mmc);
++	}
+ }
+ 
+ static int sdhci_get_ro(struct mmc_host *mmc)
+@@ -2197,6 +2398,7 @@ static void sdhci_tasklet_finish(unsigned long param)
+ 
+ 	mmc_request_done(host->mmc, mrq);
+ 	sdhci_runtime_pm_put(host);
++	sdhci_release_ownership(host->mmc);
+ }
+ 
+ static void sdhci_timeout_timer(unsigned long data)
+@@ -2578,6 +2780,8 @@ int sdhci_suspend_host(struct sdhci_host *host)
+ 	if (host->ops->platform_suspend)
+ 		host->ops->platform_suspend(host);
+ 
++	sdhci_acquire_ownership(host->mmc);
++
+ 	sdhci_disable_card_detection(host);
+ 
+ 	/* Disable tuning since we are suspending */
+@@ -2596,7 +2800,7 @@ int sdhci_suspend_host(struct sdhci_host *host)
+ 
+ 		sdhci_enable_card_detection(host);
+ 
+-		return ret;
++		goto out;
+ 	}
+ 
+ 	if (!device_may_wakeup(mmc_dev(host->mmc))) {
+@@ -2606,6 +2810,9 @@ int sdhci_suspend_host(struct sdhci_host *host)
+ 		sdhci_enable_irq_wakeups(host);
+ 		enable_irq_wake(host->irq);
+ 	}
++
++out:
++	sdhci_release_ownership(host->mmc);
+ 	return ret;
+ }
+ 
+@@ -2615,6 +2822,8 @@ int sdhci_resume_host(struct sdhci_host *host)
+ {
+ 	int ret;
+ 
++	sdhci_acquire_ownership(host->mmc);
++
+ 	if (host->flags & (SDHCI_USE_SDMA | SDHCI_USE_ADMA)) {
+ 		if (host->ops->enable_dma)
+ 			host->ops->enable_dma(host);
+@@ -2624,7 +2833,7 @@ int sdhci_resume_host(struct sdhci_host *host)
+ 		ret = request_irq(host->irq, sdhci_irq, IRQF_SHARED,
+ 				  mmc_hostname(host->mmc), host);
+ 		if (ret)
+-			return ret;
++			goto out;
+ 	} else {
+ 		sdhci_disable_irq_wakeups(host);
+ 		disable_irq_wake(host->irq);
+@@ -2652,6 +2861,8 @@ int sdhci_resume_host(struct sdhci_host *host)
+ 	if (host->flags & SDHCI_USING_RETUNING_TIMER)
+ 		host->flags |= SDHCI_NEEDS_RETUNING;
+ 
++out:
++	sdhci_release_ownership(host->mmc);
+ 	return ret;
+ }
+ 
+@@ -2676,6 +2887,7 @@ int sdhci_runtime_suspend_host(struct sdhci_host *host)
+ 	unsigned long flags;
+ 	int ret = 0;
+ 
++	sdhci_do_acquire_ownership(host->mmc);
+ 	/* Disable tuning since we are suspending */
+ 	if (host->flags & SDHCI_USING_RETUNING_TIMER) {
+ 		del_timer_sync(&host->tuning_timer);
+@@ -2692,6 +2904,7 @@ int sdhci_runtime_suspend_host(struct sdhci_host *host)
+ 	host->runtime_suspended = true;
+ 	spin_unlock_irqrestore(&host->lock, flags);
+ 
++	sdhci_release_ownership(host->mmc);
+ 	return ret;
+ }
+ EXPORT_SYMBOL_GPL(sdhci_runtime_suspend_host);
+@@ -2701,6 +2914,8 @@ int sdhci_runtime_resume_host(struct sdhci_host *host)
+ 	unsigned long flags;
+ 	int ret = 0, host_flags = host->flags;
+ 
++	sdhci_do_acquire_ownership(host->mmc);
++
+ 	if (host_flags & (SDHCI_USE_SDMA | SDHCI_USE_ADMA)) {
+ 		if (host->ops->enable_dma)
+ 			host->ops->enable_dma(host);
+@@ -2738,6 +2953,7 @@ int sdhci_runtime_resume_host(struct sdhci_host *host)
+ 
+ 	spin_unlock_irqrestore(&host->lock, flags);
+ 
++	sdhci_release_ownership(host->mmc);
+ 	return ret;
+ }
+ EXPORT_SYMBOL_GPL(sdhci_runtime_resume_host);
+@@ -3232,6 +3448,7 @@ int sdhci_add_host(struct sdhci_host *host)
+ 		       mmc_hostname(mmc), host->irq, ret);
+ 		goto untasklet;
+ 	}
++	sdhci_do_acquire_ownership(mmc);
+ 
+ 	sdhci_init(host, 0);
+ 
+@@ -3266,6 +3483,8 @@ int sdhci_add_host(struct sdhci_host *host)
+ 
+ 	sdhci_enable_card_detection(host);
+ 
++	sdhci_release_ownership(mmc);
++
+ 	return 0;
+ 
+ #ifdef SDHCI_USE_LEDS_CLASS
+@@ -3273,6 +3492,7 @@ reset:
+ 	sdhci_reset(host, SDHCI_RESET_ALL);
+ 	sdhci_mask_irqs(host, SDHCI_INT_ALL_MASK);
+ 	free_irq(host->irq, host);
++	sdhci_release_ownership(mmc);
+ #endif
+ untasklet:
+ 	tasklet_kill(&host->card_tasklet);
+diff --git a/include/linux/mmc/sdhci.h b/include/linux/mmc/sdhci.h
+index 2f7aabc9154c..d8789c0fe2eb 100644
+--- a/include/linux/mmc/sdhci.h
++++ b/include/linux/mmc/sdhci.h
+@@ -125,6 +125,17 @@ struct sdhci_host {
+ 	int irq;		/* Device IRQ */
+ 	void __iomem *ioaddr;	/* Mapped address */
+ 
++	/* XXX: SCU/X86 mutex variables base address in shared SRAM */
++	void __iomem *sram_addr;        /* Shared SRAM address */
++
++#define DEKKER_EMMC_OWNER_OFFSET        0
++#define DEKKER_IA_REQ_OFFSET            0x04
++#define DEKKER_SCU_REQ_OFFSET           0x08
++#define DEKKER_OWNER_IA                 0
++#define DEKKER_OWNER_SCU                1
++
++	atomic_t usage_cnt; /* eMMC mutex usage count */
++
+ 	const struct sdhci_ops *ops;	/* Low level hw interface */
+ 
+ 	struct regulator *vmmc;		/* Power regulator (vmmc) */
+-- 
+2.37.3
+

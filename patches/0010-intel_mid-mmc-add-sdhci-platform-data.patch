@@ -1,0 +1,220 @@
+From b2f8e008e79a34bdf087e6c9b582545ccd4ba43b Mon Sep 17 00:00:00 2001
+From: David Cohen <david.a.cohen@intel.com>
+Date: Tue, 7 May 2013 11:36:19 -0700
+Subject: [PATCH 010/429] intel_mid, mmc: add sdhci platform data
+
+This patch adds sdhci platform data for intel_mid Medfield and
+Clovertrail platforms.
+
+Signed-off-by: David Cohen <david.a.cohen@intel.com>
+---
+ .../platform/intel-mid/device_libs/Makefile   |   1 +
+ .../intel-mid/device_libs/pci/Makefile        |   2 +
+ .../device_libs/pci/platform_sdhci_pci.c      | 145 ++++++++++++++++++
+ .../device_libs/pci/platform_sdhci_pci.h      |  21 +++
+ 4 files changed, 169 insertions(+)
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/pci/Makefile
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index 050825d5bf37..e4a1a1755b2d 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -5,6 +5,7 @@ obj-y += platform_msic_audio.o
+ obj-y += platform_msic_gpio.o
+ obj-y += platform_msic_ocd.o
+ obj-y += platform_tc35876x.o
++obj-y += pci/
+ obj-$(subst m,y,$(CONFIG_BATTERY_INTEL_MDF)) += platform_msic_battery.o
+ obj-$(subst m,y,$(CONFIG_INTEL_MID_POWER_BUTTON)) += platform_msic_power_btn.o
+ obj-$(subst m,y,$(CONFIG_GPIO_INTEL_PMIC)) += platform_pmic_gpio.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/Makefile b/arch/x86/platform/intel-mid/device_libs/pci/Makefile
+new file mode 100644
+index 000000000000..35f524998042
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/pci/Makefile
+@@ -0,0 +1,2 @@
++# MMC Sdhci pci host controller platform data
++obj-$(subst m,y,$(CONFIG_MMC_SDHCI_PCI))				+= platform_sdhci_pci.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+new file mode 100644
+index 000000000000..92f46dbc2c1c
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -0,0 +1,145 @@
++/*
++ * platform_mmc_sdhci_pci.c: mmc sdhci pci platform data initilization file
++ *
++ * (C) Copyright 2012 Intel Corporation
++ * Author:
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <asm/intel-mid.h>
++#include <linux/mmc/sdhci-pci-data.h>
++#include <linux/gpio.h>
++#include <linux/lnw_gpio.h>
++#include <linux/delay.h>
++#include <asm/intel_scu_ipc.h>
++#include <linux/hardirq.h>
++
++#include "platform_sdhci_pci.h"
++
++/* MFLD platform data */
++static struct sdhci_pci_data mfld_sdhci_pci_data[] = {
++	[EMMC0_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = -EINVAL,
++			.setup = 0,
++			.cleanup = 0,
++	},
++	[EMMC1_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = -EINVAL,
++			.setup = 0,
++			.cleanup = 0,
++	},
++	[SD_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = 69,
++			.setup = 0,
++			.cleanup = 0,
++	},
++	[SDIO_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = -EINVAL,
++			.setup = 0,
++			.cleanup = 0,
++	},
++};
++
++/* CLV platform data */
++static struct sdhci_pci_data clv_sdhci_pci_data[] = {
++	[EMMC0_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = -EINVAL,
++			.setup = 0,
++			.cleanup = 0,
++	},
++	[EMMC1_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = -EINVAL,
++			.setup = 0,
++			.cleanup = 0,
++	},
++	[SD_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = 69,
++			.setup = 0,
++			.cleanup = 0,
++	},
++	[SDIO_INDEX] = {
++			.pdev = NULL,
++			.slotno = 0,
++			.rst_n_gpio = -EINVAL,
++			.cd_gpio = -EINVAL,
++			.setup = 0,
++			.cleanup = 0,
++	},
++};
++
++static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
++{
++	struct sdhci_pci_data *pdata = NULL;
++
++	switch (pdev->device) {
++	case PCI_DEVICE_ID_INTEL_MFD_EMMC0:
++		pdata = &mfld_sdhci_pci_data[EMMC0_INDEX];
++		break;
++	case PCI_DEVICE_ID_INTEL_MFD_EMMC1:
++		pdata = &mfld_sdhci_pci_data[EMMC1_INDEX];
++		break;
++	case PCI_DEVICE_ID_INTEL_MFD_SD:
++		pdata = &mfld_sdhci_pci_data[SD_INDEX];
++		break;
++	case PCI_DEVICE_ID_INTEL_MFD_SDIO1:
++		pdata = &mfld_sdhci_pci_data[SDIO_INDEX];
++		break;
++	case PCI_DEVICE_ID_INTEL_CLV_EMMC0:
++		pdata = &clv_sdhci_pci_data[EMMC0_INDEX];
++		pdata->rst_n_gpio = get_gpio_by_name("emmc0_rst");
++		break;
++	case PCI_DEVICE_ID_INTEL_CLV_EMMC1:
++		pdata = &clv_sdhci_pci_data[EMMC1_INDEX];
++		pdata->rst_n_gpio = get_gpio_by_name("emmc1_rst");
++		break;
++	case PCI_DEVICE_ID_INTEL_CLV_SDIO0:
++		pdata = &clv_sdhci_pci_data[SD_INDEX];
++		break;
++	case PCI_DEVICE_ID_INTEL_CLV_SDIO1:
++		pdata = &clv_sdhci_pci_data[SDIO_INDEX];
++		break;
++	default:
++		break;
++	}
++	return pdata;
++}
++
++struct sdhci_pci_data *mmc_sdhci_pci_get_data(struct pci_dev *pci_dev, int slotno)
++{
++	return get_sdhci_platform_data(pci_dev);
++}
++
++static int __init init_sdhci_get_data(void)
++{
++	sdhci_pci_get_data = mmc_sdhci_pci_get_data;
++}
++
++arch_initcall(init_sdhci_get_data);
++
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+new file mode 100644
+index 000000000000..45e71a5636f4
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+@@ -0,0 +1,21 @@
++/*
++ * platform_mmc_sdhci_pci.h: mmc sdhci pci platform data header file
++ *
++ * (C) Copyright 2012 Intel Corporation
++ * Author:
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++#ifndef _PLATFORM_MMC_SDHCI_PCI_H_
++#define _PLATFORM_MMC_SDHCI_PCI_H_
++
++#define EMMC0_INDEX	0
++#define EMMC1_INDEX	1
++#define SD_INDEX	2
++#define SDIO_INDEX	3
++
++#endif
++
+-- 
+2.37.3
+

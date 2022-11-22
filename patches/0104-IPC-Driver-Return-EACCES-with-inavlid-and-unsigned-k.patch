@@ -1,0 +1,62 @@
+From cd2f12a89c5e9ef7ff03819209fbbba3407f98f6 Mon Sep 17 00:00:00 2001
+From: Jenny TC <jenny.tc@intel.com>
+Date: Sat, 2 Nov 2013 20:19:51 +0530
+Subject: [PATCH 104/429] IPC Driver: Return EACCES with inavlid and unsigned
+ kernel
+
+Issue Description: With unsigned kernel and invalid battery charger register
+access would be blocked. IPC driver returns -EIO for all errors. The client is
+not able to distinguish between normal IO error and the unsigned/invalid error
+
+Solution: Return -EACCES if the error code is unsigned or invalid battery
+
+Category: device enablement
+Domain: IPC
+Origin: internal
+Upstream-Candidate: no, needs rework
+
+Signed-off-by: Jenny TC <jenny.tc@intel.com>
+---
+ arch/x86/include/asm/intel_scu_ipc.h | 1 +
+ drivers/platform/x86/intel_scu_ipc.c | 6 +++++-
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/intel_scu_ipc.h b/arch/x86/include/asm/intel_scu_ipc.h
+index b7b6f5b3304b..3536ec9ae218 100644
+--- a/arch/x86/include/asm/intel_scu_ipc.h
++++ b/arch/x86/include/asm/intel_scu_ipc.h
+@@ -41,6 +41,7 @@
+ #define IPC_ERR_CMD_INVALID		4
+ #define IPC_ERR_CMD_FAILED		5
+ #define IPC_ERR_EMSECURITY		6
++#define IPC_ERR_UNSIGNEDKERNEL		7
+ 
+ #define MSIC_DEBUG_FILE "msic"
+ #define MSIC_ALL_DEBUG_FILE "msic_all"
+diff --git a/drivers/platform/x86/intel_scu_ipc.c b/drivers/platform/x86/intel_scu_ipc.c
+index 549118d5b445..70a115efc74b 100644
+--- a/drivers/platform/x86/intel_scu_ipc.c
++++ b/drivers/platform/x86/intel_scu_ipc.c
+@@ -163,7 +163,9 @@ static char *ipc_err_sources[] = {
+ 	[IPC_ERR_CMD_FAILED] =
+ 		"command failed",
+ 	[IPC_ERR_EMSECURITY] =
+-		"unsigned kernel",
++		"Invalid Battery",
++	[IPC_ERR_UNSIGNEDKERNEL] =
++		"Unsigned kernel",
+ };
+ 
+ /* Suspend status get */
+@@ -301,6 +303,8 @@ int intel_scu_ipc_check_status(void)
+ 			dev_err(&ipcdev.pdev->dev,
+ 				"IPC failed: unknown error, IPC_STS=0x%x, "
+ 				"IPC_CMD=0x%x\n", status, ipcdev.cmd);
++		if ((i == IPC_ERR_UNSIGNEDKERNEL) || (i == IPC_ERR_EMSECURITY))
++			ret = -EACCES;
+ 	}
+ 
+ 	return ret;
+-- 
+2.37.3
+

@@ -1,0 +1,61 @@
+From 900e87c9e26afddbce2704d62415528b4d095e6f Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Wed, 31 Jul 2013 14:01:45 +0800
+Subject: [PATCH 259/429] mmc: generate the interrupt unexpected
+
+When host generated the CMD conflicts interrupts, driver needs a small
+delay before clearing it otherwise such interrupts will be generated
+again after clearing it. This behavior is not described in SDHC spec,
+and suspect it is a silicon issue.
+
+Before confirm whether this is a silicon issue, have a small delay is
+still an avaliable software workaround
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci.c | 15 +++++++++++++++
+ drivers/mmc/host/sdhci.h |  1 +
+ 2 files changed, 16 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index ab2c1b29526d..c2992d4d23e4 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -2773,6 +2773,21 @@ again:
+ 	}
+ 
+ 	if (intmask & SDHCI_INT_CMD_MASK) {
++		/*
++		 * If encounter command conflict interrupts,
++		 * before clearing it, delay 64 clocks, otherwise the interrupts
++		 * will be generated again.
++		 * This is just experience. SDHC spec doesn't
++		 * say the command conflict interrupts will be generated
++		 * again without a delay before clearing them.
++		 */
++		if ((intmask & SDHCI_INT_CMD_CONFLICT) ==
++				SDHCI_INT_CMD_CONFLICT) {
++			if (host->clock)
++				udelay(64 * 1000000 / host->clock);
++			else
++				udelay(500);
++		}
+ 		sdhci_writel(host, intmask & SDHCI_INT_CMD_MASK,
+ 			SDHCI_INT_STATUS);
+ 		sdhci_cmd_irq(host, intmask & SDHCI_INT_CMD_MASK);
+diff --git a/drivers/mmc/host/sdhci.h b/drivers/mmc/host/sdhci.h
+index c6389b1ad2f1..b7c49add8e66 100644
+--- a/drivers/mmc/host/sdhci.h
++++ b/drivers/mmc/host/sdhci.h
+@@ -131,6 +131,7 @@
+ #define  SDHCI_INT_ERROR	0x00008000
+ #define  SDHCI_INT_TIMEOUT	0x00010000
+ #define  SDHCI_INT_CRC		0x00020000
++#define  SDHCI_INT_CMD_CONFLICT	0x00030000
+ #define  SDHCI_INT_END_BIT	0x00040000
+ #define  SDHCI_INT_INDEX	0x00080000
+ #define  SDHCI_INT_DATA_TIMEOUT	0x00100000
+-- 
+2.37.3
+

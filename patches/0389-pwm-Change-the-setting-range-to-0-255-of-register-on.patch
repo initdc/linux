@@ -1,0 +1,40 @@
+From f902e49ebb9559d85a4262dcecadc404e3542197 Mon Sep 17 00:00:00 2001
+From: zhaozhex <zhenmingx.zhao@intel.com>
+Date: Wed, 19 Nov 2014 16:40:12 +0100
+Subject: [PATCH 389/429] pwm: Change the setting range to 0 - 255 of register
+ "on time divisor"
+
+When duty cycle was set to 100% the "on time divisor" register
+was being set to 1, it should be set to 0 which is correct.
+
+Signed-off-by: zhaozhex <zhenmingx.zhao@intel.com>
+---
+ drivers/pwm/pwm-intel-mid.c | 12 +++---------
+ 1 file changed, 3 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/pwm/pwm-intel-mid.c b/drivers/pwm/pwm-intel-mid.c
+index 5564a1b4a9c8..83c39f7a296b 100644
+--- a/drivers/pwm/pwm-intel-mid.c
++++ b/drivers/pwm/pwm-intel-mid.c
+@@ -74,15 +74,9 @@ intel_mid_pwm_on_time_divisor(void __iomem *reg, union pwmctrl_reg *pwmctrl,
+ 	u64 on_time_divisor;
+ 
+ 	/* Calculate and set on time divisor */
+-	if (duty_cycle == period) {
+-		on_time_divisor = 1UL;
+-	} else {
+-		on_time_divisor = duty_cycle *
+-			(u64)(PWM_COMPARE_UNIT_SIZE - 1UL);
+-		do_div(on_time_divisor, period);
+-		on_time_divisor = PWM_COMPARE_UNIT_SIZE -
+-			on_time_divisor - 1UL;
+-	}
++	on_time_divisor = duty_cycle * (u64)(PWM_COMPARE_UNIT_SIZE - 1UL);
++	do_div(on_time_divisor, period);
++	on_time_divisor = PWM_COMPARE_UNIT_SIZE - on_time_divisor - 1UL;
+ 
+ 	pwmctrl->full = readl(reg);
+ 	pwmctrl->part.on_time_divisor = on_time_divisor;
+-- 
+2.37.3
+

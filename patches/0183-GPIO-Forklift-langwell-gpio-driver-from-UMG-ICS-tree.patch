@@ -1,0 +1,56 @@
+From 496d77cf9cb1c347b7146a968b6ee7f32a48b433 Mon Sep 17 00:00:00 2001
+From: Fei Yang <fei.yang@intel.com>
+Date: Tue, 20 Mar 2012 14:16:20 -0700
+Subject: [PATCH 183/429] GPIO: Forklift langwell gpio driver from UMG ICS
+ tree.
+
+Inital commit
+
+Signed-off-by: Fei Yang <fei.yang@intel.com>
+Signed-off-by: David Cohen <david.a.cohen@intel.com>
+---
+ drivers/gpio/gpio-langwell.c |  3 ++-
+ include/linux/lnw_gpio.h     | 13 +++++++++++++
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+ create mode 100644 include/linux/lnw_gpio.h
+
+diff --git a/drivers/gpio/gpio-langwell.c b/drivers/gpio/gpio-langwell.c
+index dc72fdd4c3cf..e0295fa0da59 100644
+--- a/drivers/gpio/gpio-langwell.c
++++ b/drivers/gpio/gpio-langwell.c
+@@ -35,6 +35,7 @@
+ #include <linux/io.h>
+ #include <linux/gpio.h>
+ #include <linux/slab.h>
++#include <linux/lnw_gpio.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/irqdomain.h>
+ #include <asm/intel_scu_flis.h>
+@@ -1235,4 +1236,4 @@ static int __init lnw_gpio_init(void)
+ 	return ret;
+ }
+ 
+-device_initcall(lnw_gpio_init);
++fs_initcall(lnw_gpio_init);
+diff --git a/include/linux/lnw_gpio.h b/include/linux/lnw_gpio.h
+new file mode 100644
+index 000000000000..9cde4d2a31ca
+--- /dev/null
++++ b/include/linux/lnw_gpio.h
+@@ -0,0 +1,13 @@
++#ifndef _H_LANGWELL_GPIO_H
++#define _H_LANGWELL_GPIO_H
++
++enum {
++	LNW_GPIO = 0,
++	LNW_ALT_1 = 1,
++	LNW_ALT_2 = 2,
++	LNW_ALT_3 = 3,
++};
++
++void lnw_gpio_set_alt(int gpio, int alt);
++
++#endif
+-- 
+2.37.3
+

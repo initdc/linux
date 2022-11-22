@@ -1,0 +1,26 @@
+From 5ac5ca418fe5ab6cc5473e78df5e00b0799e297a Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Wed, 3 Sep 2014 18:06:24 +0200
+Subject: [PATCH 363/429] spi: fix compilation error
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/platform_spidev.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+index 6e88dad1c5f0..8eaa92f2f0d2 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+@@ -47,7 +47,7 @@ static void tng_ssp_spi_platform_pinmux(void)
+ 	err = gpio_request_one(tng_ssp_spi2_FS_gpio,
+ 			GPIOF_DIR_OUT|GPIOF_INIT_HIGH, "Arduino Shield SS");
+ 	if (err) {
+-		pr_err("%s: unable to get Chip Select GPIO,
++		pr_err("%s: unable to get Chip Select GPIO,\
+ 				fallback to legacy CS mode \n", __func__);
+ 		lnw_gpio_set_alt(tng_ssp_spi2_FS_gpio, saved_muxing);
+ 		chip.cs_control = NULL;
+-- 
+2.37.3
+

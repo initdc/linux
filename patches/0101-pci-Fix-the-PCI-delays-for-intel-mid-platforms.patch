@@ -1,0 +1,50 @@
+From 1884134811fc5132402630c378be75007cca9d91 Mon Sep 17 00:00:00 2001
+From: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+Date: Thu, 17 Oct 2013 23:37:24 +0530
+Subject: [PATCH 101/429] pci: Fix the PCI delays for intel-mid platforms
+
+This basically ensures that d3_delay and d3cold_delay are
+not needed to be managed by the kernel as they are taken
+care in SCU for intel mid platforms. However, for the platforms
+like BYT (non intel-mid) we will go with kernel PCI framework
+way of managing these delays without interfering.
+
+Signed-off-by: Catalin Popescu <catalin.popescu@intel.com>
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ arch/x86/pci/mrst.c | 1 +
+ drivers/pci/pci.c   | 5 ++++-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/pci/mrst.c b/arch/x86/pci/mrst.c
+index 6eb18c42a28a..bcdb0a437cf8 100644
+--- a/arch/x86/pci/mrst.c
++++ b/arch/x86/pci/mrst.c
+@@ -259,6 +259,7 @@ static void pci_d3delay_fixup(struct pci_dev *dev)
+ 	if (type1_access_ok(dev->bus->number, dev->devfn, PCI_DEVICE_ID))
+ 		return;
+ 	dev->d3_delay = 0;
++	dev->d3cold_delay = 0;
+ }
+ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, pci_d3delay_fixup);
+ 
+diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
+index d6ceb2e45c59..6904a063f132 100644
+--- a/drivers/pci/pci.c
++++ b/drivers/pci/pci.c
+@@ -562,8 +562,11 @@ static int pci_raw_set_power_state(struct pci_dev *dev, pci_power_t state)
+ 	if (state == PCI_D3hot || dev->current_state == PCI_D3hot)
+ 		pci_dev_d3_sleep(dev);
+ 	else if (state == PCI_D2 || dev->current_state == PCI_D2)
++#ifdef CONFIG_ATOM_SOC_POWER
++		; /* On Intel mid platforms pci delays are handled by SCU */
++#else
+ 		udelay(PCI_PM_D2_DELAY);
+-
++#endif
+ 	pci_read_config_word(dev, dev->pm_cap + PCI_PM_CTRL, &pmcsr);
+ 	dev->current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
+ 	if (dev->current_state != state && printk_ratelimit())
+-- 
+2.37.3
+

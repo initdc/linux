@@ -1,0 +1,68 @@
+From 5236533f591b33ea2850bd716db1397cdbffc990 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Wed, 16 Apr 2014 15:59:20 +0200
+Subject: [PATCH 303/429] watchdog: make watchdog less verbose
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/watchdog/intel_scu_watchdog_evo.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/watchdog/intel_scu_watchdog_evo.c b/drivers/watchdog/intel_scu_watchdog_evo.c
+index 7d907dde7b15..981bf9634b6a 100644
+--- a/drivers/watchdog/intel_scu_watchdog_evo.c
++++ b/drivers/watchdog/intel_scu_watchdog_evo.c
+@@ -234,7 +234,7 @@ static int watchdog_keepalive(void)
+ {
+ 	int ret, error = 0;
+ 
+-	pr_info("%s\n", __func__);
++	pr_debug("%s\n", __func__);
+ 
+ 	if (unlikely(!kicking_active)) {
+ 		/* Close our eyes */
+@@ -298,7 +298,7 @@ static int watchdog_config_and_start(u32 newtimeout, u32 newpretimeout)
+ 	timeout = newtimeout;
+ 	pre_timeout = newpretimeout;
+ 
+-	pr_info("timeout=%ds, pre_timeout=%ds\n", timeout, pre_timeout);
++	pr_debug("timeout=%ds, pre_timeout=%ds\n", timeout, pre_timeout);
+ 
+ 	/* Configure the watchdog */
+ 	ret = watchdog_set_timeouts_and_start(pre_timeout, timeout);
+@@ -420,14 +420,14 @@ static long intel_scu_ioctl(struct file *file, unsigned int cmd,
+ 	case WDIOC_GETBOOTSTATUS:
+ 		return put_user(0, p);
+ 	case WDIOC_KEEPALIVE:
+-		pr_warn("%s: KeepAlive ioctl\n", __func__);
++		pr_debug("%s: KeepAlive ioctl\n", __func__);
+ 		if (!watchdog_device.started)
+ 			return -EINVAL;
+ 
+ 		watchdog_keepalive();
+ 		return 0;
+ 	case WDIOC_SETTIMEOUT:
+-		pr_warn("%s: SetTimeout ioctl\n", __func__);
++		pr_debug("%s: SetTimeout ioctl\n", __func__);
+ 
+ 		if (watchdog_device.started)
+ 			return -EBUSY;
+@@ -450,13 +450,13 @@ static long intel_scu_ioctl(struct file *file, unsigned int cmd,
+ 			return -EFAULT;
+ 
+ 		if (options & WDIOS_DISABLECARD) {
+-			pr_warn("%s: Stopping the watchdog\n", __func__);
++			pr_debug("%s: Stopping the watchdog\n", __func__);
+ 			watchdog_stop();
+ 			return 0;
+ 		}
+ 
+ 		if (options & WDIOS_ENABLECARD) {
+-			pr_warn("%s: Starting the watchdog\n", __func__);
++			pr_debug("%s: Starting the watchdog\n", __func__);
+ 
+ 			if (watchdog_device.started)
+ 				return -EBUSY;
+-- 
+2.37.3
+

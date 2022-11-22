@@ -1,0 +1,161 @@
+From dfca597b406f4304da2fc8afe3805a6cd075d515 Mon Sep 17 00:00:00 2001
+From: roberto crippa <roberto.crippa@intel.com>
+Date: Tue, 21 Oct 2014 14:51:27 +0200
+Subject: [PATCH 379/429] bluetooth: l2cap kernel patch for BLE support
+
+Port kernel patch not included in 3.10 version that implements
+l2cap bluetooth module returning correct BD address type
+to let connect a BLE device using a random address.
+
+This patch is a manual cherry-pick of below Linux kernel patch:
+
+4f1654e08464abad06487e173661cb73721d27a7
+Bluetooth: Return the correct address type for L2CAP sockets
+
+with minimal needed modification in hci_core.h to have needed
+field for BD addr type
+
+Signed-off-by: roberto crippa <roberto.crippa@intel.com>
+---
+ include/net/bluetooth/hci_core.h |  2 ++
+ include/net/bluetooth/l2cap.h    |  8 ++++++--
+ net/bluetooth/l2cap_core.c       | 20 +++++++++++++++++++-
+ net/bluetooth/l2cap_sock.c       |  5 ++++-
+ 4 files changed, 31 insertions(+), 4 deletions(-)
+
+diff --git a/include/net/bluetooth/hci_core.h b/include/net/bluetooth/hci_core.h
+index 7cb6d360d147..b9e7142e2119 100644
+--- a/include/net/bluetooth/hci_core.h
++++ b/include/net/bluetooth/hci_core.h
+@@ -308,6 +308,8 @@ struct hci_conn {
+ 
+ 	bdaddr_t	dst;
+ 	__u8		dst_type;
++	bdaddr_t	src;
++	__u8		src_type;
+ 	__u16		handle;
+ 	__u16		state;
+ 	__u8		mode;
+diff --git a/include/net/bluetooth/l2cap.h b/include/net/bluetooth/l2cap.h
+index fb94cf13c777..bfca6cf08c2b 100644
+--- a/include/net/bluetooth/l2cap.h
++++ b/include/net/bluetooth/l2cap.h
+@@ -442,7 +442,13 @@ struct l2cap_chan {
+ 
+ 	__u8		state;
+ 
++	bdaddr_t	dst;
++	__u8		dst_type;
++	bdaddr_t	src;
++	__u8		src_type;
++
+ 	__le16		psm;
++	__le16		sport;
+ 	__u16		dcid;
+ 	__u16		scid;
+ 
+@@ -453,8 +459,6 @@ struct l2cap_chan {
+ 	__u8		chan_type;
+ 	__u8		chan_policy;
+ 
+-	__le16		sport;
+-
+ 	__u8		sec_level;
+ 
+ 	__u8		ident;
+diff --git a/net/bluetooth/l2cap_core.c b/net/bluetooth/l2cap_core.c
+index 68843a28a7af..1d6f7902738e 100644
+--- a/net/bluetooth/l2cap_core.c
++++ b/net/bluetooth/l2cap_core.c
+@@ -58,6 +58,18 @@ static void l2cap_send_disconn_req(struct l2cap_chan *chan, int err);
+ static void l2cap_tx(struct l2cap_chan *chan, struct l2cap_ctrl *control,
+ 		     struct sk_buff_head *skbs, u8 event);
+ 
++static inline __u8 bdaddr_type(struct hci_conn *hcon, __u8 type)
++{
++	if (hcon->type == LE_LINK) {
++		if (type == ADDR_LE_DEV_PUBLIC)
++			return BDADDR_LE_PUBLIC;
++		else
++			return BDADDR_LE_RANDOM;
++	}
++
++	return BDADDR_BREDR;
++}
++
+ /* ---- L2CAP channels ---- */
+ 
+ static struct l2cap_chan *__l2cap_get_chan_by_dcid(struct l2cap_conn *conn,
+@@ -1364,6 +1376,8 @@ static void l2cap_le_conn_ready(struct l2cap_conn *conn)
+ 
+ 	bacpy(&bt_sk(sk)->src, conn->src);
+ 	bacpy(&bt_sk(sk)->dst, conn->dst);
++	chan->src_type = bdaddr_type(conn->hcon, conn->hcon->src_type);
++	chan->dst_type = bdaddr_type(conn->hcon, conn->hcon->dst_type);
+ 
+ 	l2cap_chan_add(conn, chan);
+ 
+@@ -1785,6 +1799,7 @@ int l2cap_chan_connect(struct l2cap_chan *chan, __le16 psm, u16 cid,
+ 	/* Set destination address and psm */
+ 	lock_sock(sk);
+ 	bacpy(&bt_sk(sk)->dst, dst);
++	chan->dst_type = dst_type;
+ 	release_sock(sk);
+ 
+ 	chan->psm = psm;
+@@ -1792,7 +1807,7 @@ int l2cap_chan_connect(struct l2cap_chan *chan, __le16 psm, u16 cid,
+ 
+ 	auth_type = l2cap_get_auth_type(chan);
+ 
+-	if (chan->dcid == L2CAP_CID_LE_DATA)
++	if (bdaddr_type_is_le(dst_type))
+ 		hcon = hci_connect(hdev, LE_LINK, dst, dst_type,
+ 				   chan->sec_level, auth_type);
+ 	else
+@@ -1825,6 +1840,7 @@ int l2cap_chan_connect(struct l2cap_chan *chan, __le16 psm, u16 cid,
+ 
+ 	/* Update source addr of the socket */
+ 	bacpy(src, conn->src);
++	chan->src_type = bdaddr_type(hcon, hcon->src_type);
+ 
+ 	l2cap_chan_unlock(chan);
+ 	l2cap_chan_add(conn, chan);
+@@ -3755,6 +3771,8 @@ static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
+ 
+ 	bacpy(&bt_sk(sk)->src, conn->src);
+ 	bacpy(&bt_sk(sk)->dst, conn->dst);
++	chan->src_type = bdaddr_type(conn->hcon, conn->hcon->src_type);
++	chan->dst_type = bdaddr_type(conn->hcon, conn->hcon->dst_type);
+ 	chan->psm  = psm;
+ 	chan->dcid = scid;
+ 	chan->local_amp_id = amp_id;
+diff --git a/net/bluetooth/l2cap_sock.c b/net/bluetooth/l2cap_sock.c
+index 5f36f70ce44d..d3cf60604bdb 100644
+--- a/net/bluetooth/l2cap_sock.c
++++ b/net/bluetooth/l2cap_sock.c
+@@ -103,7 +103,8 @@ static int l2cap_sock_bind(struct socket *sock, struct sockaddr *addr, int alen)
+ 	    __le16_to_cpu(la.l2_psm) == L2CAP_PSM_RFCOMM)
+ 		chan->sec_level = BT_SECURITY_SDP;
+ 
+-	bacpy(&bt_sk(sk)->src, &la.l2_bdaddr);
++	bacpy(&chan->src, &la.l2_bdaddr);
++	chan->src_type = la.l2_bdaddr_type;
+ 
+ 	chan->state = BT_BOUND;
+ 	sk->sk_state = BT_BOUND;
+@@ -267,10 +268,12 @@ static int l2cap_sock_getname(struct socket *sock, struct sockaddr *addr,
+ 		la->l2_psm = chan->psm;
+ 		bacpy(&la->l2_bdaddr, &bt_sk(sk)->dst);
+ 		la->l2_cid = cpu_to_le16(chan->dcid);
++		la->l2_bdaddr_type = chan->dst_type;
+ 	} else {
+ 		la->l2_psm = chan->sport;
+ 		bacpy(&la->l2_bdaddr, &bt_sk(sk)->src);
+ 		la->l2_cid = cpu_to_le16(chan->scid);
++		la->l2_bdaddr_type = chan->src_type;
+ 	}
+ 
+ 	return 0;
+-- 
+2.37.3
+

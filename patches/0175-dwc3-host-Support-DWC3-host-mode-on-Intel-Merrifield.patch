@@ -1,0 +1,93 @@
+From 83073748f5d6d1c3253d353c58e84d3be0cb4412 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Tue, 20 Aug 2013 18:28:44 +0800
+Subject: [PATCH 175/429] dwc3-host: Support DWC3 host mode on Intel Merrifield
+ platform
+
+Due to xhci-plat.c have not a good support for xHCI driver register as
+platform device driver. Special for power management. So write one
+separate driver for DWC3 host mode as temporary.
+
+This issue will be discuss with community. After xhci-plat driver
+support powr management. Will follow it to remove this temporary
+solution.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/Kconfig     | 31 +++++++++++++++++++++++++++++++
+ drivers/usb/host/xhci-plat.c | 11 +++++++++++
+ 2 files changed, 42 insertions(+)
+
+diff --git a/drivers/usb/dwc3/Kconfig b/drivers/usb/dwc3/Kconfig
+index 757aa18027d0..81d00eea6f83 100644
+--- a/drivers/usb/dwc3/Kconfig
++++ b/drivers/usb/dwc3/Kconfig
+@@ -40,6 +40,37 @@ config USB_DWC3_DUAL_ROLE
+ 
+ endchoice
+ 
++config USB_DWC3_OTG
++	tristate "DWC3 OTG mode support"
++	depends on USB && PCI
++	select USB_OTG
++	help
++	  Say Y here to enable DWC3 OTG driver.
++	  This driver implement OTG framework for DWC3 OTG controller.
++	  Support role switch and charger detection feature. And maintain
++	  one state machine. This driver should be work with platform
++	  speical driver. Because every platform has their own hardware design.
++
++config USB_DWC3_INTEL_MRFL
++	tristate "DWC OTG 3.0 for Intel Merrifield platforms"
++	depends on USB && USB_DWC3_OTG
++	select USB_OTG
++	help
++	  Say Y here to enable DWC3 OTG driver for Intel Merrifield platforms.
++	  It implement OTG feature on DWC3 OTG controller.
++	  Support role switch and charger detection feature.
++	  This driver is must be set if you want to enable host mode on Intel
++	  Merrifield platforms.
++
++config USB_DWC3_HOST_INTEL
++	bool "DWC3 Host Mode support on Intel Merrifield platform"
++	depends on USB_ARCH_HAS_XHCI && USB_DWC3_INTEL_MRFL
++	help
++	  Support Host mode of DWC3 controller on Intel Merrifield platform.
++	  It is should be enable with DWC3 INTEL driver. Because Intel platform
++	  use different design with standard USB_DWC3_HOST. So if you want to
++	  enable host mode on Intel platform, then you have to enable this config.
++
+ config USB_DWC3_DEBUG
+ 	bool "Enable Debugging Messages"
+ 	help
+diff --git a/drivers/usb/host/xhci-plat.c b/drivers/usb/host/xhci-plat.c
+index 6e70ce976769..37003c8d61c7 100644
+--- a/drivers/usb/host/xhci-plat.c
++++ b/drivers/usb/host/xhci-plat.c
+@@ -195,12 +195,23 @@ static struct platform_driver usb_xhci_driver = {
+ };
+ MODULE_ALIAS("platform:xhci-hcd");
+ 
++#ifdef CONFIG_USB_DWC3_HOST_INTEL
++#include "../dwc3/dwc3-host-intel.c"
++#endif
++
+ int xhci_register_plat(void)
+ {
++#ifdef CONFIG_USB_DWC3_HOST_INTEL
++	return platform_driver_register(&dwc3_xhci_driver);
++#endif
+ 	return platform_driver_register(&usb_xhci_driver);
+ }
+ 
+ void xhci_unregister_plat(void)
+ {
++#ifdef CONFIG_USB_DWC3_HOST_INTEL
++	platform_driver_unregister(&dwc3_xhci_driver);
++	return;
++#endif
+ 	platform_driver_unregister(&usb_xhci_driver);
+ }
+-- 
+2.37.3
+

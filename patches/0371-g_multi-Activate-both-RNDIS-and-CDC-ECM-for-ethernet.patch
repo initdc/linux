@@ -1,0 +1,94 @@
+From 2f1df1665bafacf92e48588ec0368c6019791380 Mon Sep 17 00:00:00 2001
+From: CaroleX Barome <carolex.barome@intel.com>
+Date: Mon, 8 Sep 2014 14:41:20 +0200
+Subject: [PATCH 371/429] g_multi: Activate both RNDIS and CDC ECM for ethernet
+ in gadget multi
+
+Added a parameter for g_multi module : g_multi.ethernet_config should be cdc or rndis.
+Default value is previous case, depending on the defconfig file.
+
+Signed-off-by: CaroleX Barome <carolex.barome@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig |  2 +-
+ drivers/usb/gadget/multi.c             | 37 +++++++++++++++++++++-----
+ 2 files changed, 32 insertions(+), 7 deletions(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 7f3e62697e56..e79bdd1a47d8 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -2672,7 +2672,7 @@ CONFIG_USB_U_SERIAL=m
+ # CONFIG_USB_G_ACM_MS is not set
+ CONFIG_USB_G_MULTI=m
+ CONFIG_USB_G_MULTI_RNDIS=y
+-# CONFIG_USB_G_MULTI_CDC is not set
++CONFIG_USB_G_MULTI_CDC=y
+ # CONFIG_USB_G_HID is not set
+ # CONFIG_USB_G_DBGP is not set
+ # CONFIG_USB_G_WEBCAM is not set
+diff --git a/drivers/usb/gadget/multi.c b/drivers/usb/gadget/multi.c
+index 4a45e80c6e38..22f3ebaac1d9 100644
+--- a/drivers/usb/gadget/multi.c
++++ b/drivers/usb/gadget/multi.c
+@@ -15,6 +15,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
++#include <linux/moduleparam.h>
+ 
+ #include "u_serial.h"
+ #if defined USB_ETH_RNDIS
+@@ -53,6 +54,12 @@ MODULE_LICENSE("GPL");
+ 
+ USB_GADGET_COMPOSITE_OPTIONS();
+ 
++static char ethernet_config[6];
++module_param_string(ethernet_config, ethernet_config, sizeof(ethernet_config),
++	0444);
++MODULE_PARM_DESC(ethernet_config,
++	"ethernet configuration : should be cdc or rndis");
++
+ /***************************** Device Descriptor ****************************/
+ 
+ #define MULTI_VENDOR_NUM	0x1d6b	/* Linux Foundation */
+@@ -308,13 +315,31 @@ static int __ref multi_bind(struct usb_composite_dev *cdev)
+ 	device_desc.iProduct = strings_dev[USB_GADGET_PRODUCT_IDX].id;
+ 
+ 	/* register configurations */
+-	status = rndis_config_register(cdev);
+-	if (unlikely(status < 0))
+-		goto fail2;
++	/* RNDIS configuration */
++	if (strncmp(ethernet_config, "rndis", 5) == 0) {
++		status = rndis_config_register(cdev);
++
++		if (unlikely(status < 0))
++			goto fail2;
++	} else if (strncmp(ethernet_config, "cdc", 3) == 0) {
++		/* CDC ECM configuration  */
++		status = cdc_config_register(cdev);
++
++		if (unlikely(status < 0))
++			goto fail2;
++	} else {
++		status = rndis_config_register(cdev);
++
++		if (unlikely(status < 0))
++			goto fail2;
++
++		status = cdc_config_register(cdev);
++
++		if (unlikely(status < 0))
++			goto fail2;
++	}
++
+ 
+-	status = cdc_config_register(cdev);
+-	if (unlikely(status < 0))
+-		goto fail2;
+ 	usb_composite_overwrite_options(cdev, &coverwrite);
+ 
+ 	/* we're done */
+-- 
+2.37.3
+

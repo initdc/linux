@@ -1,0 +1,466 @@
+From 226385c31475d5a9be3448b19355a4fee0f3cf53 Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Thu, 10 Oct 2013 10:27:55 +0530
+Subject: [PATCH 082/429] Thermal: intel SoC thermal platform driver to K3.10
+
+[Description of issue]
+intel SoC thermal platform driver code to K3.10
+
+[Implemented Solution]
+Port K3.4 intel soc thermal platform driver code to K3.10
+
+Following changes are ported:
+0001-wifi-Enable-Wifi-on-SaltBay-LnP-iwlwifi-init.patch
+0001-KDump-kernel-port.patch
+0001-audio-Add-wm1811a-platform-data.patch
+0001-EM-THERMAL-Update-co-relation-constants-for-SYSTHERM.patch
+0001-wifi-add-vendor-agnostic-support-for-wifi-chip.patch
+0001-EM-THERMAL-Provide-platform-data-for-BYT-EC-Thermal-.patch
+0001-Add-XMM_7160_REV4-support.patch
+0001-ti-st-Compile-platform-data-for-external-driver-too.patch
+0001-pn544-Compile-platform-data-for-external-driver-too.patch
+0001-telephony-remove-support-of-7160-REV2.patch
+0001-EM-CHARGER-Enable-SMB-Charger-and-MAX17047-FG-driver.patch
+0001-BT-Move-uart-wake-sleep-callbacks-to-bcm_bt_lpm-driv.patch
+0001-EM-THERMAL-Add-SoC-cooling-device.patch
+0001-platform_mrfl_regulator-MRFLD-regulator-machine-driv.patch
+0001-Rename-platform_regulator.c-to-platform_clv_regulato.patch
+0001-platform-add-imx134-platform-data.patch
+0001-Scalability-pannel-handler-support.patch
+0001-IMX132-IMX132-kernel-driver.patch
+0001-audio-compile-platform_byt_audio-conditionally.patch
+0001-atomisp2-Modify-Makefile-to-compile-atomisp2-with-cs.patch
+0001-EM-THERMAL-Add-platform-data-for-SoC-DTS-driver-in-B.patch
+0001-kernel-support-modem-CYGNUS-FFRD-EU-and-NA.patch
+0001-audio-board-file-add-codec-and-machine-pdata-handler.patch
+0001-audio-wm8994-add-pdata-for-codec-MFD-chip.patch
+0001-toggle-CLK-pin-to-abort-I2X-xfer.patch
+0001-imx-common-driver-modified-the-makefiles-for-imx-com.patch
+0001-EM-THERMAL-Add-platform-data-for-BYT-thermal-driver.patch
+0001-atom-Rename-platform_clv_regulator.c-as-platform_reg.patch
+0001-audio-get-the-codec-out-of-reset.patch
+0001-PORT-FROM-R42-SCU-logging-Implement-scuLog-SFI-entry.patch
+0001-audio-byt-add-acpi-support-for-machine-and-codec-dri.patch
+0001-Telephony-Platform-add-support-of-modem-7160-REV3.5.patch
+0001-GPS-Intel-MID-driver-for-GPS-devices.patch
+0001-extcon-fsa9285-add-fsa9285-driver-support-for-baytra.patch
+0001-Telephony-MCD-Scalability-implement-SFI-handlers-to-.patch
+0001-psh_byt-use-ACPI-to-register-driver-and-find-resourc.patch
+0001-extcon-add-extcon-mid-driver-for-audio-headset-repor.patch
+0001-Audio-wm5102-machine-driver-integration.patch
+0001-Introduce-support-for-wolfson-wm5102.patch
+0001-crystalcove-gpio-driver.patch
+0001-audio-add-the-Baytrail-ASoC-Machine-driver.patch
+0001-EM-Battery-Enable-SPID-based-platform-detection.patch
+0001-audio-add-the-Merrifield-PRh-machine-driver.patch
+0001-audio-remove-unused-code-under-MRFLD_TEST_ON_MFLD.patch
+0001-Revert-audio-remove-unused-code-under-MRFLD_TEST_ON_.patch
+0001-Revert-audio-add-the-Merrifield-PRh-machine-driver.patch
+0001-Telephony-HSI_Driver-Enable-pipeline-mode-for-HSI.patch
+0001-audio-add-the-Merrifield-PRh-machine-driver.patch
+0001-audio-remove-unused-code-under-MRFLD_TEST_ON_MFLD.patch
+0001-HSU-merge-k3.0-hsu-patches-to-k3.4.patch
+0001-touch-add-r69001-platform-data-support-and-thus-supp.patch
+0001-rmi4-Support-different-Synaptics-touch-hardware.patch
+0001-Audio-Load-CTP-machine-driver-based-on-SFI-table.patch
+0001-misc-Add-support-for-Intel-VLV2-platform-clock-drive.patch
+0001-s5k8aay-add-sensor-platform-data.patch
+0001-dw9719-add-dw9719-device-to-SFI-table.patch
+0001-switch-add-the-switch-driver.patch
+0001-Revert-FORKLIFT-from-K3.0-switch-add-the-switch-driv.patch
+0001-OV2722_platform-Enable-OV2722-sensor-platform-driver.patch
+0001-Bytrail-Add-driver-support-for-PSH-sensor-hub.patch
+0001-OSNIB-add-support-for-BYT-using-CMOS.patch
+0001-ulpmc_battery-add-support-for-ulpmc-chip-battery-dri.patch
+0001-mfd-Add-support-for-Crystal-Cove-PMIC.patch
+0001-TEMPORARY-vb-imx135-sensor-for-po-camp.patch
+0001-rmi4-Distinguish-touch-panel-by-sfi-type.patch
+0001-Revert-PORT-FROM-R4.1-EM-Battery-Enable-SPID-based-p.patch
+0001-EM-BCU-Port-MRFLD-BCU-driver-to-K3.4.patch
+0001-EM-BCU-Add-entry-for-BCU-device-in-board-file.patch
+0001-pinctrl-intel-mid-pinctrl-support.patch
+0001-EM-THERMAL-MRFLD-Enable-Thermal-driver-in-k34.patch
+0001-PORT-FROM-R4.1-EM-Battery-Enable-SPID-based-platform.patch
+0001-pmic_charger-add-the-pmic_charger-device-to-k3.4.patch
+0001-EM-THERMAL-port-from-k3.0-Add-platform-data-for-soc-.patch
+0001-bcove_adc-IIO-based-Basincove-ADC-driver.patch
+0001-EM-BCU-Config-changes-required-for-BCU.patch
+0001-x86-intel-mid-fix-section-mismatches.patch
+0001-board.c-point-bcove_power_btn-device-handler-to-ipc_.patch
+0001-EM-max17050-Adding-sfi-table-entry-for-max17050.patch
+0001-EM-Export-configuration-properties-in-SMIP.patch
+0001-PORT-FROM-K3.0-PWM-port-pwm-and-kpd-led-driver-to-ke.patch
+0001-PORT-FROM-K3.0-Broadcom-chip-baseporting-added-platf.patch
+0001-PORT-FROM-K3.0-flis-port-FLIS-driver-to-K3.4.patch
+0001-intel-mid-add-l3gd20-gyro-entry-to-device_id-array.patch
+0001-SCALABILITY-Telephony-MCD-Create-platform-device-fun.patch
+0001-wifi-add-support-for-broadcom-43xx.patch
+0001-PORT-FROM-K3.0-touch-add-r6900-touch-driver-to-kerne.patch
+0001-powerbtn-enable-power-button-for-merr_vv-on-K3.4-ker.patch
+0001-rmi4-Add-F34-v1-adaptation-for-firmware-update.patch
+0001-PORT-FROM-K3.0-audio-enable-compilation-of-the-MRFLD.patch
+0001-PORT-FROM-K3.0-EM-charger-Porting-merrifield-charger.patch
+0001-PORT-FROM-K3.0-kernel-add-Victoria-bay-modem-in-boar.patch
+0001-PORT-FROM-K3.0-Remove-HDMI-platform-device.patch
+0001-REVERT-ME-1-2-mfd-downgrade-the-HSU-driver.patch
+0001-FORKLIFT-from-K3.0-switch-add-the-switch-driver.patch
+0001-intel-mid-add-camera-sensor-info-for-merrifield.patch
+0001-PORT-FROM-K3.0-lm3559-add-platform-code-for-lm3559.patch
+0001-OV5640-camera-driver.patch
+0001-MT9V113-camera-driver.patch
+0001-MT9D113-camera-driver.patch
+0001-PORT-FROM-K3.0-ov9724-add-initial-driver.patch
+0001-PORT-FROM-K3.0-imx135-add-platform-relevant-code.patch
+0001-camera-add-LM3554-to-board.c.patch
+0001-mmc-Removed-board-SOC-dependencies-in-MMC-driver.patch
+0001-USB-add-platform-data-for-otg-pci_dev.patch
+0001-PORT-FROM-MAIN-audio-SFI-entry-name-change-for-the-C.patch
+0001-PORT-FROM-MAIN-Audio-Thermal-probe-detection-code-fo.patch
+0001-PORT-FROM-K3.0-kernel-Scalability-effort-allow-edlp-.patch
+0001-PORT-FROM-MAIN-MRFL-gfx-Integrate-new-Merrifield-gfx.patch
+0001-BT-Added-bluetooth-platform-code.patch
+0001-wl12xx-registering-wl12xx-platform-data.patch
+0001-PORT-FROM-K3.0-imx175-add-initial-driver-for-sensor-.patch
+0001-FORKLIFT-FROM-K3.0-board-Register-camera-specific-de.patch
+0001-audio-Common-machine-driver-for-CTP.patch
+0001-Forklift-of-ALS-and-Gyro-from-Jellybean-mainline.patch
+0001-Forklift-accelerometer-functionality-from-JB-main.patch
+0001-Forklift-of-MDF-CTP-barometer-from-JB-main-to-3.4.patch
+0001-Port-of-HMC5883-from-JB-mainline-to-3.4-kernel.patch
+0001-board_ctp-add-max17047-device_ids-table.patch
+0001-intel-mid-Runtime-board-identification.patch
+0001-HDMI-Enable-HDMI-hotplug-and-HDMI-audio-for-3.4-kern.patch
+0001-Telephony-HSI_Driver-HSI-driver-porting-to-kernel-3..patch
+0001-AUDIO-Forklift-latest-audio-changes-from-PSI-main.patch
+0001-PM-VRF-Adding-VRF-support.patch
+0001-USB-Ported-USB-changes-to-k3.4.patch
+0001-CTP-Board-Bringup.patch
+0001-Added-touchscreen-support.patch
+0001-Fuel-gauge-support.patch
+0001-GPADC-Added-gpadc-driver-support.patch
+0001-mmc-enable-sdhci_pci_get_data-callback.patch
+0001-HSU-Multiple-platforms-support-and-remove-hardcode-P.patch
+0001-INTEL-MID-re-structure-arch-x86-platform-mrst.patch
+
+Category: aosp improvement
+Domain: Kernel.Thermal-Common
+Origin: Internal
+Upstream-Candidate: yes
+
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c           | 102 +++++++++++++
+ .../platform/intel-mid/device_libs/Makefile   |   4 +
+ .../device_libs/platform_soc_thermal.c        | 139 ++++++++++++++++++
+ .../device_libs/platform_soc_thermal.h        |  20 +++
+ 4 files changed, 265 insertions(+)
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.h
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 129f4338732c..4fd975d2dafc 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -56,6 +56,7 @@
+ #include "device_libs/platform_msic_vdd.h"
+ #include "device_libs/platform_mrfl_ocd.h"
+ #include "device_libs/platform_msic_thermal.h"
++#include "device_libs/platform_soc_thermal.h"
+ #include "device_libs/platform_msic_adc.h"
+ #include "device_libs/platform_bcove_adc.h"
+ #include <asm/platform_mrfld_audio.h>
+@@ -138,5 +139,106 @@ struct devs_id __initconst device_ids[] = {
+ 
+ 	/* I2C devices */
+ 	{"bq24192", SFI_DEV_TYPE_I2C, 1, &bq24192_platform_data},
++	/* Panel */
++	{"PANEL_CMI_CMD", SFI_DEV_TYPE_MDM, 0, &no_platform_data,
++		&panel_handler},
++	{"PANEL_JDI_VID", SFI_DEV_TYPE_MDM, 0, &no_platform_data,
++		&panel_handler},
++	{"ctp_lt_wm8994", SFI_DEV_TYPE_IPC, 1, &ctp_audio_platform_data,
++						&ipc_device_handler},
++
++	/* I2C devices for camera image subsystem */
++	{"lm3554", SFI_DEV_TYPE_I2C, 0, &lm3554_platform_data_func,
++					&intel_register_i2c_camera_device},
++	{"mt9e013", SFI_DEV_TYPE_I2C, 0, &mt9e013_platform_data,
++					&intel_register_i2c_camera_device},
++	{"mt9d113", SFI_DEV_TYPE_I2C, 0, &mt9d113_platform_data,
++					&intel_register_i2c_camera_device},
++	{"mt9m114", SFI_DEV_TYPE_I2C, 0, &mt9m114_platform_data,
++					&intel_register_i2c_camera_device},
++	{"mt9v113", SFI_DEV_TYPE_I2C, 0, &mt9v113_platform_data,
++					&intel_register_i2c_camera_device},
++	{"ov8830", SFI_DEV_TYPE_I2C, 0, &ov8830_platform_data,
++					&intel_register_i2c_camera_device},
++	{"ov5640", SFI_DEV_TYPE_I2C, 0, &ov5640_platform_data,
++					&intel_register_i2c_camera_device},
++	{"imx175", SFI_DEV_TYPE_I2C, 0, &imx175_platform_data,
++					&intel_register_i2c_camera_device},
++	{"imx135", SFI_DEV_TYPE_I2C, 0, &imx135_platform_data,
++					&intel_register_i2c_camera_device},
++	{"imx134", SFI_DEV_TYPE_I2C, 0, &imx134_platform_data,
++					&intel_register_i2c_camera_device},
++	{"imx132", SFI_DEV_TYPE_I2C, 0, &imx132_platform_data,
++					&intel_register_i2c_camera_device},
++	{"s5k8aay", SFI_DEV_TYPE_I2C, 0, &s5k8aay_platform_data,
++					&intel_register_i2c_camera_device},
++	{"ov9724", SFI_DEV_TYPE_I2C, 0, &ov9724_platform_data,
++					&intel_register_i2c_camera_device},
++	{"ov2722", SFI_DEV_TYPE_I2C, 0, &ov2722_platform_data,
++					&intel_register_i2c_camera_device},
++	{"lm3559", SFI_DEV_TYPE_I2C, 0, &lm3559_platform_data_func,
++					&intel_register_i2c_camera_device},
++	{"audience_es305", SFI_DEV_TYPE_I2C, 0, &audience_platform_data,
++						NULL},
++	{"wm8994", SFI_DEV_TYPE_I2C, 0, &wm8994_platform_data, NULL},
++	{"PANEL_JDI_CMD", SFI_DEV_TYPE_MDM, 0, &no_platform_data,
++		&panel_handler},
++
++	/* IPC devices */
++	{"pmic_charger", SFI_DEV_TYPE_IPC, 1, &no_platform_data, NULL},
++	{"pmic_ccsm", SFI_DEV_TYPE_IPC, 1, &mrfl_pmic_ccsm_platform_data,
++						&ipc_device_handler},
++	{"i2c_pmic_adap", SFI_DEV_TYPE_IPC, 1, &mrfl_pmic_i2c_platform_data,
++						&ipc_device_handler},
++
++	/* IPC devices */
++	{"ctp_rhb_cs42l73", SFI_DEV_TYPE_IPC, 1, &ctp_audio_platform_data,
++						&ipc_device_handler},
++	{"ctp_vb_cs42l73", SFI_DEV_TYPE_IPC, 1, &ctp_audio_platform_data,
++						&ipc_device_handler},
++	{"ctp_ht_wm5102", SFI_DEV_TYPE_IPC, 1, &ctp_audio_platform_data,
++						&ipc_device_handler},
++	{"mrfld_lm49453", SFI_DEV_TYPE_IPC, 1, &merfld_audio_platform_data,
++						&ipc_device_handler},
++	{"mrfld_wm8958", SFI_DEV_TYPE_IPC, 1, &merfld_wm8958_audio_platform_data,
++						&ipc_device_handler},
++	{"soc_thrm", SFI_DEV_TYPE_IPC, 1, &no_platform_data,
++						&soc_thrm_device_handler},
++	{"wm8958", SFI_DEV_TYPE_I2C, 0, &wm8994_platform_data, NULL},
++	{"lm49453_codec", SFI_DEV_TYPE_I2C, 1, &no_platform_data, NULL},
++	{"cs42l73", SFI_DEV_TYPE_I2C, 1, &cs42l73_platform_data, NULL},
++#ifndef CONFIG_HSI_NO_MODEM
++	{"hsi_ifx_modem", SFI_DEV_TYPE_HSI, 0, &hsi_modem_platform_data, NULL},
++	{"hsi_ffl_modem", SFI_DEV_TYPE_HSI, 0, &ffl_modem_platform_data, NULL},
++	{"hsi_edlp_modem", SFI_DEV_TYPE_HSI, 0, &edlp_modem_platform_data,
++						NULL},
++	{"hsi_edlp_fast", SFI_DEV_TYPE_HSI, 0, &edlp_fast_platform_data, NULL},
++#endif
++	{"XMM_6260", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"XMM_6268", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"XMM_6360", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"XMM_7160_REV1", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"XMM_7160_REV3", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"XMM_7160_REV3_5", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"XMM_7160_REV4", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"XMM_7260_REV1", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"RMC_CYGNUS", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"CYGNUS_FFRD_EU", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"CYGNUS_FFRD_NA", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"RMC_CYGNUS_PCI", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
++	{"RMC_PEGASUS", SFI_DEV_TYPE_MDM, 0, &modem_platform_data,
++		&sfi_handle_mdm},
+ 	{},
+ };
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index 025335bdff26..aca255216ed3 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -1,5 +1,9 @@
+ # IPC Devices
+ obj-y += platform_mrfl_regulator.o
++obj-y += platform_soc_thermal.o
++obj-$(subst m,y,$(CONFIG_SND_BYT_MACHINE)) += platform_byt_audio.o
++obj-$(subst m,y,$(CONFIG_SND_MRFLD_MACHINE)) += platform_mrfld_audio.o
++obj-$(subst m,y,$(CONFIG_SND_CTP_MACHINE)) += platform_ctp_audio.o
+ obj-y += platform_ipc.o
+ obj-y += platform_msic.o
+ obj-y += platform_msic_audio.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c b/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c
+new file mode 100644
+index 000000000000..eba1a0b4c5e6
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c
+@@ -0,0 +1,139 @@
++/*
++ * platform_soc_thermal.c: Platform data for SoC DTS driver
++ *
++ * (C) Copyright 2013 Intel Corporation
++ * Author: Durgadoss R <durgadoss.r@intel.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#define pr_fmt(fmt)  "intel_soc_thermal: " fmt
++
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/interrupt.h>
++#include <linux/platform_device.h>
++
++#include "platform_soc_thermal.h"
++
++#include <asm/intel-mid.h>
++#include <asm/intel_mid_thermal.h>
++
++#define BYT_SOC_THRM_IRQ	86
++#define BYT_SOC_THRM		"soc_thrm"
++
++static struct resource res = {
++		.flags = IORESOURCE_IRQ,
++};
++
++static struct soc_throttle_data tng_soc_data[] = {
++	{
++		.power_limit = 0x9C,
++		.floor_freq = 0x00,
++	},
++	{
++		.power_limit = 0x8C,
++		.floor_freq = 0x00,
++	},
++	{
++		.power_limit = 0x7C,
++		.floor_freq = 0x00,
++	},
++	{
++		.power_limit = 0x6C,
++		.floor_freq = 0x00,
++	},
++};
++
++static struct soc_throttle_data vlv2_soc_data[] = {
++	{
++		.power_limit = 0xDA, /* 7W */
++		.floor_freq = 0x00,
++	},
++	{
++		.power_limit = 0x6D, /* 3.5W */
++		.floor_freq = 0x01,
++	},
++	{
++		.power_limit = 0x2E, /* 1.5W */
++		.floor_freq = 0x01,
++	},
++	{
++		.power_limit = 0x2E, /* 1.5W */
++		.floor_freq = 0x01,
++	},
++};
++
++void soc_thrm_device_handler(struct sfi_device_table_entry *pentry,
++				struct devs_id *dev)
++{
++	int ret;
++	struct platform_device *pdev;
++
++	pr_info("IPC bus = %d, name = %16.16s, irq = 0x%2x\n",
++		pentry->host_num, pentry->name, pentry->irq);
++
++	res.start = pentry->irq;
++
++	pdev = platform_device_register_simple(pentry->name, -1,
++					(const struct resource *)&res, 1);
++	if (IS_ERR(pdev)) {
++		ret = PTR_ERR(pdev);
++		pr_err("platform_soc_thermal:pdev_register failed: %d\n", ret);
++	}
++
++	pdev->dev.platform_data = &tng_soc_data;
++}
++
++static inline int byt_program_ioapic(int irq, int trigger, int polarity)
++{
++	struct io_apic_irq_attr irq_attr;
++	int ioapic;
++
++	ioapic = mp_find_ioapic(irq);
++	if (ioapic < 0)
++		return -EINVAL;
++	irq_attr.ioapic = ioapic;
++	irq_attr.ioapic_pin = irq;
++	irq_attr.trigger = trigger;
++	irq_attr.polarity = polarity;
++	return io_apic_set_pci_routing(NULL, irq, &irq_attr);
++}
++
++static int __init byt_soc_thermal_init(void)
++{
++	int ret;
++	struct platform_device *pdev;
++
++	res.start = BYT_SOC_THRM_IRQ;
++
++	pdev = platform_device_register_simple(BYT_SOC_THRM, -1,
++					(const struct resource *)&res, 1);
++	if (IS_ERR(pdev)) {
++		ret = PTR_ERR(pdev);
++		pr_err("byt_soc_thermal:pdev_register failed: %d\n", ret);
++		return ret;
++	}
++
++	ret = byt_program_ioapic(BYT_SOC_THRM_IRQ, 0, 1);
++	if (ret) {
++		pr_err("%s: ioapic programming failed", __func__);
++		platform_device_unregister(pdev);
++	}
++
++	pdev->dev.platform_data = &vlv2_soc_data;
++
++	return ret;
++}
++
++static int __init platform_soc_thermal_init(void)
++{
++	if (INTEL_MID_BOARD(1, TABLET, BYT))
++		return byt_soc_thermal_init();
++
++	return 0;
++}
++device_initcall(platform_soc_thermal_init);
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.h b/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.h
+new file mode 100644
+index 000000000000..c8ece32cf7d8
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.h
+@@ -0,0 +1,20 @@
++/*
++ * platform_soc_thermal.h: platform SoC thermal driver library header file
++ *
++ * (C) Copyright 2013 Intel Corporation
++ * Author: Durgadoss R <durgadoss.r@intel.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++#ifndef _PLATFORM_SOC_THERMAL_H_
++#define _PLATFORM_SOC_THERMAL_H_
++
++#include <linux/sfi.h>
++#include <asm/intel-mid.h>
++
++extern void soc_thrm_device_handler(struct sfi_device_table_entry *,
++			struct devs_id *) __attribute__((weak));
++#endif
+-- 
+2.37.3
+

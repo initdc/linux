@@ -1,0 +1,29 @@
+From 6c793fd786b4987fe2bb454d52126f8e9782edd0 Mon Sep 17 00:00:00 2001
+From: Huiquan Zhong <huiquan.zhong@intel.com>
+Date: Mon, 23 Dec 2013 08:19:21 +0800
+Subject: [PATCH 129/429] pci: Add check mp_find_ioapic return value
+
+Should check mp_find_ioapic() function return value, otherwise will
+cause kernel panic while irq map ioapic failed.
+
+Signed-off-by: Huiquan Zhong <huiquan.zhong@intel.com>
+---
+ arch/x86/pci/mrst.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/x86/pci/mrst.c b/arch/x86/pci/mrst.c
+index bcdb0a437cf8..741642258ff1 100644
+--- a/arch/x86/pci/mrst.c
++++ b/arch/x86/pci/mrst.c
+@@ -214,6 +214,8 @@ static int mrst_pci_irq_enable(struct pci_dev *dev)
+ 	 * IOAPIC RTE entries, so we just enable RTE for the device.
+ 	 */
+ 	irq_attr.ioapic = mp_find_ioapic(dev->irq);
++	if (irq_attr.ioapic < 0)
++		return -1;
+ 	irq_attr.ioapic_pin = dev->irq;
+ 	irq_attr.trigger = 1; /* level */
+ 	irq_attr.polarity = 1; /* active low */
+-- 
+2.37.3
+

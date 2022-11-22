@@ -1,0 +1,28 @@
+From 946f75ef8e179a85a33075caa37c633db8ad0f1a Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Mon, 24 Mar 2014 17:27:03 +0100
+Subject: [PATCH 284/429] Power: Put ISP unit in D0i3
+
+ISP is powered off.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ arch/x86/platform/intel-mid/pmu_tng.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/x86/platform/intel-mid/pmu_tng.c b/arch/x86/platform/intel-mid/pmu_tng.c
+index fdb0dd651dc4..dd693547eb02 100644
+--- a/arch/x86/platform/intel-mid/pmu_tng.c
++++ b/arch/x86/platform/intel-mid/pmu_tng.c
+@@ -209,6 +209,8 @@ static int __init pmu_nc_poweroff(void) {
+ 	pmu_set_power_state_tng (DSP_SS_PM, DPA_SSC, TNG_COMPOSITE_D3);
+ 	/* Power off MIO */
+ 	pmu_set_power_state_tng (MIO_SS_PM, MIO_SSC, TNG_COMPOSITE_D3);
++	/* Power off ISP */
++	pmu_set_power_state_tng (ISP_SS_PM0, ISP_SSC, TNG_COMPOSITE_D3);
+ 	return 0;
+ }
+ 
+-- 
+2.37.3
+

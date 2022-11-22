@@ -1,0 +1,5069 @@
+From 433d47e6ab407e2e8dad0522f1b82bdf509386c4 Mon Sep 17 00:00:00 2001
+From: "Li, Ning" <ning.li@intel.com>
+Date: Fri, 26 Jul 2013 00:56:26 +0800
+Subject: [PATCH 036/429] Copy SCU IPC support to K3.10 from K3.4
+
+This patch is a copy of the SCU IPC driver to K3.10.
+
+Signed-off-by: Li, Ning <ning.li@intel.com>
+---
+ arch/x86/include/asm/intel_mip.h           |   32 +
+ arch/x86/include/asm/intel_scu_flis.h      |  299 ++++++
+ arch/x86/include/asm/intel_scu_ipc.h       |   88 +-
+ arch/x86/include/asm/intel_scu_pmic.h      |   16 +
+ arch/x86/platform/intel-mid/intel-mid.c    |    5 +-
+ drivers/mfd/intel_msic.c                   |    2 +-
+ drivers/mmc/host/sdhci-pci.c               |   46 +
+ drivers/platform/x86/Kconfig               |    9 +
+ drivers/platform/x86/Makefile              |    3 +-
+ drivers/platform/x86/intel_pmic_gpio.c     |    2 +-
+ drivers/platform/x86/intel_scu_flis.c      |  621 +++++++++++
+ drivers/platform/x86/intel_scu_fw_update.c | 1087 ++++++++++++++++++++
+ drivers/platform/x86/intel_scu_ipc.c       |  636 ++++++------
+ drivers/platform/x86/intel_scu_ipcutil.c   |   13 +
+ drivers/platform/x86/intel_scu_mip.c       |  776 ++++++++++++++
+ drivers/platform/x86/intel_scu_pmic.c      |  477 +++++++++
+ drivers/remoteproc/intel_mid_rproc_core.h  |   82 ++
+ drivers/remoteproc/intel_mid_rproc_scu.c   |  438 ++++++++
+ drivers/rtc/rtc-mrst.c                     |   11 +-
+ sound/soc/codecs/sn95031.c                 |    2 +-
+ 20 files changed, 4273 insertions(+), 372 deletions(-)
+ create mode 100644 arch/x86/include/asm/intel_mip.h
+ create mode 100644 arch/x86/include/asm/intel_scu_flis.h
+ create mode 100644 arch/x86/include/asm/intel_scu_pmic.h
+ create mode 100644 drivers/platform/x86/intel_scu_flis.c
+ create mode 100644 drivers/platform/x86/intel_scu_fw_update.c
+ create mode 100644 drivers/platform/x86/intel_scu_mip.c
+ create mode 100644 drivers/platform/x86/intel_scu_pmic.c
+ create mode 100644 drivers/remoteproc/intel_mid_rproc_core.h
+ create mode 100644 drivers/remoteproc/intel_mid_rproc_scu.c
+
+diff --git a/arch/x86/include/asm/intel_mip.h b/arch/x86/include/asm/intel_mip.h
+new file mode 100644
+index 000000000000..f05fc05d90b2
+--- /dev/null
++++ b/arch/x86/include/asm/intel_mip.h
+@@ -0,0 +1,32 @@
++#ifndef _ASM_X86_INTEL_MIP_H_
++#define  _ASM_X86_INTEL_MIP_H_
++
++#include <asm/intel-mid.h>
++
++/* SMIP property related definitions */
++#define SCU_MIP_DEV_NAME		"intel_scu_mip"
++#define SMIP_NUM_CONFIG_PROPS		6
++#define SMIP_MAX_PROP_LEN		4
++
++enum platform_prop {
++	USB_COMPLIANCE,
++	CHARGE_TERMINATION,
++	SHUTDOWN_METHODOLOGY,
++	MOS_TRANS_CAPACITY,
++	NFC_RESV_CAPACITY,
++	TEMP_CRIT_SHUTDOWN,
++};
++
++struct smip_platform_prop {
++	unsigned int offset;
++	unsigned int len;
++	bool is_bit_field;
++	unsigned int mask;
++};
++
++struct scu_mip_platform_data {
++	struct smip_platform_prop smip_prop[SMIP_NUM_CONFIG_PROPS];
++};
++
++int get_smip_property_by_name(enum platform_prop);
++#endif
+diff --git a/arch/x86/include/asm/intel_scu_flis.h b/arch/x86/include/asm/intel_scu_flis.h
+new file mode 100644
+index 000000000000..9b084951e9d1
+--- /dev/null
++++ b/arch/x86/include/asm/intel_scu_flis.h
+@@ -0,0 +1,299 @@
++#ifndef _ASM_X86_INTEL_SCU_FLIS_H_
++#define _ASM_X86_INTEL_SCU_FLIS_H_
++
++enum flis_param_t {
++	PULL,
++	MUX,
++	OPEN_DRAIN,
++};
++
++/*
++ * Config value for PULL
++ */
++#define NONE		(0 << 0)
++#define DOWN_20K	(1 << 0)
++#define DOWN_2K		(1 << 1)
++/* DOWN_75K is reserved */
++#define UP_20K		(1 << 3)
++#define UP_2K		(1 << 4)
++/*910 Weak Pull-Up*/
++#define UP_910		(1 << 5)
++
++/*
++ * Config value for OPEN_DRAIN
++ */
++#define OD_DISABLE	(1 << 0)
++#define OD_ENABLE	(0 << 0)
++
++/*
++ * Config value for MUX
++ */
++/*Bit0: Mux Enable for Input Enable*/
++#define MUX_EN_INPUT_EN		(1<<0)
++/*Bit1: Input Enable for*/
++#define INPUT_EN		(1<<1)
++/*Bit2: Mux Enable for Output Enable*/
++#define MUX_EN_OUTPUT_EN	(1<<2)
++/*Bit3: Output Enable*/
++#define OUTPUT_EN		(1<<3)
++
++#define PULL_MASK		0x3F
++#define MUX_MASK		0xF
++#define OPEN_DRAIN_MASK		0x1
++
++enum pinname_t {
++	i2s_2_clk = 0,
++	i2s_2_fs = 1,
++	i2s_2_rxd = 2,
++	i2s_2_txd = 3,
++	msic_reset_b = 4,
++	spi_0_clk = 5,
++	spi_0_sdi = 6,
++	spi_0_sdo = 7,
++	spi_0_ss = 8,
++	svid_clkout = 9,
++	svid_clksynch = 10,
++	svid_din = 11,
++	svid_dout = 12,
++	usb_ulpi_clk = 13,
++	usb_ulpi_data0 = 14,
++	usb_ulpi_data1 = 15,
++	usb_ulpi_data2 = 16,
++	usb_ulpi_data3 = 17,
++	usb_ulpi_data4 = 18,
++	usb_ulpi_data5 = 19,
++	usb_ulpi_data6 = 20,
++	usb_ulpi_data7 = 21,
++	usb_ulpi_dir = 22,
++	usb_ulpi_nxt = 23,
++	usb_ulpi_refclk = 24,
++	usb_ulpi_stp = 25,
++	ulpi1lpc_gpe_b = 26,
++	ulpi1lpc_lpc_ad0 = 27,
++	ulpi1lpc_lpc_ad1 = 28,
++	ulpi1lpc_lpc_ad2 = 29,
++	ulpi1lpc_lpc_ad3 = 30,
++	ulpi1lpc_lpc_clkout = 31,
++	ulpi1lpc_lpc_clkrun = 32,
++	ulpi1lpc_lpc_frame_b = 33,
++	ulpi1lpc_lpc_reset_b = 34,
++	ulpi1lpc_lpc_serirq = 35,
++	ulpi1lpc_lpc_smi_b = 36,
++	ulpi1lpc_usb_ulpi_1_clk = 37,
++	ulpi1lpc_usb_ulpi_1_data0 = 38,
++	ulpi1lpc_usb_ulpi_1_data1 = 39,
++	ulpi1lpc_usb_ulpi_1_data2 = 40,
++	ulpi1lpc_usb_ulpi_1_data3 = 41,
++	ulpi1lpc_usb_ulpi_1_data4 = 42,
++	ulpi1lpc_usb_ulpi_1_data5 = 43,
++	ulpi1lpc_usb_ulpi_1_data6 = 44,
++	ulpi1lpc_usb_ulpi_1_data7 = 45,
++	ulpi1lpc_usb_ulpi_1_dir = 46,
++	ulpi1lpc_usb_ulpi_1_nxt = 47,
++	ulpi1lpc_usb_ulpi_1_refclk = 48,
++	ulpi1lpc_usb_ulpi_1_stp = 49,
++	kbd_dkin0 = 50,
++	kbd_dkin1 = 51,
++	kbd_dkin2 = 52,
++	kbd_dkin3 = 53,
++	kbd_mkin0 = 54,
++	kbd_mkin1 = 55,
++	kbd_mkin2 = 56,
++	kbd_mkin3 = 57,
++	kbd_mkin4 = 58,
++	kbd_mkin5 = 59,
++	kbd_mkin6 = 60,
++	kbd_mkin7 = 61,
++	kbd_mkout0 = 62,
++	kbd_mkout1 = 63,
++	kbd_mkout2 = 64,
++	kbd_mkout3 = 65,
++	kbd_mkout4 = 66,
++	kbd_mkout5 = 67,
++	kbd_mkout6 = 68,
++	kbd_mkout7 = 69,
++	camerasb10 = 70,
++	camerasb4 = 71,
++	camerasb5 = 72,
++	camerasb6 = 73,
++	camerasb7 = 74,
++	camerasb8 = 75,
++	camerasb9 = 76,
++	i2c_4_scl = 77,
++	i2c_4_sda = 78,
++	i2c_5_scl = 79,
++	i2c_5_sda = 80,
++	intd_dsi_te1 = 81,
++	intd_dsi_te2 = 82,
++	stio_0_cd_b = 83,
++	stio_0_clk = 84,
++	stio_0_cmd = 85,
++	stio_0_dat0 = 86,
++	stio_0_dat1 = 87,
++	stio_0_dat2 = 88,
++	stio_0_dat3 = 89,
++	stio_0_dat4 = 90,
++	stio_0_dat5 = 91,
++	stio_0_dat6 = 92,
++	stio_0_dat7 = 93,
++	stio_0_wp_b = 94,
++	camerasb0 = 95,
++	camerasb1 = 96,
++	camerasb2 = 97,
++	camerasb3 = 98,
++	ded_gpio10 = 99,
++	ded_gpio11 = 100,
++	ded_gpio12 = 101,
++	ded_gpio13 = 102,
++	ded_gpio14 = 103,
++	ded_gpio15 = 104,
++	ded_gpio16 = 105,
++	ded_gpio17 = 106,
++	ded_gpio18 = 107,
++	ded_gpio19 = 108,
++	ded_gpio20 = 109,
++	ded_gpio21 = 110,
++	ded_gpio22 = 111,
++	ded_gpio23 = 112,
++	ded_gpio24 = 113,
++	ded_gpio25 = 114,
++	ded_gpio26 = 115,
++	ded_gpio27 = 116,
++	ded_gpio28 = 117,
++	ded_gpio29 = 118,
++	ded_gpio30 = 119,
++	ded_gpio8 = 120,
++	ded_gpio9 = 121,
++	mpti_nidnt_clk = 122,
++	mpti_nidnt_data0 = 123,
++	mpti_nidnt_data1 = 124,
++	mpti_nidnt_data2 = 125,
++	mpti_nidnt_data3 = 126,
++	stio_1_clk = 127,
++	stio_1_cmd = 128,
++	stio_1_dat0 = 129,
++	stio_1_dat1 = 130,
++	stio_1_dat2 = 131,
++	stio_1_dat3 = 132,
++	stio_2_clk = 133,
++	stio_2_cmd = 134,
++	stio_2_dat0 = 135,
++	stio_2_dat1 = 136,
++	stio_2_dat2 = 137,
++	stio_2_dat3 = 138,
++	coms_int0 = 139,
++	coms_int1 = 140,
++	coms_int2 = 141,
++	coms_int3 = 142,
++	ded_gpio4 = 143,
++	ded_gpio5 = 144,
++	ded_gpio6 = 145,
++	ded_gpio7 = 146,
++	i2s_0_clk = 147,
++	i2s_0_fs = 148,
++	i2s_0_rxd = 149,
++	i2s_0_txd = 150,
++	i2s_1_clk = 151,
++	i2s_1_fs = 152,
++	i2s_1_rxd = 153,
++	i2s_1_txd = 154,
++	mslim_1_bclk = 155,
++	mslim_1_bdat = 156,
++	resetout_b = 157,
++	spi_2_clk = 158,
++	spi_2_sdi = 159,
++	spi_2_sdo = 160,
++	spi_2_ss0 = 161,
++	spi_2_ss1 = 162,
++	spi_3_clk = 163,
++	spi_3_sdi = 164,
++	spi_3_sdo = 165,
++	spi_3_ss0 = 166,
++	spi_3_ss1 = 167,
++	uart_0_cts = 168,
++	uart_0_rts = 169,
++	uart_0_rx = 170,
++	uart_0_tx = 171,
++	uart_1_rx = 172,
++	uart_1_sd = 173,
++	uart_1_tx = 174,
++	uart_2_rx = 175,
++	uart_2_tx = 176,
++	aclkph = 177,
++	dclkph = 178,
++	dsiclkph = 179,
++	ierr = 180,
++	jtag_tckc = 181,
++	jtag_tdic = 182,
++	jtag_tdoc = 183,
++	jtag_tmsc = 184,
++	jtag_trst_b = 185,
++	lclkph = 186,
++	lfhclkph = 187,
++	osc_clk_ctrl0 = 188,
++	osc_clk_ctrl1 = 189,
++	osc_clk_out0 = 190,
++	osc_clk_out1 = 191,
++	osc_clk_out2 = 192,
++	osc_clk_out3 = 193,
++	prochot_b = 194,
++	thermtrip_b = 195,
++	uclkph = 196,
++	ded_gpio31 = 197,
++	ded_gpio32 = 198,
++	ded_gpio33 = 199,
++	hdmi_cec = 200,
++	i2c_3_scl_hdmi_ddc = 201,
++	i2c_3_sda_hdmi_ddc = 202,
++	i2c_0_scl = 203,
++	i2c_0_sda = 204,
++	i2c_1_scl = 205,
++	i2c_1_sda = 206,
++	i2c_2_scl = 207,
++	i2c_2_sda = 208,
++	spi_1_clk = 209,
++	spi_1_sdi = 210,
++	spi_1_sdo = 211,
++	spi_1_ss0 = 212,
++	spi_1_ss1 = 213,
++	spi_1_ss2 = 214,
++	spi_1_ss3 = 215,
++	spi_1_ss4 = 216,
++};
++
++struct pinstruct_t {
++	bool valid;	/* the pin is allowed to be configured or not */
++	u8 bus_address;
++	u8 pullup_offset;
++	u8 pullup_lsb_pos;
++	u8 direction_offset;
++	u8 direction_lsb_pos;
++	u8 open_drain_offset;
++	u8 open_drain_bit;
++};
++
++struct intel_scu_flis_platform_data {
++	struct pinstruct_t *pin_t;
++	int pin_num;
++};
++
++#define OPS_STR_LEN 10
++
++enum {
++	DBG_SHIM_FLIS_ADDR,
++	DBG_SHIM_OFFSET,
++	DBG_SHIM_DATA,
++
++	DBG_PARAM_VAL,
++	DBG_PARAM_TYPE,
++	DBG_PIN_NAME,
++};
++
++int intel_scu_ipc_write_shim(u32 data, u32 flis_addr, u32 offset);
++int intel_scu_ipc_read_shim(u32 *data, u32 flis_addr, u32 offset);
++int intel_scu_ipc_update_shim(u32 data, u32 mask, u32 flis_addr, u32 offset);
++int config_pin_flis(enum pinname_t name, enum flis_param_t param, u8 val);
++int get_pin_flis(enum pinname_t name, enum flis_param_t param, u8 *val);
++
++extern struct pinstruct_t ctp_pin_table[];
++#endif
+diff --git a/arch/x86/include/asm/intel_scu_ipc.h b/arch/x86/include/asm/intel_scu_ipc.h
+index 925b605eb5c6..b7b6f5b3304b 100644
+--- a/arch/x86/include/asm/intel_scu_ipc.h
++++ b/arch/x86/include/asm/intel_scu_ipc.h
+@@ -2,53 +2,87 @@
+ #define  _ASM_X86_INTEL_SCU_IPC_H_
+ 
+ #include <linux/notifier.h>
++#include <asm/intel-mid.h>
+ 
++/* IPC defines the following message types */
++#define IPCMSG_GET_HOBADDR	0xE5 /* OSHOB access. */
++#define IPCMSG_BATTERY          0xEF /* Coulomb Counter Accumulator */
++#define IPCMSG_MIP_ACCESS       0xEC /* IA MIP access */
++#define IPCMSG_PMDB_CMD		0xE0
+ #define IPCMSG_WARM_RESET	0xF0
+ #define IPCMSG_COLD_RESET	0xF1
+ #define IPCMSG_SOFT_RESET	0xF2
+ #define IPCMSG_COLD_BOOT	0xF3
+-
++#define IPCMSG_COLD_OFF		0x80 /* for TNG only */
++#define IPCMSG_FW_REVISION      0xF4 /* Get firmware revision */
++#define IPCMSG_SHIM_CONFIG	0xF5 /* Configure SHIM */
++#define IPCMSG_WATCHDOG_TIMER   0xF8 /* Set Kernel Watchdog Threshold */
+ #define IPCMSG_VRTC		0xFA	 /* Set vRTC device */
+-	/* Command id associated with message IPCMSG_VRTC */
+-	#define IPC_CMD_VRTC_SETTIME      1 /* Set time */
+-	#define IPC_CMD_VRTC_SETALARM     2 /* Set alarm */
++#define IPCMSG_FW_UPDATE        0xFE /* Firmware update */
++#define IPCMSG_PCNTRL           0xFF /* Power controller unit read/write */
++#define IPCMSG_OSC_CLK		0xE6 /* Turn on/off osc clock */
++#define IPCMSG_S0IX_COUNTER	0xEB /* Get S0ix residency */
++#define IPCMSG_CLEAR_FABERROR	0xE3 /* Clear fabric error log */
++#define IPCMSG_STORE_NV_DATA	0xCD /* Store the Non Volatile data to RAM */
+ 
+-/* Read single register */
+-int intel_scu_ipc_ioread8(u16 addr, u8 *data);
++#define IPC_CMD_UMIP_RD     0
++#define IPC_CMD_UMIP_WR     1
++#define IPC_CMD_SMIP_RD     2
+ 
+-/* Read two sequential registers */
+-int intel_scu_ipc_ioread16(u16 addr, u16 *data);
++/* Command id associated with message IPCMSG_PCNTRL */
++#define IPC_CMD_PCNTRL_W      0 /* Register write */
++#define IPC_CMD_PCNTRL_R      1 /* Register read */
++#define IPC_CMD_PCNTRL_M      2 /* Register read-modify-write */
+ 
+-/* Read four sequential registers */
+-int intel_scu_ipc_ioread32(u16 addr, u32 *data);
++#define IPC_ERR_NONE			0
++#define IPC_ERR_CMD_NOT_SUPPORTED	1
++#define IPC_ERR_CMD_NOT_SERVICED	2
++#define IPC_ERR_UNABLE_TO_SERVICE	3
++#define IPC_ERR_CMD_INVALID		4
++#define IPC_ERR_CMD_FAILED		5
++#define IPC_ERR_EMSECURITY		6
+ 
+-/* Read a vector */
+-int intel_scu_ipc_readv(u16 *addr, u8 *data, int len);
++#define MSIC_DEBUG_FILE "msic"
++#define MSIC_ALL_DEBUG_FILE "msic_all"
++#define MAX_MSIC_REG   0x3FF
++#define MIN_MSIC_REG   0x0
+ 
+-/* Write single register */
+-int intel_scu_ipc_iowrite8(u16 addr, u8 data);
+ 
+-/* Write two sequential registers */
+-int intel_scu_ipc_iowrite16(u16 addr, u16 data);
+ 
+-/* Write four sequential registers */
+-int intel_scu_ipc_iowrite32(u16 addr, u32 data);
++/* Command id associated with message IPCMSG_VRTC */
++#define IPC_CMD_VRTC_SETTIME      1 /* Set time */
++#define IPC_CMD_VRTC_SETALARM     2 /* Set alarm */
++#define IPC_CMD_VRTC_SYNC_RTC     3 /* Sync MSIC/PMIC RTC to VRTC */
+ 
+-/* Write a vector */
+-int intel_scu_ipc_writev(u16 *addr, u8 *data, int len);
++/* Command id associated with message IPCMSG_SHIM_CONFIG */
++#define IPC_CMD_SHIM_RD		0 /* SHIM read */
++#define IPC_CMD_SHIM_WR		1 /* SHIM write */
+ 
+-/* Update single register based on the mask */
+-int intel_scu_ipc_update_register(u16 addr, u8 data, u8 mask);
++/* check ipc status */
++int intel_scu_ipc_check_status(void);
+ 
+-/* Issue commands to the SCU with or without data */
+-int intel_scu_ipc_simple_command(int cmd, int sub);
+-int intel_scu_ipc_command(int cmd, int sub, u32 *in, int inlen,
+-							u32 *out, int outlen);
+ /* I2C control api */
+ int intel_scu_ipc_i2c_cntrl(u32 addr, u32 *data);
+ 
+ /* Update FW version */
+-int intel_scu_ipc_fw_update(u8 *buffer, u32 length);
++int intel_scu_ipc_fw_update(void);
++int intel_scu_ipc_mrstfw_update(u8 *buffer, u32 length);
++int intel_scu_ipc_medfw_prepare(void __user *arg);
++
++int intel_scu_ipc_read_mip(u8 *data, int len, int offset, int issigned);
++int intel_scu_ipc_write_umip(u8 *data, int len, int offset);
++
++/* NVRAM access */
++u32 intel_scu_ipc_get_nvram_size(void);
++u32 intel_scu_ipc_get_nvram_addr(void);
++
++/* Penwell has 4 osc clocks */
++#define OSC_CLK_AUDIO	0	/* Audio */
++#define OSC_CLK_CAM0	1	/* Primary camera */
++#define OSC_CLK_CAM1	2	/* Secondary camera */
++#define OSC_CLK_DISP	3	/* Display buffer */
++
++int intel_scu_ipc_osc_clk(u8 clk, unsigned int khz);
+ 
+ extern struct blocking_notifier_head intel_scu_notifier;
+ 
+diff --git a/arch/x86/include/asm/intel_scu_pmic.h b/arch/x86/include/asm/intel_scu_pmic.h
+new file mode 100644
+index 000000000000..308afa6b98bb
+--- /dev/null
++++ b/arch/x86/include/asm/intel_scu_pmic.h
+@@ -0,0 +1,16 @@
++#ifndef __INTEL_SCU_PMIC_H__
++#define __INTEL_SCU_PMIC_H__
++
++#include <asm/types.h>
++
++#define KOBJ_PMIC_ATTR(_name, _mode, _show, _store) \
++	struct kobj_attribute _name##_attr = __ATTR(_name, _mode, _show, _store)
++
++extern int intel_scu_ipc_ioread8(u16 addr, u8 *data);
++extern int intel_scu_ipc_ioread32(u16 addr, u32 *data);
++extern int intel_scu_ipc_readv(u16 *addr, u8 *data, int len);
++extern int intel_scu_ipc_iowrite8(u16 addr, u8 data);
++extern int intel_scu_ipc_writev(u16 *addr, u8 *data, int len);
++extern int intel_scu_ipc_update_register(u16 addr, u8 data, u8 mask);
++
++#endif /*__INTEL_SCU_PMIC_H__ */
+diff --git a/arch/x86/platform/intel-mid/intel-mid.c b/arch/x86/platform/intel-mid/intel-mid.c
+index 51cbf5875799..f03d6e24d9e9 100644
+--- a/arch/x86/platform/intel-mid/intel-mid.c
++++ b/arch/x86/platform/intel-mid/intel-mid.c
+@@ -32,6 +32,7 @@
+ #include <asm/io.h>
+ #include <asm/i8259.h>
+ #include <asm/intel_scu_ipc.h>
++#include <asm/intel_mid_rpmsg.h>
+ #include <asm/apb_timer.h>
+ #include <asm/reboot.h>
+ #include "intel_mid_weak_decls.h"
+@@ -70,9 +71,9 @@ MODULE_PARM_DESC(force_cold_boot,
+ static void intel_mid_reboot(void)
+ {
+ 	if (force_cold_boot)
+-		intel_scu_ipc_simple_command(IPCMSG_COLD_BOOT, 0);
++		rpmsg_send_generic_simple_command(IPCMSG_COLD_BOOT, 0);
+ 	else
+-		intel_scu_ipc_simple_command(IPCMSG_COLD_RESET, 0);
++		rpmsg_send_generic_simple_command(IPCMSG_COLD_RESET, 0);
+ }
+ 
+ static unsigned long __init intel_mid_calibrate_tsc(void)
+diff --git a/drivers/mfd/intel_msic.c b/drivers/mfd/intel_msic.c
+index d8d5137f9717..44b60c95e268 100644
+--- a/drivers/mfd/intel_msic.c
++++ b/drivers/mfd/intel_msic.c
+@@ -18,7 +18,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
+ 
+-#include <asm/intel_scu_ipc.h>
++#include <asm/intel_scu_pmic.h>
+ 
+ #define MSIC_VENDOR(id)		((id >> 6) & 3)
+ #define MSIC_VERSION(id)	(id & 0x3f)
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 701d06d0e1fb..7aeddf2d677b 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -26,6 +26,12 @@
+ #include <linux/pm_runtime.h>
+ #include <linux/mmc/sdhci-pci-data.h>
+ 
++#include <asm/intel_mid_rpmsg.h>
++
++#if defined(CONFIG_X86_MDFLD)
++#include <linux/intel_mid_pm.h>
++#endif
++
+ #include "sdhci.h"
+ 
+ /*
+@@ -260,6 +266,46 @@ static inline void sdhci_pci_remove_own_cd(struct sdhci_pci_slot *slot)
+ 
+ #endif
+ 
++#define MFD_SDHCI_DEKKER_BASE  0xffff7fb0
++static void mfd_emmc_mutex_register(struct sdhci_pci_slot *slot)
++{
++	u32 mutex_var_addr;
++#ifdef CONFIG_INTEL_SCU_IPC
++	int err;
++
++	err = rpmsg_send_generic_command(IPC_EMMC_MUTEX_CMD, 0,
++			NULL, 0, &mutex_var_addr, 1);
++	if (err) {
++		dev_err(&slot->chip->pdev->dev, "IPC error: %d\n", err);
++		dev_info(&slot->chip->pdev->dev, "Specify mutex address\n");
++		/*
++		 * Since we failed to get mutex sram address, specify it
++		 */
++		mutex_var_addr = MFD_SDHCI_DEKKER_BASE;
++	}
++#else
++	mutex_var_addr = MFD_SDHCI_DEKKER_BASE;
++#endif
++
++	/* 3 housekeeping mutex variables, 12 bytes length */
++	slot->host->sram_addr = ioremap_nocache(mutex_var_addr,
++			3 * sizeof(u32));
++	if (!slot->host->sram_addr)
++		dev_err(&slot->chip->pdev->dev, "ioremap failed!\n");
++	else {
++		dev_info(&slot->chip->pdev->dev, "mapped addr: %p\n",
++				slot->host->sram_addr);
++		dev_info(&slot->chip->pdev->dev,
++		"current eMMC owner: %d, IA req: %d, SCU req: %d\n",
++				readl(slot->host->sram_addr +
++					DEKKER_EMMC_OWNER_OFFSET),
++				readl(slot->host->sram_addr +
++					DEKKER_IA_REQ_OFFSET),
++				readl(slot->host->sram_addr +
++					DEKKER_SCU_REQ_OFFSET));
++	}
++}
++
+ static int mfd_emmc_probe_slot(struct sdhci_pci_slot *slot)
+ {
+ 	slot->host->mmc->caps |= MMC_CAP_8_BIT_DATA | MMC_CAP_NONREMOVABLE;
+diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
+index 85772616efbf..0f1204add4a6 100644
+--- a/drivers/platform/x86/Kconfig
++++ b/drivers/platform/x86/Kconfig
+@@ -789,4 +789,13 @@ config PVPANIC
+ 	  a paravirtualized device provided by QEMU; it lets a virtual machine
+ 	  (guest) communicate panic events to the host.
+ 
++config INTEL_SCU_FLIS
++	tristate "scu flis driver config"
++	depends on INTEL_SCU_IPC
++	default y
++	help
++	  This driver builds the SCU Flis Access Sysfs Interfaces.
++	  We could read write the flis address and configure the
++	  pin pull up/down using these interfaces.
++
+ endif # X86_PLATFORM_DEVICES
+diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
+index ef0ec746f78c..e4b09644c0ba 100644
+--- a/drivers/platform/x86/Makefile
++++ b/drivers/platform/x86/Makefile
+@@ -36,8 +36,9 @@ obj-$(CONFIG_TOPSTAR_LAPTOP)	+= topstar-laptop.o
+ obj-$(CONFIG_ACPI_TOSHIBA)	+= toshiba_acpi.o
+ 
+ obj-$(CONFIG_TOSHIBA_BT_RFKILL)	+= toshiba_bluetooth.o
+-obj-$(CONFIG_INTEL_SCU_IPC)	+= intel_scu_ipc.o
++obj-$(CONFIG_INTEL_SCU_IPC)	+= intel_scu_ipc.o intel_scu_pmic.o intel_scu_mip.o intel_scu_fw_update.o
+ obj-$(CONFIG_INTEL_SCU_IPC_UTIL) += intel_scu_ipcutil.o
++obj-$(CONFIG_INTEL_SCU_FLIS)	+= intel_scu_flis.o
+ obj-$(CONFIG_INTEL_MFLD_THERMAL) += intel_mid_thermal.o
+ obj-$(CONFIG_INTEL_IPS)		+= intel_ips.o
+ obj-$(CONFIG_GPIO_INTEL_PMIC)	+= intel_pmic_gpio.o
+diff --git a/drivers/platform/x86/intel_pmic_gpio.c b/drivers/platform/x86/intel_pmic_gpio.c
+index 6f4b7289a059..c2d271af4b0b 100644
+--- a/drivers/platform/x86/intel_pmic_gpio.c
++++ b/drivers/platform/x86/intel_pmic_gpio.c
+@@ -31,7 +31,7 @@
+ #include <linux/init.h>
+ #include <linux/io.h>
+ #include <linux/gpio.h>
+-#include <asm/intel_scu_ipc.h>
++#include <asm/intel_scu_pmic.h>
+ #include <linux/device.h>
+ #include <linux/intel_pmic_gpio.h>
+ #include <linux/platform_device.h>
+diff --git a/drivers/platform/x86/intel_scu_flis.c b/drivers/platform/x86/intel_scu_flis.c
+new file mode 100644
+index 000000000000..165110f76d94
+--- /dev/null
++++ b/drivers/platform/x86/intel_scu_flis.c
+@@ -0,0 +1,621 @@
++/* intel_scu_flis.c SCU FLIS INTERFACES
++ *
++ * Copyright (c) 2012,  Intel Corporation.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/device.h>
++#include <linux/fs.h>
++#include <linux/rpmsg.h>
++#include <asm/intel-mid.h>
++#include <asm/intel_scu_ipc.h>
++#include <asm/intel_scu_flis.h>
++#include <asm/intel_mid_rpmsg.h>
++#include <linux/platform_data/intel_mid_remoteproc.h>
++
++static struct rpmsg_instance *flis_instance;
++
++static u32 shim_flis_addr;
++static u32 shim_offset;
++static u32 shim_data;
++static char shim_ops[OPS_STR_LEN];
++
++static u32 param_type;	/* flis param type: PULL/PIN DIRECTION/OPEN_DRAIN */
++static u8 param_value;	/* value of certain flis param */
++static enum pinname_t pin_name;
++static char ops[OPS_STR_LEN];
++
++struct intel_scu_flis_info {
++	struct pinstruct_t *pin_t;
++	int pin_num;
++	int initialized;
++};
++
++static struct intel_scu_flis_info flis_info;
++
++/* directly write to flis address */
++int intel_scu_ipc_write_shim(u32 data, u32 flis_addr, u32 offset)
++{
++	int ret;
++	u32 ipc_wbuf[3];
++
++	/* offset 0xff means the flis is reserved, just return 0*/
++	if (offset == 0xFF)
++		return 0;
++
++	ipc_wbuf[0] = flis_addr; /* wbuf[0]: flis address */
++	ipc_wbuf[1] = offset;	/* wbuf[1]: register offset */
++	ipc_wbuf[2] = data;	/* wbuf[2]: data */
++
++	ret = rpmsg_send_command(flis_instance,	IPCMSG_SHIM_CONFIG,
++				IPC_CMD_SHIM_WR, (u8 *)ipc_wbuf, NULL, 12, 0);
++	if (ret)
++		pr_err("%s: failed to write shim, flis addr: 0x%x, offset: 0x%x\n",
++			__func__, flis_addr, offset);
++
++	return ret;
++}
++EXPORT_SYMBOL(intel_scu_ipc_write_shim);
++
++/* directly read from flis address */
++int intel_scu_ipc_read_shim(u32 *data, u32 flis_addr, u32 offset)
++{
++	int ret;
++	u32 ipc_wbuf[2];
++
++	/* offset 0xff means the flis is reserved, just return 0 */
++	if (offset == 0xFF)
++		return 0;
++
++	ipc_wbuf[0] = flis_addr;
++	ipc_wbuf[1] = offset;
++
++	ret = rpmsg_send_command(flis_instance,	IPCMSG_SHIM_CONFIG,
++				IPC_CMD_SHIM_RD, (u8 *)ipc_wbuf, data, 8, 1);
++	if (ret)
++		pr_err("%s: failed to read shim, flis addr: 0x%x, offset: 0x%x\n",
++			__func__, flis_addr, offset);
++
++	return ret;
++}
++EXPORT_SYMBOL(intel_scu_ipc_read_shim);
++
++int intel_scu_ipc_update_shim(u32 data, u32 mask, u32 flis_addr, u32 offset)
++{
++	u32 tmp = 0;
++	int ret;
++
++	ret = intel_scu_ipc_read_shim(&tmp, flis_addr, offset);
++	if (ret) {
++		pr_err("read shim failed, addr = 0x%x, off = 0x%x\n",
++			flis_addr, offset);
++		return ret;
++	}
++
++	tmp &= ~mask;
++	tmp |= (data & mask);
++
++	ret = intel_scu_ipc_write_shim(tmp, flis_addr, offset);
++	if (ret) {
++		pr_err("write shim failed, addr = 0x%x, off = 0x%x\n",
++			flis_addr, offset);
++		return ret;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL(intel_scu_ipc_update_shim);
++
++/**
++ * config_pin_flis -- configure pin direction,
++ *		      pull direction and strength and open-drain enable.
++ *
++ * @name: pin name
++ * @param: flis param
++ * @val: value to be set
++ *
++ * example:
++ * config pull up/down:
++ *	config_pin_flis(i2s_2_clk, PULL, UP_20K);
++ *	config_pin_flis(i2s_2_clk, PULL, DOWN_20K);
++ *
++ * config pin direction:
++ *	config_pin_flis(i2s_2_clk, PIN_DIRECTION, MUX_EN_INPUT_EN);
++ *	config_pin_flis(i2s_2_clk, PIN_DIRECTION, INPUT_EN);
++ *	config_pin_flis(i2s_2_clk, PIN_DIRECTION, MUX_EN_OUTPUT_EN);
++ *	config_pin_flis(i2s_2_clk, PIN_DIRECTION, OUTPUT_EN);
++ *
++ * config pin open-drain:
++ *	config_pin_flis(i2s_2_clk, OPEN_DRAIN, OD_ENABLE);
++ *	config_pin_flis(i2s_2_clk, OPEN_DRAIN, OD_DISABLE);
++ *
++ */
++int config_pin_flis(enum pinname_t name, enum flis_param_t param, u8 val)
++{
++	u32 flis_addr, off, data, mask;
++	int ret;
++	int pos;
++	struct intel_scu_flis_info *isfi = &flis_info;
++
++	if (!isfi->initialized)
++		return -ENODEV;
++
++	if (name < 0 || name >= isfi->pin_num)
++		return -EINVAL;
++
++	/* Check if the pin is configurable */
++	if (isfi->pin_t[name].valid == false)
++		return -EINVAL;
++
++	flis_addr = isfi->pin_t[name].bus_address;
++
++	switch (param) {
++	case PULL:
++		off = isfi->pin_t[name].pullup_offset;
++		pos = isfi->pin_t[name].pullup_lsb_pos;
++		mask = (PULL_MASK << pos);
++		break;
++	case MUX:
++		off = isfi->pin_t[name].direction_offset;
++		pos = isfi->pin_t[name].direction_lsb_pos;
++		mask = (MUX_MASK << pos);
++		break;
++	case OPEN_DRAIN:
++		off = isfi->pin_t[name].open_drain_offset;
++		pos = isfi->pin_t[name].open_drain_bit;
++		mask = (OPEN_DRAIN_MASK << pos);
++		break;
++	default:
++		pr_err("Please specify valid flis param\n");
++		return -EINVAL;
++	}
++
++	data = (val << pos);
++	pr_debug("addr = 0x%x, off = 0x%x, pos = %d, mask = 0x%x, data = 0x%x\n",
++			flis_addr, off, pos, mask, data);
++
++	ret = intel_scu_ipc_update_shim(data, mask, flis_addr, off);
++	if (ret) {
++		pr_err("update shim failed\n");
++		return ret;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(config_pin_flis);
++
++int get_pin_flis(enum pinname_t name, enum flis_param_t param, u8 *val)
++{
++	u32 flis_addr, off;
++	u32 data = 0;
++	int ret;
++	int pos;
++	u8 mask;
++	struct intel_scu_flis_info *isfi = &flis_info;
++
++	if (!isfi->initialized)
++		return -ENODEV;
++
++	if (name < 0 || name >= isfi->pin_num)
++		return -EINVAL;
++
++	if (isfi->pin_t[name].valid == false)
++		return -EINVAL;
++
++	flis_addr = isfi->pin_t[name].bus_address;
++
++	switch (param) {
++	case PULL:
++		off = isfi->pin_t[name].pullup_offset;
++		pos = isfi->pin_t[name].pullup_lsb_pos;
++		mask = PULL_MASK;
++		break;
++	case MUX:
++		off = isfi->pin_t[name].direction_offset;
++		pos = isfi->pin_t[name].direction_lsb_pos;
++		mask = MUX_MASK;
++		break;
++	case OPEN_DRAIN:
++		off = isfi->pin_t[name].open_drain_offset;
++		pos = isfi->pin_t[name].open_drain_bit;
++		mask = OPEN_DRAIN_MASK;
++		break;
++	default:
++		pr_err("Please specify valid flis param\n");
++		return -EINVAL;
++	}
++
++	ret = intel_scu_ipc_read_shim(&data, flis_addr, off);
++	if (ret) {
++		pr_err("read shim failed, addr = 0x%x, off = 0x%x\n",
++			flis_addr, off);
++		return ret;
++	}
++
++	*val = (data >> pos) & mask;
++
++	pr_debug("read: data = 0x%x, val = 0x%x\n", data, *val);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(get_pin_flis);
++
++static void flis_generic_store(const char *buf, int type)
++{
++	u32 tmp;
++	int ret;
++
++	/* use decimal for pin number */
++	if (type == DBG_PIN_NAME)
++		ret = sscanf(buf, "%d", &tmp);
++	else
++		ret = sscanf(buf, "%x", &tmp);
++
++	if (ret != 1)
++		return;
++
++	switch (type) {
++	case DBG_SHIM_FLIS_ADDR:
++		shim_flis_addr = tmp;
++		break;
++	case DBG_SHIM_OFFSET:
++		shim_offset = tmp;
++		break;
++	case DBG_SHIM_DATA:
++		shim_data = tmp;
++		break;
++	case DBG_PARAM_VAL:
++		param_value = (u8)tmp;
++		break;
++	case DBG_PARAM_TYPE:
++		param_type = tmp;
++		break;
++	case DBG_PIN_NAME:
++		pin_name = (enum pinname_t)tmp;
++		break;
++	default:
++		break;
++	}
++}
++
++static ssize_t shim_flis_addr_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	flis_generic_store(buf, DBG_SHIM_FLIS_ADDR);
++	return size;
++}
++
++static ssize_t shim_flis_addr_show(struct device *dev,
++			struct device_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "0x%x\n", shim_flis_addr);
++}
++
++static ssize_t shim_offset_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	flis_generic_store(buf, DBG_SHIM_OFFSET);
++	return size;
++}
++
++static ssize_t shim_offset_show(struct device *dev,
++			struct device_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "0x%x\n", shim_offset);
++}
++
++static ssize_t shim_data_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	flis_generic_store(buf, DBG_SHIM_DATA);
++	return size;
++}
++
++static ssize_t shim_data_show(struct device *dev,
++			struct device_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "0x%x\n", shim_data);
++}
++
++static ssize_t shim_ops_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	int ret;
++
++	memset(shim_ops, 0, sizeof(shim_ops));
++
++	ret = sscanf(buf, "%9s", shim_ops);
++	if (ret != 1)
++		return -EINVAL;
++
++	if (!strncmp("read", shim_ops, OPS_STR_LEN)) {
++		ret = intel_scu_ipc_read_shim(&shim_data, shim_flis_addr,
++				shim_offset);
++	} else if (!strncmp("write", shim_ops, OPS_STR_LEN)) {
++		ret = intel_scu_ipc_write_shim(shim_data, shim_flis_addr,
++				shim_offset);
++	} else {
++		dev_err(dev, "Not supported ops\n");
++		ret = -EINVAL;
++	}
++
++	if (ret) {
++		dev_err(dev, "shim config met error\n");
++		return ret;
++	}
++
++	return size;
++}
++
++static ssize_t param_val_show(struct device *dev,
++			struct device_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "0x%x\n", param_value);
++}
++
++static ssize_t param_val_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	flis_generic_store(buf, DBG_PARAM_VAL);
++	return size;
++}
++
++static ssize_t flis_param_type_show(struct device *dev,
++			struct device_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "%d\n", param_type);
++}
++
++static ssize_t flis_param_type_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	flis_generic_store(buf, DBG_PARAM_TYPE);
++	return size;
++}
++
++static ssize_t pinname_show(struct device *dev,
++			struct device_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "%d\n", pin_name);
++}
++
++static ssize_t pinname_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	flis_generic_store(buf, DBG_PIN_NAME);
++	return size;
++}
++
++static ssize_t ops_store(struct device *dev,
++		struct device_attribute *attr, const char *buf, size_t size)
++{
++	int ret;
++
++	memset(ops, 0, sizeof(ops));
++
++	ret = sscanf(buf, "%9s", ops);
++	if (ret != 1) {
++		dev_err(dev, "input error\n");
++		return -EINVAL;
++	}
++
++	if (!strncmp("get", ops, OPS_STR_LEN))
++		ret = get_pin_flis(pin_name, param_type, &param_value);
++	else if (!strncmp("set", ops, OPS_STR_LEN))
++		ret = config_pin_flis(pin_name, param_type, param_value);
++	else {
++		dev_err(dev, "wrong ops\n");
++		ret = -EINVAL;
++	}
++
++	if (ret) {
++		dev_err(dev, "Access flis error, ret = %d\n", ret);
++		return ret;
++	}
++
++	return size;
++}
++
++static DEVICE_ATTR(flis_addr, S_IRUGO|S_IWUSR,
++		shim_flis_addr_show, shim_flis_addr_store);
++static DEVICE_ATTR(offset, S_IRUGO|S_IWUSR,
++		shim_offset_show, shim_offset_store);
++static DEVICE_ATTR(data, S_IRUGO|S_IWUSR, shim_data_show, shim_data_store);
++static DEVICE_ATTR(flis_ops, S_IWUSR, NULL, shim_ops_store);
++
++static struct attribute *flis_attrs[] = {
++	&dev_attr_flis_addr.attr,
++	&dev_attr_offset.attr,
++	&dev_attr_data.attr,
++	&dev_attr_flis_ops.attr,
++	NULL,
++};
++
++static struct attribute_group flis_attr_group = {
++	.name = "flis_debug",
++	.attrs = flis_attrs,
++};
++
++static DEVICE_ATTR(pin_name, S_IRUGO|S_IWUSR, pinname_show, pinname_store);
++static DEVICE_ATTR(flis_param, S_IRUGO|S_IWUSR, flis_param_type_show,
++						flis_param_type_store);
++static DEVICE_ATTR(val, S_IRUGO|S_IWUSR, param_val_show, param_val_store);
++static DEVICE_ATTR(ops, S_IWUSR, NULL, ops_store);
++
++static struct attribute *pin_config_attrs[] = {
++	&dev_attr_pin_name.attr,
++	&dev_attr_flis_param.attr,
++	&dev_attr_val.attr,
++	&dev_attr_ops.attr,
++	NULL,
++};
++
++static struct attribute_group pin_config_attr_group = {
++	.name = "pin_config_debug",
++	.attrs = pin_config_attrs,
++};
++
++static int scu_flis_probe(struct platform_device *pdev)
++{
++	int ret;
++	struct intel_scu_flis_info *isfi = &flis_info;
++	struct intel_scu_flis_platform_data *pdata = pdev->dev.platform_data;
++
++	if (!pdata) {
++		dev_err(&pdev->dev, "No platform data\n");
++		ret = -EINVAL;
++		goto out;
++	}
++
++	isfi->pin_t = pdata->pin_t;
++	isfi->pin_num = pdata->pin_num;
++
++	if (isfi->pin_t && isfi->pin_num)
++		isfi->initialized = 1;
++
++	ret = sysfs_create_group(&pdev->dev.kobj, &flis_attr_group);
++	if (ret) {
++		dev_err(&pdev->dev, "Failed to create flis sysfs interface\n");
++		goto out;
++	}
++
++	ret = sysfs_create_group(&pdev->dev.kobj, &pin_config_attr_group);
++	if (ret) {
++		dev_err(&pdev->dev,
++				"Failed to create pin config sysfs interface\n");
++		goto err1;
++	}
++
++	dev_info(&pdev->dev, "scu flis probed\n");
++	return 0;
++
++err1:
++	sysfs_remove_group(&pdev->dev.kobj, &flis_attr_group);
++out:
++	isfi->initialized = 0;
++	return ret;
++}
++
++static int scu_flis_remove(struct platform_device *pdev)
++{
++	sysfs_remove_group(&pdev->dev.kobj, &pin_config_attr_group);
++	sysfs_remove_group(&pdev->dev.kobj, &flis_attr_group);
++
++	return 0;
++}
++
++static struct platform_driver scu_flis_driver = {
++	.driver = {
++		   .name = "intel_scu_flis",
++		   .owner = THIS_MODULE,
++		   },
++	.probe = scu_flis_probe,
++	.remove = scu_flis_remove,
++};
++
++static int scu_flis_module_init(void)
++{
++	return platform_driver_register(&scu_flis_driver);
++}
++
++static void scu_flis_module_exit(void)
++{
++	platform_driver_unregister(&scu_flis_driver);
++}
++
++static int flis_rpmsg_probe(struct rpmsg_channel *rpdev)
++{
++	int ret = 0;
++
++	if (rpdev == NULL) {
++		pr_err("rpmsg channel not created\n");
++		ret = -ENODEV;
++		goto out;
++	}
++
++	dev_info(&rpdev->dev, "Probed flis rpmsg device\n");
++
++	/* Allocate rpmsg instance for flis*/
++	ret = alloc_rpmsg_instance(rpdev, &flis_instance);
++	if (!flis_instance) {
++		dev_err(&rpdev->dev, "kzalloc flis instance failed\n");
++		goto out;
++	}
++
++	/* Initialize rpmsg instance */
++	init_rpmsg_instance(flis_instance);
++
++	ret = scu_flis_module_init();
++	if (ret)
++		free_rpmsg_instance(rpdev, &flis_instance);
++
++out:
++	return ret;
++}
++
++static void flis_rpmsg_remove(struct rpmsg_channel *rpdev)
++{
++	scu_flis_module_exit();
++	free_rpmsg_instance(rpdev, &flis_instance);
++	dev_info(&rpdev->dev, "Removed flis rpmsg device\n");
++}
++
++static void flis_rpmsg_cb(struct rpmsg_channel *rpdev, void *data,
++					int len, void *priv, u32 src)
++{
++	dev_warn(&rpdev->dev, "unexpected, message\n");
++
++	print_hex_dump(KERN_DEBUG, __func__, DUMP_PREFIX_NONE, 16, 1,
++		       data, len,  true);
++}
++
++static struct rpmsg_device_id flis_rpmsg_id_table[] = {
++	{ .name	= "rpmsg_flis" },
++	{ },
++};
++MODULE_DEVICE_TABLE(rpmsg, flis_rpmsg_id_table);
++
++static struct rpmsg_driver flis_rpmsg = {
++	.drv.name	= KBUILD_MODNAME,
++	.drv.owner	= THIS_MODULE,
++	.id_table	= flis_rpmsg_id_table,
++	.probe		= flis_rpmsg_probe,
++	.callback	= flis_rpmsg_cb,
++	.remove		= flis_rpmsg_remove,
++};
++
++static int __init flis_rpmsg_init(void)
++{
++	return register_rpmsg_driver(&flis_rpmsg);
++}
++
++static void __exit flis_rpmsg_exit(void)
++{
++	return unregister_rpmsg_driver(&flis_rpmsg);
++}
++
++#ifdef MODULE
++module_init(flis_rpmsg_init);
++#else
++rootfs_initcall(flis_rpmsg_init);
++#endif
++module_exit(flis_rpmsg_exit);
++
++MODULE_AUTHOR("Ning Li <ning.li@intel.com>");
++MODULE_DESCRIPTION("Intel FLIS Access Driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/intel_scu_fw_update.c b/drivers/platform/x86/intel_scu_fw_update.c
+new file mode 100644
+index 000000000000..59f8c7f30ad3
+--- /dev/null
++++ b/drivers/platform/x86/intel_scu_fw_update.c
+@@ -0,0 +1,1087 @@
++/*
++ * fw_update.c - Intel SCU Firmware Update Driver
++ *
++ * Copyright (C) 2012 Intel Corporation
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; version 2 of the License.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, write to the Free Software Foundation, Inc.,
++ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ */
++
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/io.h>
++#include <linux/delay.h>
++#include <linux/fs.h>
++#include <linux/vmalloc.h>
++#include <linux/rpmsg.h>
++#include <linux/intel_mid_pm.h>
++#include <asm/intel_scu_ipc.h>
++#include <asm/intel_mid_rpmsg.h>
++#include <asm/intel-mid.h>
++
++/* Medfield & Cloverview firmware update.
++ * The flow and communication between IA and SCU has changed for
++ * Medfield firmware update. For more details, please refer to
++ * Firmware Arch Spec.
++ * Below macros and structs apply for medfield firmware update
++ */
++
++#define IPC_CMD_FW_UPDATE_GO	0x02
++
++#define MAX_FW_CHUNK		(128*1024)
++#define IFWX_CHUNK_SIZE		(96*1024)
++
++#define SRAM_ADDR		0xFFFC0000
++#define MAILBOX_ADDR		0xFFFE0000
++
++#define SCU_FLAG_OFFSET		8
++#define IA_FLAG_OFFSET		12
++
++#define MIP_HEADER_OFFSET	0
++#define SUCP_OFFSET		0x1D8000
++#define VEDFW_OFFSET		0x1A6000
++
++#define DNX_HDR_LEN		24
++#define FUPH_HDR_LEN		36
++
++#define DNX_IMAGE	"DXBL"
++#define FUPH_HDR_SIZE	"RUPHS"
++#define FUPH		"RUPH"
++#define MIP		"DMIP"
++#define IFWI		"IFW"
++#define LOWER_128K	"LOFW"
++#define UPPER_128K	"HIFW"
++#define PSFW1		"PSFW1"
++#define PSFW2		"PSFW2"
++#define SSFW		"SSFW"
++#define SUCP		"SuCP"
++#define VEDFW		"VEDFW"
++#define UPDATE_DONE	"HLT$"
++#define UPDATE_ABORT	"HLT0"
++#define UPDATE_ERROR	"ER"
++
++#define MAX_LEN_IFW	4
++#define MAX_LEN_PSFW	7
++#define MAX_LEN_SSFW	6
++#define MAX_LEN_SUCP	6
++#define MAX_LEN_VEDFW	7
++
++#define FUPH_MIP_OFFSET		0x04
++#define FUPH_IFWI_OFFSET	0x08
++#define FUPH_PSFW1_OFFSET	0x0c
++#define FUPH_PSFW2_OFFSET	0x10
++#define FUPH_SSFW_OFFSET	0x14
++#define FUPH_SUCP_OFFSET	0x18
++#define FUPH_VEDFW_OFFSET	0x1c
++
++#define DNX_MAX_SIZE	(128*1024)
++#define IFWI_MAX_SIZE	(3*1024*1024)
++#define FOTA_MEM_SIZE	(4*1024*1024)
++
++#define DNX_SIZE_OFFSET	0
++#define GP_FLAG_OFFSET	4
++#define XOR_CHK_OFFSET	20
++
++#define GPF_BIT32	1
++#define FUPH_STR	"UPH$"
++#define FUPH_MAX_LEN	36
++#define SKIP_BYTES	8
++
++static struct kobject *scu_fw_update_kobj;
++static struct rpmsg_instance *fw_update_instance;
++
++/* Modified IA-SCU mailbox for medfield firmware update. */
++struct ia_scu_mailbox {
++	char mail[8];
++	u32 scu_flag;
++	u32 ia_flag;
++};
++
++/* Structure to parse input from firmware-update application. */
++struct fw_ud {
++	u8 *fw_file_data;
++	u32 fsize;
++	u8 *dnx_hdr;
++	u8 *dnx_file_data;
++	u32 dnx_size;
++	u32 fuph_hdr_len;
++};
++
++struct mfld_fw_update {
++	void __iomem *sram;
++	void __iomem *mailbox;
++	u32 wscu;
++	u32 wia;
++	char mb_status[8];
++};
++
++/* Holds size parameters read from fuph header */
++struct fuph_hdr_attrs {
++	u32 mip_size;
++	u32 ifwi_size;
++	u32 psfw1_size;
++	u32 psfw2_size;
++	u32 ssfw_size;
++	u32 sucp_size;
++	u32 vedfw_size;
++};
++
++enum mailbox_status {
++	MB_DONE,
++	MB_CONTINUE,
++	MB_ERROR
++};
++
++/* Misc. firmware components that are part of integrated firmware */
++struct misc_fw {
++	const char *fw_type;
++	u8 str_len;
++};
++
++/* lock used to prevent multiple calls to fw update sysfs interface */
++static DEFINE_MUTEX(fwud_lock);
++
++static char err_buf[50];
++static u8 *pending_data;
++
++struct fw_update_info {
++	struct device *dev;
++	struct fw_ud *fwud_pending;
++};
++
++static struct fw_update_info fui;
++
++static struct misc_fw misc_fw_table[] = {
++	{ .fw_type = IFWI, .str_len  = MAX_LEN_IFW },
++	{ .fw_type = PSFW1, .str_len  = MAX_LEN_PSFW },
++	{ .fw_type = SSFW, .str_len  = MAX_LEN_SSFW },
++	{ .fw_type = PSFW2, .str_len  = MAX_LEN_PSFW },
++	{ .fw_type = SUCP, .str_len  = MAX_LEN_SUCP },
++	{ .fw_type = VEDFW, .str_len  = MAX_LEN_VEDFW }
++};
++
++static int alloc_fota_mem_early;
++
++int __init alloc_mem_fota_early_flag(char *p)
++{
++	alloc_fota_mem_early = 1;
++	return 0;
++}
++early_param("alloc_fota_mem_early", alloc_mem_fota_early_flag);
++
++/*
++ * IA will wait in busy-state, and poll mailbox, to check
++ * if SCU is done processing.
++ * If it has to wait for more than a second, it will exit with
++ * error code.
++ */
++static int busy_wait(struct mfld_fw_update *mfld_fw_upd)
++{
++	u32 count = 0;
++	u32 flag;
++
++	flag = mfld_fw_upd->wscu;
++
++	while (ioread32(mfld_fw_upd->mailbox + SCU_FLAG_OFFSET) != flag
++		&& count < 500) {
++		/* There are synchronization issues between IA and SCU */
++		mb();
++		/* FIXME: we must use mdelay currently */
++		mdelay(10);
++		count++;
++	}
++
++	if (ioread32(mfld_fw_upd->mailbox + SCU_FLAG_OFFSET) != flag) {
++		dev_err(fui.dev, "IA-waited and quitting\n");
++		return -ETIMEDOUT;
++	}
++
++	return 0;
++}
++
++/* This function will
++ * 1)copy firmware chunk from user-space to kernel-space.
++ * 2) Copy from kernel-space to shared SRAM.
++ * 3) Write to mailbox.
++ * 4) And wait for SCU to process that firmware chunk.
++ * Returns 0 on success, and < 0 for failure.
++ */
++static int process_fw_chunk(u8 *fws, u8 *userptr, u32 chunklen,
++					struct mfld_fw_update *mfld_fw_upd)
++{
++	memcpy(fws, userptr, chunklen);
++
++	/* IA copy to sram */
++	memcpy_toio(mfld_fw_upd->sram, fws, chunklen);
++
++	/* There are synchronization issues between IA and SCU */
++	mb();
++	mfld_fw_upd->wia = !(mfld_fw_upd->wia);
++	iowrite32(mfld_fw_upd->wia, mfld_fw_upd->mailbox + IA_FLAG_OFFSET);
++
++	mb();
++	dev_dbg(fui.dev, "wrote ia_flag=%d\n",
++		 ioread32(mfld_fw_upd->mailbox + IA_FLAG_OFFSET));
++
++	mfld_fw_upd->wscu = !mfld_fw_upd->wscu;
++	return busy_wait(mfld_fw_upd);
++}
++
++/*
++ * This function will check mailbox status flag, and return state of mailbox.
++ */
++static enum mailbox_status check_mb_status(struct mfld_fw_update *mfld_fw_upd)
++{
++
++	enum mailbox_status mb_state;
++
++	/* There are synchronization issues between IA and SCU */
++	mb();
++
++	memcpy_fromio(mfld_fw_upd->mb_status, mfld_fw_upd->mailbox, 8);
++
++	if (!strncmp(mfld_fw_upd->mb_status, UPDATE_ERROR,
++					sizeof(UPDATE_ERROR) - 1) ||
++		!strncmp(mfld_fw_upd->mb_status, UPDATE_ABORT,
++					sizeof(UPDATE_ABORT) - 1)) {
++		dev_dbg(fui.dev,
++			"mailbox error=%s\n", mfld_fw_upd->mb_status);
++		return MB_ERROR;
++	} else {
++		mb_state = (!strncmp(mfld_fw_upd->mb_status, UPDATE_DONE,
++			sizeof(UPDATE_DONE) - 1)) ? MB_DONE : MB_CONTINUE;
++		dev_dbg(fui.dev,
++			"mailbox pass=%s, mb_state=%d\n",
++			mfld_fw_upd->mb_status, mb_state);
++	}
++
++	return mb_state;
++}
++
++/* Helper function used to calculate length and offset.  */
++int helper_for_calc_offset_length(struct fw_ud *fw_ud_ptr, char *scu_req,
++			void **offset, u32 *len, struct fuph_hdr_attrs *fuph,
++			const char *fw_type)
++{
++	unsigned long chunk_no;
++	u32 chunk_rem;
++	u32 max_chunk_cnt;
++	u32 fw_size;
++	u32 fw_offset;
++	u32 max_fw_chunk_size = MAX_FW_CHUNK;
++
++	if (!strncmp(fw_type, IFWI, strlen(IFWI))) {
++
++		if (kstrtoul(scu_req + strlen(IFWI), 10, &chunk_no) < 0)
++			return -EINVAL;
++
++		/* On CTP, IFWx starts from IFW1, not IFW0, thus adjust the
++		 * chunk_no to make '*offset' point to the correct address.
++		 * Besides, the size of each IFWx chunk is 96k, not 128k
++		 */
++		chunk_no = chunk_no - 1;
++		fw_size = fuph->ifwi_size;
++		fw_offset = fuph->mip_size;
++		max_fw_chunk_size = IFWX_CHUNK_SIZE;
++	} else if (!strncmp(fw_type, PSFW1, strlen(PSFW1))) {
++
++		if (kstrtoul(scu_req + strlen(PSFW1), 10, &chunk_no) < 0)
++			return -EINVAL;
++
++		fw_size = fuph->psfw1_size;
++		fw_offset = fuph->mip_size + fuph->ifwi_size;
++	} else if (!strncmp(fw_type, PSFW2, strlen(PSFW2))) {
++
++		if (kstrtoul(scu_req + strlen(PSFW2), 10, &chunk_no) < 0)
++			return -EINVAL;
++
++		fw_size = fuph->psfw2_size;
++		fw_offset = fuph->mip_size + fuph->ifwi_size +
++				fuph->psfw1_size + fuph->ssfw_size;
++	} else if (!strncmp(fw_type, SSFW, strlen(SSFW))) {
++
++		if (kstrtoul(scu_req + strlen(SSFW), 10, &chunk_no) < 0)
++			return -EINVAL;
++
++		fw_size = fuph->ssfw_size;
++		fw_offset = fuph->mip_size + fuph->ifwi_size +
++				fuph->psfw1_size;
++	} else if (!strncmp(fw_type, SUCP, strlen(SUCP))) {
++
++		if (kstrtoul(scu_req + strlen(SUCP), 10, &chunk_no) < 0)
++			return -EINVAL;
++
++		fw_size = fuph->sucp_size;
++		fw_offset = SUCP_OFFSET;
++	} else if (!strncmp(fw_type, VEDFW, strlen(VEDFW))) {
++
++		if (kstrtoul(scu_req + strlen(VEDFW), 10, &chunk_no) < 0)
++			return -EINVAL;
++
++		fw_size = fuph->vedfw_size;
++		fw_offset = VEDFW_OFFSET;
++	} else
++		return -EINVAL;
++
++	chunk_rem = fw_size % max_fw_chunk_size;
++	max_chunk_cnt = (fw_size/max_fw_chunk_size) + (chunk_rem ? 1 : 0);
++
++	dev_dbg(fui.dev,
++		"str=%s,chunk_no=%lx, chunk_rem=%d,max_chunk_cnt=%d\n",
++		fw_type, chunk_no, chunk_rem, max_chunk_cnt);
++
++	if ((chunk_no + 1) > max_chunk_cnt)
++		return -EINVAL;
++
++	/* Note::Logic below will make sure, that we get right length if input
++	 is 128K or multiple. */
++	*len = (chunk_no == (max_chunk_cnt - 1)) ?
++		(chunk_rem ? chunk_rem : max_fw_chunk_size) : max_fw_chunk_size;
++
++	*offset = fw_ud_ptr->fw_file_data + fw_offset +
++		chunk_no * max_fw_chunk_size;
++
++	return 0;
++}
++
++/*
++ * This api calculates offset and length depending on type of firmware chunk
++ * requested by SCU. Note: Intent is to follow the architecture such that,
++ * SCU controls the flow, and IA simply hands out, what is requested by SCU.
++ * IA will simply follow SCU's commands, unless SCU requests for something
++ * IA cannot give. TODO:That will be a special error case, need to figure out
++ * how to handle that.
++ */
++int calc_offset_and_length(struct fw_ud *fw_ud_ptr, char *scu_req,
++			void **offset, u32 *len, struct fuph_hdr_attrs *fuph)
++{
++	u8 cnt;
++
++	if (!strncmp(DNX_IMAGE, scu_req, strlen(scu_req))) {
++		*offset = fw_ud_ptr->dnx_file_data;
++		*len = fw_ud_ptr->dnx_size;
++		return 0;
++	} else if (!strncmp(FUPH, scu_req, strlen(scu_req))) {
++		*offset = fw_ud_ptr->fw_file_data + fw_ud_ptr->fsize
++				- fw_ud_ptr->fuph_hdr_len;
++		*len = fw_ud_ptr->fuph_hdr_len;
++		return 0;
++	} else if (!strncmp(MIP, scu_req, strlen(scu_req))) {
++		*offset = fw_ud_ptr->fw_file_data + MIP_HEADER_OFFSET;
++		*len = fuph->mip_size;
++		return 0;
++	} else if (!strncmp(LOWER_128K, scu_req, strlen(scu_req))) {
++		*offset = fw_ud_ptr->fw_file_data + fuph->mip_size;
++		*len = MAX_FW_CHUNK;
++		return 0;
++	} else if (!strncmp(UPPER_128K, scu_req, strlen(scu_req))) {
++		*offset = fw_ud_ptr->fw_file_data
++				+ fuph->mip_size + MAX_FW_CHUNK;
++		*len = MAX_FW_CHUNK;
++		return 0;
++	} else {
++		for (cnt = 0; cnt < ARRAY_SIZE(misc_fw_table); cnt++) {
++
++			if (!strncmp(misc_fw_table[cnt].fw_type, scu_req,
++					strlen(misc_fw_table[cnt].fw_type))) {
++
++				if (strlen(scu_req) ==
++						misc_fw_table[cnt].str_len) {
++
++					if (helper_for_calc_offset_length
++						(fw_ud_ptr, scu_req,
++						offset, len, fuph,
++						misc_fw_table[cnt].fw_type) < 0)
++						goto error_case;
++
++					dev_dbg(fui.dev,
++					"\nmisc fw type=%s, len=%d,offset=%d",
++					misc_fw_table[cnt].fw_type, *len,
++					(int)*offset);
++
++					return 0;
++
++				} else
++					goto error_case;
++			}
++		}
++
++	}
++
++	dev_dbg(fui.dev, "Unexpected mailbox request from scu\n");
++
++error_case:
++	/* TODO::Need to test this error case..and see how SCU reacts
++	* and how IA handles
++	* subsequent error response and whether exit is graceful...
++	*/
++
++	dev_dbg(fui.dev, "error case,respond back to SCU..\n");
++	dev_dbg(fui.dev, "scu_req=%s\n", scu_req);
++	*len = 0;
++	*offset = 0;
++
++	return -EINVAL;
++}
++
++/**
++ * intel_scu_ipc_medfw_upgrade - Medfield Firmware update utility
++ *
++ * The flow and communication between IA and SCU has changed for
++ * Medfield firmware update. So we have a different api below
++ * to support Medfield firmware update.
++ *
++ * On success returns 0, for failure , returns < 0.
++ */
++static int intel_scu_ipc_medfw_upgrade(void)
++{
++	struct fw_ud *fw_ud_param = fui.fwud_pending;
++	struct mfld_fw_update	mfld_fw_upd;
++	u8 *fw_file_data = NULL;
++	u8 *fws = NULL;
++	u8 *fuph_start = NULL;
++	int ret_val = 0;
++
++	struct fuph_hdr_attrs fuph;
++	u32 length = 0;
++	void *offset;
++	enum mailbox_status mb_state;
++
++	/* set all devices in d0i0 before IFWI upgrade */
++	if (unlikely(pmu_set_devices_in_d0i0())) {
++		pr_debug("pmu: failed to set all devices in d0i0...\n");
++		BUG();
++	}
++
++	rpmsg_global_lock();
++	mfld_fw_upd.wscu = 0;
++	mfld_fw_upd.wia = 0;
++	memset(mfld_fw_upd.mb_status, 0, sizeof(char) * 8);
++
++	fw_file_data = fw_ud_param->fw_file_data;
++	mfld_fw_upd.sram = ioremap_nocache(SRAM_ADDR, MAX_FW_CHUNK);
++	if (mfld_fw_upd.sram == NULL) {
++		dev_err(fui.dev, "unable to map sram\n");
++		ret_val = -ENOMEM;
++		goto out_unlock;
++	}
++
++	mfld_fw_upd.mailbox = ioremap_nocache(MAILBOX_ADDR,
++					sizeof(struct ia_scu_mailbox));
++
++	if (mfld_fw_upd.mailbox == NULL) {
++		dev_err(fui.dev, "unable to map the mailbox\n");
++		ret_val = -ENOMEM;
++		goto unmap_sram;
++	}
++
++	/*IA initializes both IAFlag and SCUFlag to zero */
++	iowrite32(0, mfld_fw_upd.mailbox + SCU_FLAG_OFFSET);
++	iowrite32(0, mfld_fw_upd.mailbox + IA_FLAG_OFFSET);
++	memset_io(mfld_fw_upd.mailbox, 0, 8);
++
++	fws = kmalloc(MAX_FW_CHUNK, GFP_KERNEL);
++	if (fws == NULL) {
++		ret_val = -ENOMEM;
++		goto unmap_mb;
++	}
++
++	/* fuph header start */
++	fuph_start = fw_ud_param->fw_file_data + (fw_ud_param->fsize - 1)
++					- (fw_ud_param->fuph_hdr_len - 1);
++
++	/* Convert sizes in DWORDS to number of bytes. */
++	fuph.mip_size = (*((u32 *)(fuph_start + FUPH_MIP_OFFSET)))*4;
++	fuph.ifwi_size = (*((u32 *)(fuph_start + FUPH_IFWI_OFFSET)))*4;
++	fuph.psfw1_size = (*((u32 *)(fuph_start + FUPH_PSFW1_OFFSET)))*4;
++	fuph.psfw2_size = (*((u32 *)(fuph_start + FUPH_PSFW2_OFFSET)))*4;
++	fuph.ssfw_size = (*((u32 *)(fuph_start + FUPH_SSFW_OFFSET)))*4;
++	fuph.sucp_size = (*((u32 *)(fuph_start + FUPH_SUCP_OFFSET)))*4;
++
++	if (fw_ud_param->fuph_hdr_len == FUPH_HDR_LEN) {
++		fuph.vedfw_size =
++				(*((u32 *)(fuph_start + FUPH_VEDFW_OFFSET)))*4;
++	} else
++		fuph.vedfw_size = 0;
++
++	dev_dbg(fui.dev,
++		"ln=%d, mi=%d, if=%d, ps1=%d, ps2=%d, sfw=%d, sucp=%d, vd=%d\n",
++		fw_ud_param->fuph_hdr_len, fuph.mip_size, fuph.ifwi_size,
++		fuph.psfw1_size, fuph.psfw2_size, fuph.ssfw_size,
++		fuph.sucp_size,	fuph.vedfw_size);
++
++	/* TODO_SK::There is just
++	 *  1 write required from IA side for DFU.
++	 *  So commenting this-out, until it gets confirmed */
++	/*ipc_command(IPC_CMD_FW_UPDATE_READY); */
++
++	/*1. DNX SIZE HEADER   */
++	memcpy(fws, fw_ud_param->dnx_hdr, DNX_HDR_LEN);
++
++	memcpy_toio(mfld_fw_upd.sram, fws, DNX_HDR_LEN);
++
++	/* There are synchronization issues between IA and SCU */
++	mb();
++
++	/* Write cmd to trigger an interrupt to SCU for firmware update*/
++	ret_val = rpmsg_send_simple_command(fw_update_instance,
++					    IPCMSG_FW_UPDATE,
++					    IPC_CMD_FW_UPDATE_GO);
++	if (ret_val) {
++		dev_err(fui.dev, "IPC_CMD_FW_UPDATE_GO failed\n");
++		goto term;
++	}
++
++	mfld_fw_upd.wscu = !mfld_fw_upd.wscu;
++
++	if (busy_wait(&mfld_fw_upd) < 0) {
++		ret_val = -1;
++		goto term;
++	}
++
++	/* TODO:Add a count for iteration, based on sizes of security firmware,
++	 * so that we determine finite number of iterations to loop thro.
++	 * That way at the very least, we can atleast control the number
++	 * of iterations, and prevent infinite looping if there are any bugs.
++	 * The only catch being for B0, SCU will request twice for each firmware
++	 * chunk, since its writing to 2 partitions.
++	 * TODO::Investigate if we need to increase timeout for busy_wait,
++	 * since SCU is now writing to 2 partitions.
++	 */
++
++	while ((mb_state = check_mb_status(&mfld_fw_upd)) != MB_DONE) {
++
++		if (mb_state == MB_ERROR) {
++			dev_dbg(fui.dev, "check_mb_status,error\n");
++			ret_val = -1;
++			goto term;
++		}
++
++		if (!strncmp(mfld_fw_upd.mb_status, FUPH_HDR_SIZE,
++				strlen(FUPH_HDR_SIZE))) {
++			iowrite32(fw_ud_param->fuph_hdr_len, mfld_fw_upd.sram);
++			/* There are synchronization issues between IA-SCU */
++			mb();
++			dev_dbg(fui.dev,
++				"copied fuph hdr size=%d\n",
++				ioread32(mfld_fw_upd.sram));
++			mfld_fw_upd.wia = !mfld_fw_upd.wia;
++			iowrite32(mfld_fw_upd.wia, mfld_fw_upd.mailbox +
++				IA_FLAG_OFFSET);
++			dev_dbg(fui.dev, "ia_flag=%d\n",
++				ioread32(mfld_fw_upd.mailbox + IA_FLAG_OFFSET));
++			mb();
++			mfld_fw_upd.wscu = !mfld_fw_upd.wscu;
++
++			if (busy_wait(&mfld_fw_upd) < 0) {
++				ret_val = -1;
++				goto term;
++			}
++
++			continue;
++		}
++
++		if (calc_offset_and_length(fw_ud_param, mfld_fw_upd.mb_status,
++					&offset, &length, &fuph) < 0) {
++			dev_err(fui.dev,
++			"calc_offset_and_length_error,error\n");
++			ret_val = -1;
++			goto term;
++		}
++
++		if ((process_fw_chunk(fws, offset, length,
++				      &mfld_fw_upd)) != 0) {
++			dev_err(fui.dev,
++			"Error processing fw chunk=%s\n",
++			mfld_fw_upd.mb_status);
++			ret_val = -1;
++			goto term;
++		} else
++			dev_dbg(fui.dev,
++				"PASS processing fw chunk=%s\n",
++				mfld_fw_upd.mb_status);
++	}
++	ret_val = intel_scu_ipc_check_status();
++
++term:
++	kfree(fws);
++unmap_mb:
++	iounmap(mfld_fw_upd.mailbox);
++unmap_sram:
++	iounmap(mfld_fw_upd.sram);
++out_unlock:
++	rpmsg_global_unlock();
++	return ret_val;
++}
++
++static void cur_err(const char *err_info)
++{
++	strncpy(err_buf, err_info, sizeof(err_buf) - 1);
++}
++
++static ssize_t write_dnx(struct file *file, struct kobject *kobj,
++	struct bin_attribute *attr, char *buf, loff_t off, size_t count)
++{
++	int ret;
++
++	mutex_lock(&fwud_lock);
++
++	if (!pending_data) {
++		pending_data = vmalloc(FOTA_MEM_SIZE);
++		if (NULL == pending_data) {
++			cur_err("alloc fota memory by sysfs failed\n");
++			ret = -ENOMEM;
++			goto end;
++		}
++	}
++
++	fui.fwud_pending->dnx_file_data = pending_data + IFWI_MAX_SIZE;
++
++	if (unlikely(off >= DNX_MAX_SIZE)) {
++		fui.fwud_pending->dnx_file_data = NULL;
++		cur_err("too large dnx binary stream!");
++		ret = -EFBIG;
++		goto end;
++	}
++
++	memcpy(fui.fwud_pending->dnx_file_data + off, buf, count);
++
++	if (!off)
++		fui.fwud_pending->dnx_size = count;
++	else
++		fui.fwud_pending->dnx_size += count;
++
++	mutex_unlock(&fwud_lock);
++	return count;
++
++end:
++	mutex_unlock(&fwud_lock);
++	return ret;
++}
++
++/* Parses from the end of IFWI, and looks for UPH$,
++ * to determine length of FUPH header
++ */
++static int find_fuph_header_len(unsigned int *len,
++		unsigned char *file_data, unsigned int file_size)
++{
++	int ret = -EINVAL;
++	unsigned char *temp;
++	unsigned int cnt = 0;
++
++	if (!len || !file_data || !file_size) {
++		dev_err(fui.dev, "find_fuph_header_len: Invalid inputs\n");
++		return ret;
++	}
++
++	/* Skipping the checksum at the end, and moving to the
++	 * start of the last add-on firmware size in fuph.
++	 */
++	temp = file_data + file_size - SKIP_BYTES;
++
++	while (cnt <= FUPH_MAX_LEN) {
++		if (!strncmp(temp, FUPH_STR, sizeof(FUPH_STR) - 1)) {
++			pr_info("Fuph_hdr_len=%d\n", cnt + SKIP_BYTES);
++			*len = cnt + SKIP_BYTES;
++			ret = 0;
++			break;
++		}
++		temp -= 4;
++		cnt += 4;
++	}
++
++	return ret;
++}
++
++static ssize_t write_ifwi(struct file *file, struct kobject *kobj,
++	struct bin_attribute *attr, char *buf, loff_t off, size_t count)
++{
++	int ret;
++
++	mutex_lock(&fwud_lock);
++
++	if (!pending_data) {
++		pending_data = vmalloc(FOTA_MEM_SIZE);
++		if (NULL == pending_data) {
++			cur_err("alloc fota memory by sysfs failed\n");
++			ret = -ENOMEM;
++			goto end;
++		}
++	}
++
++	fui.fwud_pending->fw_file_data = pending_data;
++
++	if (unlikely(off >= IFWI_MAX_SIZE)) {
++		fui.fwud_pending->fw_file_data = NULL;
++		cur_err("too large ifwi binary stream!\n");
++		ret = -EFBIG;
++		goto end;
++	}
++
++	memcpy(fui.fwud_pending->fw_file_data + off, buf, count);
++
++	if (!off)
++		fui.fwud_pending->fsize = count;
++	else
++		fui.fwud_pending->fsize += count;
++
++	mutex_unlock(&fwud_lock);
++	return count;
++
++end:
++	mutex_unlock(&fwud_lock);
++	return ret;
++}
++
++/*
++ * intel_scu_fw_prepare - prepare dnx_hdr and fuph
++ *
++ * This function will be invoked at reboot, when DNX and IFWI data are ready.
++ */
++static int intel_scu_fw_prepare(struct fw_ud *fwud_pending)
++{
++	unsigned int size;
++	unsigned int gpFlags = 0;
++	unsigned int xorcs;
++	unsigned char dnxSH[DNX_HDR_LEN] = { 0 };
++
++	mutex_lock(&fwud_lock);
++
++	size = fui.fwud_pending->dnx_size;
++
++	/* Set GPFlags parameter */
++	gpFlags = gpFlags | (GPF_BIT32 << 31);
++	xorcs = (size ^ gpFlags);
++
++	memcpy((dnxSH + DNX_SIZE_OFFSET), (unsigned char *)(&size), 4);
++	memcpy((dnxSH + GP_FLAG_OFFSET), (unsigned char *)(&gpFlags), 4);
++	memcpy((dnxSH + XOR_CHK_OFFSET), (unsigned char *)(&xorcs), 4);
++
++	/* assign the last DNX_HDR_LEN bytes memory to dnx header */
++	fui.fwud_pending->dnx_hdr = pending_data + FOTA_MEM_SIZE - DNX_HDR_LEN;
++
++	/* directly memcpy to dnx_hdr */
++	memcpy(fui.fwud_pending->dnx_hdr, dnxSH, DNX_HDR_LEN);
++
++	if (find_fuph_header_len(&(fui.fwud_pending->fuph_hdr_len),
++			fui.fwud_pending->fw_file_data,
++			fui.fwud_pending->fsize) < 0) {
++		dev_err(fui.dev, "Error with FUPH header\n");
++		mutex_unlock(&fwud_lock);
++		return -EINVAL;
++	}
++
++	dev_dbg(fui.dev, "fupd_hdr_len=%d, fsize=%d, dnx_size=%d",
++		fui.fwud_pending->fuph_hdr_len,	fui.fwud_pending->fsize,
++		fui.fwud_pending->dnx_size);
++
++	mutex_unlock(&fwud_lock);
++	return 0;
++}
++
++int intel_scu_ipc_fw_update(void)
++{
++	int ret = 0;
++
++	/* jump fw upgrade process when fota memory not allocated
++	 * or when user cancels update
++	 * or when one of dnx and ifwi is not written
++	 * or when failure happens in writing one of dnx and ifwi
++	 */
++	if (!pending_data || !fui.fwud_pending ||
++		!fui.fwud_pending->dnx_file_data ||
++		!fui.fwud_pending->fw_file_data) {
++		pr_info("Jump FW upgrade process\n");
++		goto end;
++	}
++
++	ret = intel_scu_fw_prepare(fui.fwud_pending);
++	if (ret) {
++		dev_err(fui.dev, "intel_scu_fw_prepare failed\n");
++		goto end;
++	}
++
++	ret = intel_scu_ipc_medfw_upgrade();
++	if (ret)
++		dev_err(fui.dev, "intel_scu_ipc_medfw_upgrade failed\n");
++
++end:
++	return ret;
++}
++EXPORT_SYMBOL(intel_scu_ipc_fw_update);
++
++static ssize_t fw_version_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	u8 data[16] = { 0 };
++	int ret;
++	int i;
++	int used = 0;
++
++	ret = rpmsg_send_command(fw_update_instance, IPCMSG_FW_REVISION, 0,
++					NULL, (u32 *)data, 0, 4);
++	if (ret < 0) {
++		cur_err("Error getting fw version");
++		return -EINVAL;
++	}
++
++	for (i = 0; i < 16; i++)
++		used += snprintf(buf + used, PAGE_SIZE - used, "%x ", data[i]);
++
++	if (intel_mid_identify_cpu() == INTEL_MID_CPU_CHIP_TANGIER) {
++		ret = rpmsg_send_command(fw_update_instance,
++			IPCMSG_FW_REVISION, 1, NULL, (u32 *)data, 0, 4);
++		if (ret < 0) {
++			cur_err("Error getting fw version");
++			return -EINVAL;
++		}
++		for (i = 0; i < 16; i++)
++			used += snprintf(buf + used, PAGE_SIZE - used,
++				"%x ", data[i]);
++	}
++
++	return used;
++}
++
++static ssize_t last_error_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "%s\n", err_buf);
++}
++
++static ssize_t cancel_update_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	int value;
++
++	if (sscanf(buf, "%d", &value) != 1) {
++		cur_err("One argument is needed\n");
++		return -EINVAL;
++	}
++
++	if (value == 1) {
++		mutex_lock(&fwud_lock);
++		fui.fwud_pending->fw_file_data = NULL;
++		fui.fwud_pending->dnx_file_data = NULL;
++		mutex_unlock(&fwud_lock);
++	} else {
++		cur_err("input '1' to cancel fw upgrade\n");
++		return -EINVAL;
++	}
++
++	return size;
++}
++
++#define __BIN_ATTR(_name, _mode, _size, _read, _write) { \
++	.attr = {.name = __stringify(_name), .mode = _mode },	\
++	.size	= _size,					\
++	.read	= _read,					\
++	.write	= _write,					\
++}
++
++#define BIN_ATTR(_name, _mode, _size, _read, _write) \
++struct bin_attribute bin_attr_##_name =	\
++	__BIN_ATTR(_name, _mode, _size, _read, _write)
++
++#define KOBJ_FW_UPDATE_ATTR(_name, _mode, _show, _store) \
++	struct kobj_attribute _name##_attr = __ATTR(_name, _mode, _show, _store)
++
++static KOBJ_FW_UPDATE_ATTR(cancel_update, S_IWUSR, NULL, cancel_update_store);
++static KOBJ_FW_UPDATE_ATTR(fw_version, S_IRUGO, fw_version_show, NULL);
++static KOBJ_FW_UPDATE_ATTR(last_error, S_IRUGO, last_error_show, NULL);
++static BIN_ATTR(dnx, S_IWUSR, DNX_MAX_SIZE, NULL, write_dnx);
++static BIN_ATTR(ifwi, S_IWUSR, IFWI_MAX_SIZE, NULL, write_ifwi);
++
++static struct attribute *fw_update_attrs[] = {
++	&cancel_update_attr.attr,
++	&fw_version_attr.attr,
++	&last_error_attr.attr,
++	NULL,
++};
++
++static struct attribute_group fw_update_attr_group = {
++	.name = "fw_info",
++	.attrs = fw_update_attrs,
++};
++
++static int intel_fw_update_sysfs_create(struct kobject *kobj)
++{
++	int ret;
++
++	ret = sysfs_create_group(kobj, &fw_update_attr_group);
++	if (ret) {
++		dev_err(fui.dev, "Unable to export sysfs interface\n");
++		goto out;
++	}
++
++	ret = sysfs_create_bin_file(kobj, &bin_attr_dnx);
++	if (ret) {
++		dev_err(fui.dev, "Unable to create dnx bin file\n");
++		goto err_dnx_bin;
++	}
++
++	ret = sysfs_create_bin_file(kobj, &bin_attr_ifwi);
++	if (ret) {
++		dev_err(fui.dev, "Unable to create ifwi bin file\n");
++		goto err_ifwi_bin;
++	}
++
++	return 0;
++
++err_ifwi_bin:
++	sysfs_remove_bin_file(kobj, &bin_attr_dnx);
++err_dnx_bin:
++	sysfs_remove_group(kobj, &fw_update_attr_group);
++out:
++	return ret;
++}
++
++static void intel_fw_update_sysfs_remove(struct kobject *kobj)
++{
++	sysfs_remove_bin_file(kobj, &bin_attr_ifwi);
++	sysfs_remove_bin_file(kobj, &bin_attr_dnx);
++	sysfs_remove_group(kobj, &fw_update_attr_group);
++}
++
++static int fw_update_rpmsg_probe(struct rpmsg_channel *rpdev)
++{
++	int ret;
++	struct fw_update_info *fu_info = &fui;
++
++	if (rpdev == NULL) {
++		pr_err("fw_update rpmsg channel not created\n");
++		ret = -ENODEV;
++		goto out;
++	}
++
++	dev_info(&rpdev->dev, "Probed fw_update rpmsg device\n");
++
++	/* Allocate rpmsg instance for fw_update*/
++	ret = alloc_rpmsg_instance(rpdev, &fw_update_instance);
++	if (!fw_update_instance) {
++		dev_err(&rpdev->dev, "kzalloc fw_update instance failed\n");
++		goto out;
++	}
++	/* Initialize rpmsg instance */
++	init_rpmsg_instance(fw_update_instance);
++
++	fu_info->dev = &rpdev->dev;
++
++	fui.fwud_pending = kzalloc(sizeof(struct fw_ud), GFP_KERNEL);
++	if (NULL == fui.fwud_pending) {
++		ret = -ENOMEM;
++		dev_err(fui.dev, "alloc fwud_pending memory failed\n");
++		goto err_fwud_pending;
++	}
++
++	scu_fw_update_kobj = kobject_create_and_add("fw_update", kernel_kobj);
++	if (!scu_fw_update_kobj) {
++		ret = -ENOMEM;
++		dev_err(fui.dev, "create kobject failed\n");
++		goto err_kobj;
++	}
++
++	ret = intel_fw_update_sysfs_create(scu_fw_update_kobj);
++	if (ret) {
++		dev_err(fui.dev, "creating fw update sysfs failed\n");
++		goto err_free_fwud;
++	}
++
++	/* If alloc_fota_mem_early flag is set, allocate FOTA_MEM_SIZE
++	 * bytes memory.
++	 * reserve the first contiguous IFWI_MAX_SIZE bytes for IFWI,
++	 * the next contiguous DNX_MAX_SIZE bytes are reserved for DNX,
++	 * the last DNX_HDR_LEN bytes for DNX Header
++	 */
++	if (alloc_fota_mem_early) {
++		pending_data = vmalloc(FOTA_MEM_SIZE);
++		if (NULL == pending_data) {
++			ret = -ENOMEM;
++			dev_err(fui.dev, "early alloc fota memory failed\n");
++			goto err_sysfs;
++		}
++	}
++
++	return 0;
++
++err_sysfs:
++	intel_fw_update_sysfs_remove(scu_fw_update_kobj);
++err_free_fwud:
++	kobject_put(scu_fw_update_kobj);
++err_kobj:
++	kfree(fui.fwud_pending);
++	fui.fwud_pending = NULL;
++err_fwud_pending:
++	free_rpmsg_instance(rpdev, &fw_update_instance);
++out:
++	return ret;
++}
++
++static void fw_update_rpmsg_remove(struct rpmsg_channel *rpdev)
++{
++	free_rpmsg_instance(rpdev, &fw_update_instance);
++	intel_fw_update_sysfs_remove(scu_fw_update_kobj);
++	kobject_put(scu_fw_update_kobj);
++
++	vfree(pending_data);
++	pending_data = NULL;
++	kfree(fui.fwud_pending);
++	fui.fwud_pending = NULL;
++}
++
++static void fw_update_rpmsg_cb(struct rpmsg_channel *rpdev, void *data,
++					int len, void *priv, u32 src)
++{
++	dev_warn(&rpdev->dev, "unexpected, message\n");
++
++	print_hex_dump(KERN_DEBUG, __func__, DUMP_PREFIX_NONE, 16, 1,
++		       data, len,  true);
++}
++
++static struct rpmsg_device_id fw_update_rpmsg_id_table[] = {
++	{ .name	= "rpmsg_fw_update" },
++	{ },
++};
++MODULE_DEVICE_TABLE(rpmsg, fw_update_rpmsg_id_table);
++
++static struct rpmsg_driver fw_update_rpmsg = {
++	.drv.name	= KBUILD_MODNAME,
++	.drv.owner	= THIS_MODULE,
++	.id_table	= fw_update_rpmsg_id_table,
++	.probe		= fw_update_rpmsg_probe,
++	.callback	= fw_update_rpmsg_cb,
++	.remove		= fw_update_rpmsg_remove,
++};
++
++static int __init fw_update_module_init(void)
++{
++	return register_rpmsg_driver(&fw_update_rpmsg);
++}
++
++static void __exit fw_update_module_exit(void)
++{
++	unregister_rpmsg_driver(&fw_update_rpmsg);
++}
++
++module_init(fw_update_module_init);
++module_exit(fw_update_module_exit);
++
++MODULE_AUTHOR("Sreedhara DS <sreedhara.ds@intel.com>");
++MODULE_AUTHOR("Ning Li <ning.li@intel.com>");
++MODULE_DESCRIPTION("Intel SCU Firmware Update Driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/intel_scu_ipc.c b/drivers/platform/x86/intel_scu_ipc.c
+index e641aeb951ab..549118d5b445 100644
+--- a/drivers/platform/x86/intel_scu_ipc.c
++++ b/drivers/platform/x86/intel_scu_ipc.c
+@@ -23,22 +23,68 @@
+ #include <linux/pm.h>
+ #include <linux/pci.h>
+ #include <linux/interrupt.h>
+-#include <linux/sfi.h>
+ #include <linux/module.h>
+ #include <asm/mrst.h>
+ #include <asm/intel_scu_ipc.h>
++#include <linux/pm_qos.h>
++#include <linux/intel_mid_pm.h>
++#include <linux/kernel.h>
++#include <linux/bitops.h>
++#include <linux/sched.h>
++#include <linux/atomic.h>
++#include <linux/notifier.h>
++#include <linux/suspend.h>
++#include <linux/wakelock.h>
++
++enum {
++	SCU_IPC_LINCROFT,
++	SCU_IPC_PENWELL,
++	SCU_IPC_CLOVERVIEW,
++	SCU_IPC_TANGIER,
++};
+ 
+-/* IPC defines the following message types */
+-#define IPCMSG_WATCHDOG_TIMER 0xF8 /* Set Kernel Watchdog Threshold */
+-#define IPCMSG_BATTERY        0xEF /* Coulomb Counter Accumulator */
+-#define IPCMSG_FW_UPDATE      0xFE /* Firmware update */
+-#define IPCMSG_PCNTRL         0xFF /* Power controller unit read/write */
+-#define IPCMSG_FW_REVISION    0xF4 /* Get firmware revision */
++/* intel scu ipc driver data*/
++struct intel_scu_ipc_pdata_t {
++	u32 ipc_base;
++	u32 i2c_base;
++	u32 ipc_len;
++	u32 i2c_len;
++};
+ 
+-/* Command id associated with message IPCMSG_PCNTRL */
+-#define IPC_CMD_PCNTRL_W      0 /* Register write */
+-#define IPC_CMD_PCNTRL_R      1 /* Register read */
+-#define IPC_CMD_PCNTRL_M      2 /* Register read-modify-write */
++static struct intel_scu_ipc_pdata_t intel_scu_ipc_pdata[] = {
++	[SCU_IPC_LINCROFT] = {
++		.ipc_base = 0xff11c000,
++		.i2c_base = 0xff12b000,
++		.ipc_len = 0x100,
++		.i2c_len = 0x10,
++	},
++	[SCU_IPC_PENWELL] = {
++		.ipc_base = 0xff11c000,
++		.i2c_base = 0xff12b000,
++		.ipc_len = 0x100,
++		.i2c_len = 0x10,
++	},
++	[SCU_IPC_CLOVERVIEW] = {
++		.ipc_base = 0xff11c000,
++		.i2c_base = 0xff12b000,
++		.ipc_len = 0x100,
++		.i2c_len = 0x10,
++	},
++	[SCU_IPC_TANGIER] = {
++		.ipc_base = 0xff009000,
++		.i2c_base  = 0xff00d000,
++		.ipc_len  = 0x100,
++		.i2c_len = 0x10,
++	},
++};
++static int  scu_ipc_pm_callback(struct notifier_block *nb,
++					unsigned long action,
++					void *ignored);
++
++static struct notifier_block scu_ipc_pm_notifier = {
++	.notifier_call = scu_ipc_pm_callback,
++	.priority = 1,
++};
+ 
+ /*
+  * IPC register summary
+@@ -58,37 +104,113 @@
+  *    message handler is called within firmware.
+  */
+ 
+-#define IPC_BASE_ADDR     0xFF11C000	/* IPC1 base register address */
+-#define IPC_MAX_ADDR      0x100		/* Maximum IPC regisers */
+-#define IPC_WWBUF_SIZE    20		/* IPC Write buffer Size */
+-#define IPC_RWBUF_SIZE    20		/* IPC Read buffer Size */
+-#define IPC_I2C_BASE      0xFF12B000	/* I2C control register base address */
+-#define IPC_I2C_MAX_ADDR  0x10		/* Maximum I2C regisers */
++=======
++
++static struct notifier_block scu_ipc_pm_notifier = {
++	.notifier_call = scu_ipc_pm_callback,
++	.priority = 1,
++};
++
++/*
++ * IPC register summary
++ *
++ * IPC register blocks are memory mapped at fixed address of 0xFF11C000
++ * To read or write information to the SCU, driver writes to IPC-1 memory
++ * mapped registers (base address 0xFF11C000). The following is the IPC
++ * mechanism
++ *
++ * 1. IA core cDMI interface claims this transaction and converts it to a
++ *    Transaction Layer Packet (TLP) message which is sent across the cDMI.
++ *
++ * 2. South Complex cDMI block receives this message and writes it to
++ *    the IPC-1 register block, causing an interrupt to the SCU
++ *
++ * 3. SCU firmware decodes this interrupt and IPC message and the appropriate
++ *    message handler is called within firmware.
++ */
+ 
+-static int ipc_probe(struct pci_dev *dev, const struct pci_device_id *id);
+-static void ipc_remove(struct pci_dev *pdev);
++#define IPC_STATUS_ADDR		0X04
++#define IPC_SPTR_ADDR		0x08
++#define IPC_DPTR_ADDR		0x0C
++#define IPC_READ_BUFFER		0x90
++#define IPC_WRITE_BUFFER	0x80
++#define IPC_IOC			0x100
+ 
+-struct intel_scu_ipc_dev {
++struct intel_ipc_controller {
+ 	struct pci_dev *pdev;
+ 	void __iomem *ipc_base;
+ 	void __iomem *i2c_base;
++	int ioc;
++	int cmd;
++	struct completion cmd_complete;
+ };
+ 
+-static struct intel_scu_ipc_dev  ipcdev; /* Only one for now */
++static struct intel_ipc_controller  ipcdev; /* Only one for now */
++
++static int platform; /* Platform type */
++
++static char *ipc_err_sources[] = {
++	[IPC_ERR_NONE] =
++		"no error",
++	[IPC_ERR_CMD_NOT_SUPPORTED] =
++		"command not supported",
++	[IPC_ERR_CMD_NOT_SERVICED] =
++		"command not serviced",
++	[IPC_ERR_UNABLE_TO_SERVICE] =
++		"unable to service",
++	[IPC_ERR_CMD_INVALID] =
++		"command invalid",
++	[IPC_ERR_CMD_FAILED] =
++		"command failed",
++	[IPC_ERR_EMSECURITY] =
++		"unsigned kernel",
++};
+ 
+-static int platform;		/* Platform type */
++/* Suspend status get */
++bool suspend_in_progress(void)
++{
++	return suspend_status;
++}
+ 
+-/*
+- * IPC Read Buffer (Read Only):
+- * 16 byte buffer for receiving data from SCU, if IPC command
+- * processing results in response data
+- */
+-#define IPC_READ_BUFFER		0x90
++static struct wake_lock ipc_wake_lock;
++
++/* PM Qos struct */
++static struct pm_qos_request *qos;
+ 
+-#define IPC_I2C_CNTRL_ADDR	0
+-#define I2C_DATA_ADDR		0x04
++/* Suspend status*/
++static bool suspend_status;
++static DEFINE_MUTEX(scu_suspend_lock);
++
++/* Suspend status get */
++bool suspend_in_progress(void)
++{
++	return suspend_status;
++}
+ 
+-static DEFINE_MUTEX(ipclock); /* lock used to prevent multiple call to SCU */
++/* Suspend status set */
++void set_suspend_status(bool status)
++{
++	mutex_lock(&scu_suspend_lock);
++	suspend_status = status;
++	mutex_unlock(&scu_suspend_lock);
++}
++
++/* IPC PM notifier callback */
++static int scu_ipc_pm_callback(struct notifier_block *nb,
++					unsigned long action,
++					void *ignored)
++{
++	switch (action) {
++	case PM_SUSPEND_PREPARE:
++		set_suspend_status(true);
++		return NOTIFY_OK;
++	case PM_POST_SUSPEND:
++		set_suspend_status(false);
++		return NOTIFY_OK;
++	}
++
++	return NOTIFY_DONE;
++}
+ 
+ /*
+  * Command Register (Write Only):
+@@ -96,9 +218,18 @@ static DEFINE_MUTEX(ipclock); /* lock used to prevent multiple call to SCU */
+  * Format:
+  * |rfu2(8) | size(8) | command id(4) | rfu1(3) | ioc(1) | command(8)|
+  */
+-static inline void ipc_command(u32 cmd) /* Send ipc command */
++void intel_scu_ipc_send_command(u32 cmd) /* Send ipc command */
+ {
+-	writel(cmd, ipcdev.ipc_base);
++	ipcdev.cmd = cmd;
++	INIT_COMPLETION(ipcdev.cmd_complete);
++
++	if (system_state == SYSTEM_RUNNING && !suspend_in_progress()) {
++		ipcdev.ioc = 1;
++		writel(cmd | IPC_IOC, ipcdev.ipc_base);
++	} else {
++		ipcdev.ioc = 0;
++		writel(cmd, ipcdev.ipc_base);
++	}
+ }
+ 
+ /*
+@@ -108,7 +239,7 @@ static inline void ipc_command(u32 cmd) /* Send ipc command */
+  */
+ static inline void ipc_data_writel(u32 data, u32 offset) /* Write ipc data */
+ {
+-	writel(data, ipcdev.ipc_base + 0x80 + offset);
++	writel(data, ipcdev.ipc_base + IPC_WRITE_BUFFER + offset);
+ }
+ 
+ /*
+@@ -119,9 +250,9 @@ static inline void ipc_data_writel(u32 data, u32 offset) /* Write ipc data */
+  * |rfu3(8)|error code(8)|initiator id(8)|cmd id(4)|rfu1(2)|error(1)|busy(1)|
+  */
+ 
+-static inline u8 ipc_read_status(void)
++static inline u32 ipc_read_status(void)
+ {
+-	return __raw_readl(ipcdev.ipc_base + 0x04);
++	return __raw_readl(ipcdev.ipc_base + IPC_STATUS_ADDR);
+ }
+ 
+ static inline u8 ipc_data_readb(u32 offset) /* Read ipc byte data */
+@@ -134,243 +265,75 @@ static inline u32 ipc_data_readl(u32 offset) /* Read ipc u32 data */
+ 	return readl(ipcdev.ipc_base + IPC_READ_BUFFER + offset);
+ }
+ 
+-static inline int busy_loop(void) /* Wait till scu status is busy */
++int intel_scu_ipc_check_status(void)
+ {
+-	u32 status = 0;
+-	u32 loop_count = 0;
++	int i;
++	int ret = 0;
++	int status;
++	int loop_count = 3000000;
++
++	if (ipcdev.ioc && (system_state == SYSTEM_RUNNING) &&
++			(!suspend_in_progress())) {
++		if (0 == wait_for_completion_timeout(
++				&ipcdev.cmd_complete, 3 * HZ))
++			ret = -ETIMEDOUT;
++	} else {
++		while ((ipc_read_status() & 1) && --loop_count)
++			udelay(1);
++		if (loop_count == 0)
++			ret = -ETIMEDOUT;
++	}
+ 
+ 	status = ipc_read_status();
+-	while (status & 1) {
+-		udelay(1); /* scu processing time is in few u secods */
+-		status = ipc_read_status();
+-		loop_count++;
+-		/* break if scu doesn't reset busy bit after huge retry */
+-		if (loop_count > 100000) {
+-			dev_err(&ipcdev.pdev->dev, "IPC timed out");
+-			return -ETIMEDOUT;
+-		}
++	if (ret == -ETIMEDOUT)
++		dev_err(&ipcdev.pdev->dev,
++			"IPC timed out, IPC_STS=0x%x, IPC_CMD=0x%x\n",
++			status, ipcdev.cmd);
++
++	if (status & 0x2) {
++		ret = -EIO;
++		i = (status >> 16) & 0xFF;
++		if (i < ARRAY_SIZE(ipc_err_sources))
++			dev_err(&ipcdev.pdev->dev,
++				"IPC failed: %s, IPC_STS=0x%x, IPC_CMD=0x%x\n",
++				ipc_err_sources[i], status, ipcdev.cmd);
++		else
++			dev_err(&ipcdev.pdev->dev,
++				"IPC failed: unknown error, IPC_STS=0x%x, "
++				"IPC_CMD=0x%x\n", status, ipcdev.cmd);
+ 	}
+-	if ((status >> 1) & 1)
+-		return -EIO;
+ 
+-	return 0;
++	return ret;
+ }
+ 
+-/* Read/Write power control(PMIC in Langwell, MSIC in PenWell) registers */
+-static int pwr_reg_rdwr(u16 *addr, u8 *data, u32 count, u32 op, u32 id)
++void intel_scu_ipc_lock(void)
+ {
+-	int nc;
+-	u32 offset = 0;
+-	int err;
+-	u8 cbuf[IPC_WWBUF_SIZE] = { };
+-	u32 *wbuf = (u32 *)&cbuf;
+-
+-	mutex_lock(&ipclock);
+-
+-	memset(cbuf, 0, sizeof(cbuf));
+-
+-	if (ipcdev.pdev == NULL) {
+-		mutex_unlock(&ipclock);
+-		return -ENODEV;
+-	}
++	/* Prevent C-states beyond C6 */
++	pm_qos_update_request(qos, CSTATE_EXIT_LATENCY_S0i1 - 1);
+ 
+-	for (nc = 0; nc < count; nc++, offset += 2) {
+-		cbuf[offset] = addr[nc];
+-		cbuf[offset + 1] = addr[nc] >> 8;
+-	}
++	/* Prevent S3 */
++	mutex_lock(&scu_suspend_lock);
+ 
+-	if (id == IPC_CMD_PCNTRL_R) {
+-		for (nc = 0, offset = 0; nc < count; nc++, offset += 4)
+-			ipc_data_writel(wbuf[nc], offset);
+-		ipc_command((count*2) << 16 |  id << 12 | 0 << 8 | op);
+-	} else if (id == IPC_CMD_PCNTRL_W) {
+-		for (nc = 0; nc < count; nc++, offset += 1)
+-			cbuf[offset] = data[nc];
+-		for (nc = 0, offset = 0; nc < count; nc++, offset += 4)
+-			ipc_data_writel(wbuf[nc], offset);
+-		ipc_command((count*3) << 16 |  id << 12 | 0 << 8 | op);
+-	} else if (id == IPC_CMD_PCNTRL_M) {
+-		cbuf[offset] = data[0];
+-		cbuf[offset + 1] = data[1];
+-		ipc_data_writel(wbuf[0], 0); /* Write wbuff */
+-		ipc_command(4 << 16 |  id << 12 | 0 << 8 | op);
+-	}
+-
+-	err = busy_loop();
+-	if (id == IPC_CMD_PCNTRL_R) { /* Read rbuf */
+-		/* Workaround: values are read as 0 without memcpy_fromio */
+-		memcpy_fromio(cbuf, ipcdev.ipc_base + 0x90, 16);
+-		for (nc = 0; nc < count; nc++)
+-			data[nc] = ipc_data_readb(nc);
+-	}
+-	mutex_unlock(&ipclock);
+-	return err;
++	if (!suspend_in_progress())
++		wake_lock(&ipc_wake_lock);
+ }
++EXPORT_SYMBOL_GPL(intel_scu_ipc_lock);
+ 
+-/**
+- *	intel_scu_ipc_ioread8		-	read a word via the SCU
+- *	@addr: register on SCU
+- *	@data: return pointer for read byte
+- *
+- *	Read a single register. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	This function may sleep.
+- */
+-int intel_scu_ipc_ioread8(u16 addr, u8 *data)
++void intel_scu_ipc_unlock(void)
+ {
+-	return pwr_reg_rdwr(&addr, data, 1, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_R);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_ioread8);
++	/* Re-enable S3 */
++	if (!suspend_in_progress())
++		wake_unlock(&ipc_wake_lock);
+ 
+-/**
+- *	intel_scu_ipc_ioread16		-	read a word via the SCU
+- *	@addr: register on SCU
+- *	@data: return pointer for read word
+- *
+- *	Read a register pair. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	This function may sleep.
+- */
+-int intel_scu_ipc_ioread16(u16 addr, u16 *data)
+-{
+-	u16 x[2] = {addr, addr + 1 };
+-	return pwr_reg_rdwr(x, (u8 *)data, 2, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_R);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_ioread16);
++	mutex_unlock(&scu_suspend_lock);
+ 
+-/**
+- *	intel_scu_ipc_ioread32		-	read a dword via the SCU
+- *	@addr: register on SCU
+- *	@data: return pointer for read dword
+- *
+- *	Read four registers. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	This function may sleep.
+- */
+-int intel_scu_ipc_ioread32(u16 addr, u32 *data)
+-{
+-	u16 x[4] = {addr, addr + 1, addr + 2, addr + 3};
+-	return pwr_reg_rdwr(x, (u8 *)data, 4, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_R);
++	/* Re-enable Deeper C-states beyond C6 */
++	pm_qos_update_request(qos, PM_QOS_DEFAULT_VALUE);
+ }
+-EXPORT_SYMBOL(intel_scu_ipc_ioread32);
++EXPORT_SYMBOL_GPL(intel_scu_ipc_unlock);
+ 
+ /**
+- *	intel_scu_ipc_iowrite8		-	write a byte via the SCU
+- *	@addr: register on SCU
+- *	@data: byte to write
+- *
+- *	Write a single register. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	This function may sleep.
+- */
+-int intel_scu_ipc_iowrite8(u16 addr, u8 data)
+-{
+-	return pwr_reg_rdwr(&addr, &data, 1, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_W);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_iowrite8);
+-
+-/**
+- *	intel_scu_ipc_iowrite16		-	write a word via the SCU
+- *	@addr: register on SCU
+- *	@data: word to write
+- *
+- *	Write two registers. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	This function may sleep.
+- */
+-int intel_scu_ipc_iowrite16(u16 addr, u16 data)
+-{
+-	u16 x[2] = {addr, addr + 1 };
+-	return pwr_reg_rdwr(x, (u8 *)&data, 2, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_W);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_iowrite16);
+-
+-/**
+- *	intel_scu_ipc_iowrite32		-	write a dword via the SCU
+- *	@addr: register on SCU
+- *	@data: dword to write
+- *
+- *	Write four registers. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	This function may sleep.
+- */
+-int intel_scu_ipc_iowrite32(u16 addr, u32 data)
+-{
+-	u16 x[4] = {addr, addr + 1, addr + 2, addr + 3};
+-	return pwr_reg_rdwr(x, (u8 *)&data, 4, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_W);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_iowrite32);
+-
+-/**
+- *	intel_scu_ipc_readvv		-	read a set of registers
+- *	@addr: register list
+- *	@data: bytes to return
+- *	@len: length of array
+- *
+- *	Read registers. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	The largest array length permitted by the hardware is 5 items.
+- *
+- *	This function may sleep.
+- */
+-int intel_scu_ipc_readv(u16 *addr, u8 *data, int len)
+-{
+-	return pwr_reg_rdwr(addr, data, len, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_R);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_readv);
+-
+-/**
+- *	intel_scu_ipc_writev		-	write a set of registers
+- *	@addr: register list
+- *	@data: bytes to write
+- *	@len: length of array
+- *
+- *	Write registers. Returns 0 on success or an error code. All
+- *	locking between SCU accesses is handled for the caller.
+- *
+- *	The largest array length permitted by the hardware is 5 items.
+- *
+- *	This function may sleep.
+- *
+- */
+-int intel_scu_ipc_writev(u16 *addr, u8 *data, int len)
+-{
+-	return pwr_reg_rdwr(addr, data, len, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_W);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_writev);
+-
+-
+-/**
+- *	intel_scu_ipc_update_register	-	r/m/w a register
+- *	@addr: register address
+- *	@bits: bits to update
+- *	@mask: mask of bits to update
+- *
+- *	Read-modify-write power control unit register. The first data argument
+- *	must be register value and second is mask value
+- *	mask is a bitmap that indicates which bits to update.
+- *	0 = masked. Don't modify this bit, 1 = modify this bit.
+- *	returns 0 on success or an error code.
+- *
+- *	This function may sleep. Locking between SCU accesses is handled
+- *	for the caller.
+- */
+-int intel_scu_ipc_update_register(u16 addr, u8 bits, u8 mask)
+-{
+-	u8 data[2] = { bits, mask };
+-	return pwr_reg_rdwr(&addr, data, 1, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_M);
+-}
+-EXPORT_SYMBOL(intel_scu_ipc_update_register);
+-
+-/**
+- *	intel_scu_ipc_simple_command	-	send a simple command
++ *	intel_scu_ipc_simple_command - send a simple command
+  *	@cmd: command
+  *	@sub: sub type
+  *
+@@ -385,117 +348,102 @@ int intel_scu_ipc_simple_command(int cmd, int sub)
+ {
+ 	int err;
+ 
+-	mutex_lock(&ipclock);
+-	if (ipcdev.pdev == NULL) {
+-		mutex_unlock(&ipclock);
++	if (ipcdev.pdev == NULL)
+ 		return -ENODEV;
+-	}
+-	ipc_command(sub << 12 | cmd);
+-	err = busy_loop();
+-	mutex_unlock(&ipclock);
++
++	intel_scu_ipc_lock();
++	intel_scu_ipc_send_command(sub << 12 | cmd);
++	err = intel_scu_ipc_check_status();
++	intel_scu_ipc_unlock();
+ 	return err;
+ }
+ EXPORT_SYMBOL(intel_scu_ipc_simple_command);
+ 
+ /**
+- *	intel_scu_ipc_command	-	command with data
+- *	@cmd: command
+- *	@sub: sub type
+- *	@in: input data
+- *	@inlen: input length in dwords
+- *	@out: output data
+- *	@outlein: output length in dwords
+- *
+- *	Issue a command to the SCU which involves data transfers. Do the
+- *	data copies under the lock but leave it for the caller to interpret
++ * intel_scu_ipc_raw_cmd - raw ipc command with data
++ * @cmd: command
++ * @sub: sub type
++ * @in: input data
++ * @inlen: input length in bytes
++ * @out: output data
++ * @outlen: output length in dwords
++ * @sptr: data writing to SPTR register
++ * @dptr: data writing to DPTR register
++ *
++ * Issue a command to the SCU which involves data transfers. Do the
++ * data copies under the lock but leave it for the caller to interpret
++ * Note: This function should be called with the holding of ipclock
+  */
+-
+-int intel_scu_ipc_command(int cmd, int sub, u32 *in, int inlen,
+-							u32 *out, int outlen)
++int intel_scu_ipc_raw_cmd(u32 cmd, u32 sub, u8 *in, u32 inlen, u32 *out,
++		u32 outlen, u32 dptr, u32 sptr)
+ {
+ 	int i, err;
++	u32 wbuf[4] = { 0 };
+ 
+-	mutex_lock(&ipclock);
+-	if (ipcdev.pdev == NULL) {
+-		mutex_unlock(&ipclock);
++	if (ipcdev.pdev == NULL)
+ 		return -ENODEV;
+-	}
+ 
+-	for (i = 0; i < inlen; i++)
+-		ipc_data_writel(*in++, 4 * i);
++	if (inlen > 16)
++		return -EINVAL;
++
++	memcpy(wbuf, in, inlen);
++
++	writel(dptr, ipcdev.ipc_base + IPC_DPTR_ADDR);
++	writel(sptr, ipcdev.ipc_base + IPC_SPTR_ADDR);
++
++	/**
++	 * SRAM controller doesn't support 8bit write, it only supports
++	 * 32bit write, so we have to write into the WBUF in 32bit,
++	 * and SCU FW will use the inlen to determine the actual input
++	 * data length in the WBUF.
++	 */
++	for (i = 0; i < ((inlen + 3) / 4); i++)
++		ipc_data_writel(wbuf[i], 4 * i);
+ 
+-	ipc_command((inlen << 16) | (sub << 12) | cmd);
+-	err = busy_loop();
++	/**
++	 * Watchdog IPC command is an exception here using double word
++	 * as the unit of input data size because of historical reasons
++	 * and SCU FW is doing so.
++	 */
++	if ((cmd & 0xFF) == IPCMSG_WATCHDOG_TIMER)
++		inlen = (inlen + 3) / 4;
++
++	intel_scu_ipc_send_command((inlen << 16) | (sub << 12) | cmd);
++	err = intel_scu_ipc_check_status();
+ 
+ 	for (i = 0; i < outlen; i++)
+ 		*out++ = ipc_data_readl(4 * i);
+ 
+-	mutex_unlock(&ipclock);
+ 	return err;
+ }
+-EXPORT_SYMBOL(intel_scu_ipc_command);
+-
+-/*I2C commands */
+-#define IPC_I2C_WRITE 1 /* I2C Write command */
+-#define IPC_I2C_READ  2 /* I2C Read command */
++EXPORT_SYMBOL_GPL(intel_scu_ipc_raw_cmd);
+ 
+-/**
+- *	intel_scu_ipc_i2c_cntrl		-	I2C read/write operations
+- *	@addr: I2C address + command bits
+- *	@data: data to read/write
+- *
+- *	Perform an an I2C read/write operation via the SCU. All locking is
+- *	handled for the caller. This function may sleep.
+- *
+- *	Returns an error code or 0 on success.
+- *
+- *	This has to be in the IPC driver for the locking.
+- */
+-int intel_scu_ipc_i2c_cntrl(u32 addr, u32 *data)
++int intel_scu_ipc_command(u32 cmd, u32 sub, u8 *in, u32 inlen,
++		u32 *out, u32 outlen)
+ {
+-	u32 cmd = 0;
+-
+-	mutex_lock(&ipclock);
+-	if (ipcdev.pdev == NULL) {
+-		mutex_unlock(&ipclock);
+-		return -ENODEV;
+-	}
+-	cmd = (addr >> 24) & 0xFF;
+-	if (cmd == IPC_I2C_READ) {
+-		writel(addr, ipcdev.i2c_base + IPC_I2C_CNTRL_ADDR);
+-		/* Write not getting updated without delay */
+-		mdelay(1);
+-		*data = readl(ipcdev.i2c_base + I2C_DATA_ADDR);
+-	} else if (cmd == IPC_I2C_WRITE) {
+-		writel(*data, ipcdev.i2c_base + I2C_DATA_ADDR);
+-		mdelay(1);
+-		writel(addr, ipcdev.i2c_base + IPC_I2C_CNTRL_ADDR);
+-	} else {
+-		dev_err(&ipcdev.pdev->dev,
+-			"intel_scu_ipc: I2C INVALID_CMD = 0x%x\n", cmd);
+-
+-		mutex_unlock(&ipclock);
+-		return -EIO;
+-	}
+-	mutex_unlock(&ipclock);
+-	return 0;
++	int ret;
++	intel_scu_ipc_lock();
++	ret = intel_scu_ipc_raw_cmd(cmd, sub, in, inlen, out, outlen, 0, 0);
++	intel_scu_ipc_unlock();
++	return ret;
+ }
+-EXPORT_SYMBOL(intel_scu_ipc_i2c_cntrl);
++EXPORT_SYMBOL_GPL(intel_scu_ipc_command);
+ 
+ /*
+  * Interrupt handler gets called when ioc bit of IPC_COMMAND_REG set to 1
+  * When ioc bit is set to 1, caller api must wait for interrupt handler called
+- * which in turn unlocks the caller api. Currently this is not used
++ * which in turn unlocks the caller api.
+  *
+  * This is edge triggered so we need take no action to clear anything
+  */
+ static irqreturn_t ioc(int irq, void *dev_id)
+ {
++	complete(&ipcdev.cmd_complete);
+ 	return IRQ_HANDLED;
+ }
+ 
+ /**
+- *	ipc_probe	-	probe an Intel SCU IPC
++ *	ipc_probe - probe an Intel SCU IPC
+  *	@dev: the PCI device matching
+  *	@id: entry in the match table
+  *
+@@ -524,7 +472,10 @@ static int ipc_probe(struct pci_dev *dev, const struct pci_device_id *id)
+ 	if (!pci_resource)
+ 		return -ENOMEM;
+ 
+-	if (request_irq(dev->irq, ioc, 0, "intel_scu_ipc", &ipcdev))
++	init_completion(&ipcdev.cmd_complete);
++
++	if (request_irq(dev->irq, ioc, IRQF_NO_SUSPEND, "intel_scu_ipc",
++		&ipcdev))
+ 		return -EBUSY;
+ 
+ 	ipcdev.ipc_base = ioremap_nocache(IPC_BASE_ADDR, IPC_MAX_ADDR);
+@@ -543,7 +494,7 @@ static int ipc_probe(struct pci_dev *dev, const struct pci_device_id *id)
+ }
+ 
+ /**
+- *	ipc_remove	-	remove a bound IPC device
++ *	ipc_remove - remove a bound IPC device
+  *	@pdev: PCI device
+  *
+  *	In practice the SCU is not removable but this function is also
+@@ -564,7 +515,10 @@ static void ipc_remove(struct pci_dev *pdev)
+ }
+ 
+ static DEFINE_PCI_DEVICE_TABLE(pci_ids) = {
+-	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x082a)},
++	{PCI_VDEVICE(INTEL, 0x080e), SCU_IPC_PENWELL},
++	{PCI_VDEVICE(INTEL, 0x082a), SCU_IPC_LINCROFT},
++	{PCI_VDEVICE(INTEL, 0x08ea), SCU_IPC_CLOVERVIEW},
++	{PCI_VDEVICE(INTEL, 0x11a0), SCU_IPC_TANGIER},
+ 	{ 0,}
+ };
+ MODULE_DEVICE_TABLE(pci, pci_ids);
+@@ -576,17 +530,29 @@ static struct pci_driver ipc_driver = {
+ 	.remove = ipc_remove,
+ };
+ 
+-
+ static int intel_scu_ipc_init(void)
+ {
+ 	platform = mrst_identify_cpu();
+ 	if (platform == 0)
+ 		return -ENODEV;
++
++	qos = kzalloc(sizeof(struct pm_qos_request), GFP_KERNEL);
++	if (!qos)
++		return -ENOMEM;
++
++	pm_qos_add_request(qos, PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
++
++	register_pm_notifier(&scu_ipc_pm_notifier);
++
++	wake_lock_init(&ipc_wake_lock, WAKE_LOCK_SUSPEND, "intel_scu_ipc");
++
+ 	return  pci_register_driver(&ipc_driver);
+ }
+ 
+ static void __exit intel_scu_ipc_exit(void)
+ {
++	pm_qos_remove_request(qos);
++
+ 	pci_unregister_driver(&ipc_driver);
+ }
+ 
+diff --git a/drivers/platform/x86/intel_scu_ipcutil.c b/drivers/platform/x86/intel_scu_ipcutil.c
+index 7c6f3573813a..47228b08156a 100644
+--- a/drivers/platform/x86/intel_scu_ipcutil.c
++++ b/drivers/platform/x86/intel_scu_ipcutil.c
+@@ -28,6 +28,7 @@
+ #include <linux/io.h>
+ #include <linux/rpmsg.h>
+ #include <asm/intel_scu_ipc.h>
++#include <asm/intel_scu_pmic.h>
+ #include <asm/intel_scu_ipcutil.h>
+ #include <asm/intel-mid.h>
+ #include <asm/intel_mid_rpmsg.h>
+@@ -662,6 +663,18 @@ static long scu_ipc_ioctl(struct file *fp, unsigned int cmd,
+ 
+ 		break;
+ 	}
++	case INTEL_SCU_IPC_READ_VBATTCRIT:
++	{
++		u32 value = 0;
++
++		pr_info("cmd = INTEL_SCU_IPC_READ_VBATTCRIT");
++		ret = intel_scu_ipc_read_mip((u8 *)&value, 4, 0x318, 1);
++		if (ret < 0)
++			return ret;
++		pr_info("VBATTCRIT VALUE = %x\n", value);
++		ret = copy_to_user(argp, &value, 4);
++		break;
++	}
+ 	case INTEL_SCU_IPC_FW_REVISION_GET:
+ 	case INTEL_SCU_IPC_FW_REVISION_EXT_GET:
+ 	{
+diff --git a/drivers/platform/x86/intel_scu_mip.c b/drivers/platform/x86/intel_scu_mip.c
+new file mode 100644
+index 000000000000..ec0614008d9b
+--- /dev/null
++++ b/drivers/platform/x86/intel_scu_mip.c
+@@ -0,0 +1,776 @@
++/*
++ * intel_scu_mip.c: Driver for the Intel scu mip and umip access
++ *
++ * (C) Copyright 2012 Intel Corporation
++ * Author: Shijie Zhang (shijie.zhang@intel.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/errno.h>
++#include <linux/fs.h>
++#include <linux/delay.h>
++#include <linux/rpmsg.h>
++#include <linux/blkdev.h>
++#include <linux/pagemap.h>
++#include <asm/intel_scu_ipc.h>
++#include <asm/intel_mip.h>
++#include <asm/intel_mid_rpmsg.h>
++#include <linux/platform_data/intel_mid_remoteproc.h>
++
++#define DRIVER_NAME "intel_scu_mip"
++
++#define IPC_MIP_BASE     0xFFFD8000	/* sram base address for mip accessing*/
++#define IPC_MIP_MAX_ADDR 0x1000
++
++#define KOBJ_MIP_ATTR(_name, _mode, _show, _store) \
++	struct kobj_attribute _name##_attr = __ATTR(_name, _mode, _show, _store)
++
++static struct kobject *scu_mip_kobj;
++static struct rpmsg_instance *mip_instance;
++static struct scu_mip_platform_data *pdata;
++
++static void __iomem *intel_mip_base;
++#define SECTOR_SIZE			512
++#define UMIP_TOTAL_CHKSUM_ENTRY		126
++#define UMIP_HEADER_HEADROOM_SECTOR	1
++#define UMIP_HEADER_SECTOR		0
++#define UMIP_HEADER_CHKSUM_ADDR		7
++#define UMIP_START_CHKSUM_ADDR		8
++#define UMIP_TOTAL_HEADER_SECTOR_NO	2
++
++#define UMIP_BLKDEVICE			"mmcblk0boot0"
++
++static int xorblock(u32 *buf, u32 size)
++{
++	u32 cs = 0;
++
++	size >>= 2;
++	while (size--)
++		cs ^= *buf++;
++
++	return cs;
++}
++
++static u8 dword_to_byte_chksum(u32 dw)
++{
++	int n = 0;
++	u32 cs = dw;
++	for (n = 0; n < 3; n++) {
++		dw >>= 8;
++		cs ^= dw;
++	}
++
++	return (u8)cs;
++}
++
++static u8 calc_checksum(void *_buf, int size)
++{
++	int i;
++	u8 checksum = 0, *buf = (u8 *)_buf;
++
++	for (i = 0; i < size; i++)
++		checksum = checksum ^ (buf[i]);
++
++	return checksum;
++}
++
++static int mmcblk0boot0_match(struct device *dev, const void *data)
++{
++	if (strcmp(dev_name(dev), UMIP_BLKDEVICE) == 0)
++		return 1;
++
++	return 0;
++}
++
++static struct block_device *get_emmc_bdev(void)
++{
++	struct block_device *bdev;
++	struct device *emmc_disk;
++
++	emmc_disk = class_find_device(&block_class, NULL, NULL,
++					mmcblk0boot0_match);
++	if (emmc_disk == 0) {
++		pr_err("emmc not found!\n");
++		return NULL;
++	}
++
++	/* partition 0 means raw disk */
++	bdev = bdget_disk(dev_to_disk(emmc_disk), 0);
++	if (bdev == NULL) {
++		dev_err(emmc_disk, "unable to get disk\n");
++		return NULL;
++	}
++
++	/* Note: this bdev ref will be freed after first
++	 * bdev_get/bdev_put cycle
++	 */
++
++	return bdev;
++}
++
++
++static int read_mip(u8 *data, int len, int offset, int issigned)
++{
++	int ret;
++	u32 sptr, dptr, cmd, cmdid, data_off;
++
++	dptr = offset;
++	sptr = (len + 3) / 4;
++
++	cmdid = issigned ? IPC_CMD_SMIP_RD : IPC_CMD_UMIP_RD;
++	cmd = 4 << 16 | cmdid << 12 | IPCMSG_MIP_ACCESS;
++
++	do {
++		ret = rpmsg_send_raw_command(mip_instance, cmd, 0, NULL,
++			(u32 *)&data_off, 0, 1, sptr, dptr);
++
++		if (ret == -EIO)
++			msleep(20);
++	} while (ret == -EIO);
++
++	if (!ret)
++		memcpy(data, intel_mip_base + data_off, len);
++
++	return ret;
++}
++
++int intel_scu_ipc_read_mip(u8 *data, int len, int offset, int issigned)
++{
++	int ret = 0;
++	Sector sect;
++	struct block_device *bdev;
++	char *buffer = NULL;
++	int *holderId = NULL;
++	int sect_no, remainder;
++
++	/* Only SMIP read for Cloverview is supported */
++	if ((intel_mid_identify_cpu() == INTEL_MID_CPU_CHIP_CLOVERVIEW)
++			&& (issigned != 1)) { /* CTP read UMIP from eMMC */
++
++		/* Opening the mmcblk0boot0 */
++		bdev = get_emmc_bdev();
++		if (bdev == NULL) {
++			pr_err("%s: get_emmc failed!\n", __func__);
++			return -ENODEV;
++		}
++
++		/* make sure the block device is open read only */
++		ret = blkdev_get(bdev, FMODE_READ, holderId);
++		if (ret < 0) {
++			pr_err("%s: blk_dev_get failed!\n", __func__);
++			return -ret;
++		}
++
++		/* Get sector number of where data located */
++		sect_no = offset / SECTOR_SIZE;
++		remainder = offset % SECTOR_SIZE;
++		buffer = read_dev_sector(bdev, sect_no +
++					UMIP_HEADER_HEADROOM_SECTOR, &sect);
++
++		/* Shouldn't need to access UMIP sector 0/1 */
++		if (sect_no < UMIP_TOTAL_HEADER_SECTOR_NO) {
++			pr_err("invalid umip offset\n");
++			ret = -EINVAL;
++			goto bd_put;
++		} else if (data == NULL || buffer == NULL) {
++			pr_err("buffer is empty\n");
++			ret = -ENODEV;
++			goto bd_put;
++		} else if (len > (SECTOR_SIZE - remainder)) {
++			pr_err("not enough data to read\n");
++			ret = -EINVAL;
++			goto bd_put;
++		}
++
++		memcpy(data, buffer + remainder, len);
++bd_put:
++		if (buffer)
++			put_dev_sector(sect);
++
++		blkdev_put(bdev, FMODE_READ);
++		return ret;
++	} else {
++
++		if (!intel_mip_base)
++			return -ENODEV;
++
++		if (offset + len > IPC_MIP_MAX_ADDR)
++			return -EINVAL;
++
++		rpmsg_global_lock();
++		ret = read_mip(data, len, offset, issigned);
++		rpmsg_global_unlock();
++
++		return ret;
++	}
++}
++EXPORT_SYMBOL(intel_scu_ipc_read_mip);
++
++int get_smip_property_by_name(enum platform_prop pp)
++{
++	u8 data[SMIP_MAX_PROP_LEN];
++	int i, val, ret;
++	struct smip_platform_prop prop[SMIP_NUM_CONFIG_PROPS];
++
++	if (!pdata->smip_prop)
++		return -EINVAL;
++
++	for (i = 0; i < SMIP_NUM_CONFIG_PROPS; i++)
++		prop[i] = pdata->smip_prop[i];
++
++	/* Read the property requested by the caller */
++	ret = intel_scu_ipc_read_mip(data, prop[pp].len, prop[pp].offset, 1);
++	if (ret)
++		return ret;
++
++	/* Adjust the bytes according to the length and return the int */
++	val = data[0];
++	for (i = 1; i < prop[pp].len; i++)
++		val = val << 8 | data[i];
++
++	/* If the requested property is a bit field, return that bit value */
++	if (prop[pp].is_bit_field)
++		val &= prop[pp].mask;
++
++	return val;
++}
++EXPORT_SYMBOL(get_smip_property_by_name);
++
++int intel_scu_ipc_write_umip(u8 *data, int len, int offset)
++{
++	int i, ret = 0, offset_align;
++	int remainder, len_align = 0;
++	u32 dptr, sptr, cmd;
++	u8 cs, tbl_cs = 0, *buf = NULL;
++	Sector sect;
++	struct block_device *bdev;
++	char *buffer = NULL;
++	int *holderId = NULL;
++	int sect_no;
++	u8 checksum;
++
++	if (intel_mid_identify_cpu() == INTEL_MID_CPU_CHIP_CLOVERVIEW) {
++
++		/* Opening the mmcblk0boot0 */
++		bdev = get_emmc_bdev();
++		if (bdev == NULL) {
++			pr_err("%s: get_emmc failed!\n", __func__);
++			return -ENODEV;
++		}
++
++		/* make sure the block device is open rw */
++		ret = blkdev_get(bdev, FMODE_READ|FMODE_WRITE, holderId);
++		if (ret < 0) {
++			pr_err("%s: blk_dev_get failed!\n", __func__);
++			return -ret;
++		}
++
++		/* get memmap of the UMIP header */
++		sect_no = offset / SECTOR_SIZE;
++		remainder = offset % SECTOR_SIZE;
++		buffer = read_dev_sector(bdev, sect_no +
++					UMIP_HEADER_HEADROOM_SECTOR, &sect);
++
++		/* Shouldn't need to access UMIP sector 0/1 */
++		if (sect_no < UMIP_TOTAL_HEADER_SECTOR_NO) {
++			pr_err("invalid umip offset\n");
++			ret = -EINVAL;
++			goto bd_put;
++		} else if (data == NULL || buffer == NULL) {
++			pr_err("buffer is empty\n");
++			ret = -ENODEV;
++			goto bd_put;
++		} else if (len > (SECTOR_SIZE - remainder)) {
++			pr_err("too much data to write\n");
++			ret = -EINVAL;
++			goto bd_put;
++		}
++
++		lock_page(sect.v);
++		memcpy(buffer + remainder, data, len);
++		checksum = calc_checksum(buffer, SECTOR_SIZE);
++
++		set_page_dirty(sect.v);
++		unlock_page(sect.v);
++		sync_blockdev(bdev);
++		put_dev_sector(sect);
++
++		/*
++		 * Updating the checksum, sector 0 (starting from UMIP
++		 * offset 0x08), we maintains 4 bytes for tracking each of
++		 * sector changes individually. For example, the dword at
++		 * offset 0x08 is used to checksum data integrity of sector
++		 * number 2, and so on so forth. It's worthnoting that only
++		 * the first byte in each 4 bytes stores checksum.
++		 * For detail, please check CTP FAS UMIP header definition
++		 */
++
++		buffer = read_dev_sector(bdev, UMIP_HEADER_SECTOR +
++					UMIP_HEADER_HEADROOM_SECTOR, &sect);
++
++		if (buffer == NULL) {
++			pr_err("buffer is empty\n");
++			ret = -ENODEV;
++			goto bd_put;
++		}
++
++		lock_page(sect.v);
++		memcpy(buffer + 4 * (sect_no - UMIP_TOTAL_HEADER_SECTOR_NO) +
++			UMIP_START_CHKSUM_ADDR, &checksum, 1/* one byte */);
++
++		/* Change UMIP prologue chksum to zero */
++		*(buffer + UMIP_HEADER_CHKSUM_ADDR) = 0;
++
++		for (i = 0; i < UMIP_TOTAL_CHKSUM_ENTRY; i++) {
++			tbl_cs ^= *(u8 *)(buffer + 4 * i +
++					UMIP_START_CHKSUM_ADDR);
++		}
++
++		/* Finish up with re-calcuating UMIP prologue checksum */
++		cs = dword_to_byte_chksum(xorblock((u32 *)buffer,
++							SECTOR_SIZE));
++
++		*(buffer + UMIP_HEADER_CHKSUM_ADDR) = tbl_cs ^ cs;
++
++		set_page_dirty(sect.v);
++		unlock_page(sect.v);
++		sync_blockdev(bdev);
++bd_put:
++		if (buffer)
++			put_dev_sector(sect);
++
++		blkdev_put(bdev, FMODE_READ|FMODE_WRITE);
++		return ret;
++	} else {
++
++		if (!intel_mip_base)
++			return -ENODEV;
++
++		if (offset + len > IPC_MIP_MAX_ADDR)
++			return -EINVAL;
++
++		rpmsg_global_lock();
++
++		offset_align = offset & (~0x3);
++		len_align = (len + (offset - offset_align) + 3) & (~0x3);
++
++		if (len != len_align) {
++			buf = kzalloc(len_align, GFP_KERNEL);
++			if (!buf) {
++				pr_err("Alloc memory failed\n");
++				ret = -ENOMEM;
++				goto fail;
++			}
++			ret = read_mip(buf, len_align, offset_align, 0);
++			if (ret)
++				goto fail;
++			memcpy(buf + offset - offset_align, data, len);
++		} else {
++			buf = data;
++		}
++
++		dptr = offset_align;
++		sptr = len_align / 4;
++		cmd = IPC_CMD_UMIP_WR << 12 | IPCMSG_MIP_ACCESS;
++
++		memcpy(intel_mip_base, buf, len_align);
++
++		do {
++			ret = rpmsg_send_raw_command(mip_instance, cmd, 0, NULL,
++					NULL, 0, 0, sptr, dptr);
++			if (ret == -EIO)
++				msleep(20);
++		} while (ret == -EIO);
++
++fail:
++		if (buf && len_align != len)
++			kfree(buf);
++
++		rpmsg_global_unlock();
++
++		return ret;
++	}
++}
++EXPORT_SYMBOL(intel_scu_ipc_write_umip);
++
++
++#define MAX_DATA_NR 8
++#define MIP_CMD_LEN 11
++
++enum {
++	MIP_DBG_DATA,
++	MIP_DBG_LEN,
++	MIP_DBG_OFFSET,
++	MIP_DBG_ISSIGNED,
++	MIP_DBG_ERROR,
++};
++
++static u8 mip_data[MAX_DATA_NR];
++static int valid_data_nr;
++static int mip_len;
++static int mip_offset;
++static int mip_issigned;
++static int mip_dbg_error;
++static char mip_cmd[MIP_CMD_LEN];
++
++static ssize_t mip_generic_show(char *buf, int type, int *data)
++{
++	int i;
++	ssize_t ret = 0;
++
++	switch (type) {
++	case MIP_DBG_DATA:
++		for (i = 0; i < valid_data_nr; i++) {
++			ret += snprintf(buf + ret, PAGE_SIZE - ret,
++					"data[%d]: %#x\n",
++					i, mip_data[i]);
++		}
++		break;
++	case MIP_DBG_LEN:
++		ret = snprintf(buf, PAGE_SIZE, "len: %d\n", *data);
++		break;
++	case MIP_DBG_OFFSET:
++		ret = snprintf(buf, PAGE_SIZE, "offset: %#x\n", *data);
++		break;
++	case MIP_DBG_ISSIGNED:
++		ret = snprintf(buf, PAGE_SIZE, "issigned: %d\n", *data);
++		break;
++	case MIP_DBG_ERROR:
++		ret = snprintf(buf, PAGE_SIZE, "error: %d\n", *data);
++		break;
++	default:
++		break;
++	}
++
++	return ret;
++}
++
++static void mip_generic_store(const char *buf, int type, int *data)
++{
++	int i, ret;
++
++	if (type == MIP_DBG_DATA) {
++		u32 t[MAX_DATA_NR];
++
++		valid_data_nr = 0;
++		memset(mip_data, 0, sizeof(mip_data));
++
++		ret = sscanf(buf, "%x %x %x %x %x %x %x %x", &t[0], &t[1],
++				&t[2], &t[3], &t[4], &t[5], &t[6], &t[7]);
++		if (ret == 0 || ret > MAX_DATA_NR) {
++			mip_dbg_error = -EINVAL;
++			return;
++		} else {
++			for (i = 0; i < ret; i++)
++				mip_data[i] = (u8)t[i];
++			valid_data_nr = ret;
++		}
++	} else {
++		*data = 0;
++		switch (type) {
++		case MIP_DBG_OFFSET:
++			ret = sscanf(buf, "%x", data);
++			break;
++		case MIP_DBG_LEN:
++		case MIP_DBG_ISSIGNED:
++			ret = sscanf(buf, "%d", data);
++			break;
++		default:
++			ret = -1;
++			break;
++		}
++	}
++
++	if (ret)
++		mip_dbg_error = 0;
++	else
++		mip_dbg_error = -EINVAL;
++
++	return;
++}
++
++static ssize_t mip_data_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	return mip_generic_show(buf, MIP_DBG_DATA, NULL);
++}
++
++static ssize_t mip_data_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	mip_generic_store(buf, MIP_DBG_DATA, NULL);
++	return size;
++}
++
++static ssize_t mip_len_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	return mip_generic_show(buf, MIP_DBG_LEN, &mip_len);
++}
++
++static ssize_t mip_len_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	mip_generic_store(buf, MIP_DBG_LEN, &mip_len);
++	return size;
++}
++
++static ssize_t mip_offset_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	return mip_generic_show(buf, MIP_DBG_OFFSET, &mip_offset);
++}
++
++static ssize_t mip_offset_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	mip_generic_store(buf, MIP_DBG_OFFSET, &mip_offset);
++	return size;
++}
++
++static ssize_t mip_issigned_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	return mip_generic_show(buf, MIP_DBG_ISSIGNED, &mip_issigned);
++}
++
++static ssize_t mip_issigned_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	mip_generic_store(buf, MIP_DBG_ISSIGNED, &mip_issigned);
++	return size;
++}
++
++static ssize_t mip_error_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	return mip_generic_show(buf, MIP_DBG_ERROR, &mip_dbg_error);
++}
++
++static ssize_t mip_cmd_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++
++	int ret;
++
++	memset(mip_cmd, 0, sizeof(mip_cmd));
++
++	ret = sscanf(buf, "%10s", mip_cmd);
++	if (ret == 0) {
++		mip_dbg_error = -EINVAL;
++		goto end;
++	}
++
++	if (!strncmp("read_mip", mip_cmd, MIP_CMD_LEN)) {
++		memset(mip_data, 0, sizeof(mip_data));
++		ret = intel_scu_ipc_read_mip(mip_data, mip_len, mip_offset,
++				mip_issigned);
++		if (!ret)
++			valid_data_nr = mip_len;
++
++	} else if (!strncmp("write_umip", mip_cmd, MIP_CMD_LEN)) {
++		if (mip_len == valid_data_nr) {
++			ret = intel_scu_ipc_write_umip(mip_data, mip_len,
++					mip_offset);
++		} else
++			goto error;
++	} else
++		goto error;
++
++	if (ret)
++		goto error;
++	else
++		goto end;
++
++error:
++	mip_dbg_error = -EINVAL;
++
++end:
++	return size;
++}
++
++static KOBJ_MIP_ATTR(data, S_IRUGO|S_IWUSR, mip_data_show, mip_data_store);
++static KOBJ_MIP_ATTR(len, S_IRUGO|S_IWUSR, mip_len_show, mip_len_store);
++static KOBJ_MIP_ATTR(offset, S_IRUGO|S_IWUSR, mip_offset_show,
++		mip_offset_store);
++static KOBJ_MIP_ATTR(issigned, S_IRUGO|S_IWUSR, mip_issigned_show,
++		mip_issigned_store);
++static KOBJ_MIP_ATTR(cmd, S_IWUSR, NULL, mip_cmd_store);
++static KOBJ_MIP_ATTR(error, S_IRUGO, mip_error_show, NULL);
++
++static struct attribute *mip_attrs[] = {
++	&data_attr.attr,
++	&len_attr.attr,
++	&offset_attr.attr,
++	&issigned_attr.attr,
++	&cmd_attr.attr,
++	&error_attr.attr,
++	NULL,
++};
++
++static struct attribute_group mip_attr_group = {
++	.name = "mip_debug",
++	.attrs = mip_attrs,
++};
++
++static int scu_mip_probe(struct platform_device *pdev)
++{
++	if (intel_mid_identify_cpu() != INTEL_MID_CPU_CHIP_PENWELL) {
++		if (!pdev->dev.platform_data)
++			return -EINVAL;
++		pdata =
++		(struct scu_mip_platform_data *)pdev->dev.platform_data;
++	}
++	return 0;
++}
++
++static int scu_mip_remove(struct platform_device *pdev)
++{
++	platform_set_drvdata(pdev, NULL);
++	return 0;
++}
++
++static const struct platform_device_id scu_mip_table[] = {
++		{DRIVER_NAME, 1 },
++};
++
++static struct platform_driver scu_mip_driver = {
++	.driver = {
++		.name = DRIVER_NAME,
++		.owner = THIS_MODULE,
++	},
++	.probe = scu_mip_probe,
++	.remove = scu_mip_remove,
++	.id_table = scu_mip_table,
++};
++
++static int __init scu_mip_init(void)
++{
++	return platform_driver_register(&scu_mip_driver);
++}
++
++static void scu_mip_exit(void)
++{
++	platform_driver_unregister(&scu_mip_driver);
++}
++
++static int mip_rpmsg_probe(struct rpmsg_channel *rpdev)
++{
++	int ret = 0;
++
++	if (rpdev == NULL) {
++		pr_err("rpmsg channel not created\n");
++		ret = -ENODEV;
++		goto out;
++	}
++
++	dev_info(&rpdev->dev, "Probed mip rpmsg device\n");
++
++	/* Allocate rpmsg instance for mip*/
++	ret = alloc_rpmsg_instance(rpdev, &mip_instance);
++	if (!mip_instance) {
++		dev_err(&rpdev->dev, "kzalloc mip instance failed\n");
++		goto out;
++	}
++	/* Initialize rpmsg instance */
++	init_rpmsg_instance(mip_instance);
++
++	/* Init mip base */
++	intel_mip_base = ioremap_nocache(IPC_MIP_BASE, IPC_MIP_MAX_ADDR);
++	if (!intel_mip_base) {
++		ret = -ENOMEM;
++		goto rpmsg_err;
++	}
++
++	/* Create debugfs for mip regs */
++	scu_mip_kobj = kobject_create_and_add(mip_attr_group.name,
++						kernel_kobj);
++
++	if (!scu_mip_kobj) {
++		ret = -ENOMEM;
++		goto mip_base_err;
++	}
++
++	ret = sysfs_create_group(scu_mip_kobj, &mip_attr_group);
++
++	if (ret) {
++		kobject_put(scu_mip_kobj);
++		goto mip_base_err;
++	}
++
++	ret = scu_mip_init();
++	goto out;
++mip_base_err:
++	iounmap(intel_mip_base);
++rpmsg_err:
++	free_rpmsg_instance(rpdev, &mip_instance);
++out:
++	return ret;
++}
++
++static void mip_rpmsg_remove(struct rpmsg_channel *rpdev)
++{
++	scu_mip_exit();
++	iounmap(intel_mip_base);
++	free_rpmsg_instance(rpdev, &mip_instance);
++	sysfs_remove_group(scu_mip_kobj, &mip_attr_group);
++	kobject_put(scu_mip_kobj);
++	dev_info(&rpdev->dev, "Removed mip rpmsg device\n");
++}
++
++static void mip_rpmsg_cb(struct rpmsg_channel *rpdev, void *data,
++					int len, void *priv, u32 src)
++{
++	dev_warn(&rpdev->dev, "unexpected, message\n");
++
++	print_hex_dump(KERN_DEBUG, __func__, DUMP_PREFIX_NONE, 16, 1,
++		       data, len,  true);
++}
++
++static struct rpmsg_device_id mip_rpmsg_id_table[] = {
++	{ .name	= "rpmsg_mip" },
++	{ },
++};
++MODULE_DEVICE_TABLE(rpmsg, mip_rpmsg_id_table);
++
++static struct rpmsg_driver mip_rpmsg = {
++	.drv.name	= KBUILD_MODNAME,
++	.drv.owner	= THIS_MODULE,
++	.id_table	= mip_rpmsg_id_table,
++	.probe		= mip_rpmsg_probe,
++	.callback	= mip_rpmsg_cb,
++	.remove		= mip_rpmsg_remove,
++};
++
++static int __init mip_rpmsg_init(void)
++{
++	if ((intel_mid_identify_cpu() != INTEL_MID_CPU_CHIP_PENWELL)
++		&& (intel_mid_identify_cpu() != INTEL_MID_CPU_CHIP_CLOVERVIEW))
++		return -EINVAL;
++
++	return register_rpmsg_driver(&mip_rpmsg);
++}
++
++#ifdef MODULE
++module_init(mip_rpmsg_init);
++#else
++fs_initcall_sync(mip_rpmsg_init);
++#endif
++
++static void __exit mip_rpmsg_exit(void)
++{
++	return unregister_rpmsg_driver(&mip_rpmsg);
++}
++module_exit(mip_rpmsg_exit);
++
++MODULE_AUTHOR("Shijie Zhang <shijie.zhang@intel.com>");
++MODULE_DESCRIPTION("Intel SCU MIP driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/intel_scu_pmic.c b/drivers/platform/x86/intel_scu_pmic.c
+new file mode 100644
+index 000000000000..d92e1dc0ce96
+--- /dev/null
++++ b/drivers/platform/x86/intel_scu_pmic.c
+@@ -0,0 +1,477 @@
++/*
++ * pmic.c - Intel MSIC Driver
++ *
++ * Copyright (C) 2012 Intel Corporation
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; version 2 of the License.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, write to the Free Software Foundation, Inc.,
++ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ * Author: Bin Yang <bin.yang@intel.com>
++ */
++
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/io.h>
++#include <linux/uaccess.h>
++#include <linux/device.h>
++#include <linux/delay.h>
++#include <linux/fs.h>
++#include <linux/debugfs.h>
++#include <linux/rpmsg.h>
++#include <asm/intel_scu_pmic.h>
++#include <asm/intel_scu_ipc.h>
++#include <asm/intel_mid_rpmsg.h>
++#include <linux/platform_data/intel_mid_remoteproc.h>
++
++#define IPC_WWBUF_SIZE    20
++#define IPC_RWBUF_SIZE    20
++
++static struct kobject *scu_pmic_kobj;
++static struct rpmsg_instance *pmic_instance;
++
++static int pwr_reg_rdwr(u16 *addr, u8 *data, u32 count, u32 cmd, u32 sub)
++{
++	int i, err, inlen = 0, outlen = 0;
++
++	u8 wbuf[IPC_WWBUF_SIZE] = {};
++	u8 rbuf[IPC_RWBUF_SIZE] = {};
++
++	memset(wbuf, 0, sizeof(wbuf));
++
++	for (i = 0; i < count; i++) {
++		wbuf[inlen++] = addr[i] & 0xff;
++		wbuf[inlen++] = (addr[i] >> 8) & 0xff;
++	}
++
++	if (sub == IPC_CMD_PCNTRL_R) {
++		outlen = count > 0 ? ((count - 1) / 4) + 1 : 0;
++	} else if (sub == IPC_CMD_PCNTRL_W) {
++		if (count == 3)
++			inlen += 2;
++
++		for (i = 0; i < count; i++)
++			wbuf[inlen++] = data[i] & 0xff;
++
++		if (count == 3)
++			inlen -= 2;
++
++		outlen = 0;
++	} else if (sub == IPC_CMD_PCNTRL_M) {
++		wbuf[inlen++] = data[0] & 0xff;
++		wbuf[inlen++] = data[1] & 0xff;
++		outlen = 0;
++	} else
++		pr_err("IPC command not supported\n");
++
++	err = rpmsg_send_command(pmic_instance, cmd, sub, wbuf,
++			(u32 *)rbuf, inlen, outlen);
++
++	if (sub == IPC_CMD_PCNTRL_R) {
++		for (i = 0; i < count; i++)
++			data[i] = rbuf[i];
++	}
++
++	return err;
++}
++
++int intel_scu_ipc_ioread8(u16 addr, u8 *data)
++{
++	return pwr_reg_rdwr(&addr, data, 1, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_R);
++}
++EXPORT_SYMBOL(intel_scu_ipc_ioread8);
++
++int intel_scu_ipc_iowrite8(u16 addr, u8 data)
++{
++	return pwr_reg_rdwr(&addr, &data, 1, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_W);
++}
++EXPORT_SYMBOL(intel_scu_ipc_iowrite8);
++
++int intel_scu_ipc_iowrite32(u16 addr, u32 data)
++{
++	u16 x[4] = {addr, addr + 1, addr + 2, addr + 3};
++	return pwr_reg_rdwr(x, (u8 *)&data, 4, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_W);
++}
++EXPORT_SYMBOL(intel_scu_ipc_iowrite32);
++
++int intel_scu_ipc_readv(u16 *addr, u8 *data, int len)
++{
++	if (len < 1 || len > 8)
++		return -EINVAL;
++
++	return pwr_reg_rdwr(addr, data, len, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_R);
++}
++EXPORT_SYMBOL(intel_scu_ipc_readv);
++
++int intel_scu_ipc_writev(u16 *addr, u8 *data, int len)
++{
++	if (len < 1 || len > 4)
++		return -EINVAL;
++
++	return pwr_reg_rdwr(addr, data, len, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_W);
++}
++EXPORT_SYMBOL(intel_scu_ipc_writev);
++
++int intel_scu_ipc_update_register(u16 addr, u8 bits, u8 mask)
++{
++	u8 data[2] = { bits, mask };
++	return pwr_reg_rdwr(&addr, data, 1, IPCMSG_PCNTRL, IPC_CMD_PCNTRL_M);
++}
++EXPORT_SYMBOL(intel_scu_ipc_update_register);
++
++/* pmic sysfs for debug */
++
++#define MAX_PMIC_REG_NR 4
++#define PMIC_OPS_LEN 10
++
++enum {
++	PMIC_DBG_ADDR,
++	PMIC_DBG_BITS,
++	PMIC_DBG_DATA,
++	PMIC_DBG_MASK,
++};
++
++static char *pmic_msg_format[] = {
++	"addr[%d]: %#x\n",
++	"bits[%d]: %#x\n",
++	"data[%d]: %#x\n",
++	"mask[%d]: %#x\n",
++};
++
++static u16 pmic_reg_addr[MAX_PMIC_REG_NR];
++static u8 pmic_reg_bits[MAX_PMIC_REG_NR];
++static u8 pmic_reg_data[MAX_PMIC_REG_NR];
++static u8 pmic_reg_mask[MAX_PMIC_REG_NR];
++static int valid_addr_nr;
++static int valid_bits_nr;
++static int valid_data_nr;
++static int valid_mask_nr;
++static char pmic_ops[PMIC_OPS_LEN];
++
++static int pmic_dbg_error;
++
++static ssize_t pmic_generic_show(char *buf, int valid, u8 *array, int type)
++{
++	int i, buf_size;
++	ssize_t ret = 0;
++
++	switch (type) {
++	case PMIC_DBG_ADDR:
++		for (i = 0; i < valid; i++) {
++			buf_size = PAGE_SIZE - ret;
++			ret += snprintf(buf + ret, buf_size,
++					pmic_msg_format[type],
++					i, pmic_reg_addr[i]);
++		}
++		break;
++	case PMIC_DBG_BITS:
++	case PMIC_DBG_DATA:
++	case PMIC_DBG_MASK:
++		for (i = 0; i < valid; i++) {
++			buf_size = PAGE_SIZE - ret;
++			ret += snprintf(buf + ret, buf_size,
++					pmic_msg_format[type],
++					i, array[i]);
++		}
++		break;
++	default:
++		break;
++	}
++
++	return ret;
++}
++
++static void pmic_generic_store(const char *buf, int *valid, u8 *array, int type)
++{
++	u32 tmp[MAX_PMIC_REG_NR];
++	int i, ret;
++
++	ret = sscanf(buf, "%x %x %x %x", &tmp[0], &tmp[1], &tmp[2], &tmp[3]);
++	if (ret == 0 || ret > MAX_PMIC_REG_NR) {
++		*valid = 0;
++		pmic_dbg_error = -EINVAL;
++		return;
++	}
++
++	*valid = ret;
++
++	switch (type) {
++	case PMIC_DBG_ADDR:
++		memset(pmic_reg_addr, 0, sizeof(pmic_reg_addr));
++		for (i = 0; i < ret; i++)
++			pmic_reg_addr[i] = (u16)tmp[i];
++		break;
++	case PMIC_DBG_BITS:
++	case PMIC_DBG_DATA:
++	case PMIC_DBG_MASK:
++		memset(array, 0, sizeof(*array) * MAX_PMIC_REG_NR);
++		for (i = 0; i < ret; i++)
++			array[i] = (u8)tmp[i];
++		break;
++	default:
++		break;
++	}
++}
++
++static ssize_t pmic_addr_show(struct kobject *kobj, struct kobj_attribute *attr,
++				char *buf)
++{
++	return pmic_generic_show(buf, valid_addr_nr, NULL, PMIC_DBG_ADDR);
++}
++
++static ssize_t pmic_addr_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	pmic_generic_store(buf, &valid_addr_nr, NULL, PMIC_DBG_ADDR);
++	return size;
++}
++
++static ssize_t pmic_bits_show(struct kobject *kobj, struct kobj_attribute *attr,
++				char *buf)
++{
++	return pmic_generic_show(buf, valid_bits_nr, pmic_reg_bits,
++			PMIC_DBG_BITS);
++}
++static ssize_t pmic_bits_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	pmic_generic_store(buf, &valid_bits_nr, pmic_reg_bits, PMIC_DBG_BITS);
++	return size;
++}
++
++static ssize_t pmic_data_show(struct kobject *kobj, struct kobj_attribute *attr,
++				char *buf)
++{
++	return pmic_generic_show(buf, valid_data_nr, pmic_reg_data,
++			PMIC_DBG_DATA);
++}
++
++static ssize_t pmic_data_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	pmic_generic_store(buf, &valid_data_nr, pmic_reg_data, PMIC_DBG_DATA);
++	return size;
++}
++
++static ssize_t pmic_mask_show(struct kobject *kobj, struct kobj_attribute *attr,
++				char *buf)
++{
++	return pmic_generic_show(buf, valid_mask_nr, pmic_reg_mask,
++			PMIC_DBG_MASK);
++}
++
++static ssize_t pmic_mask_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	pmic_generic_store(buf, &valid_mask_nr, pmic_reg_mask, PMIC_DBG_MASK);
++	return size;
++}
++
++static ssize_t pmic_ops_store(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t size)
++{
++	int i, ret;
++
++	memset(pmic_ops, 0, sizeof(pmic_ops));
++
++	ret = sscanf(buf, "%9s", pmic_ops);
++	if (ret == 0) {
++		pmic_dbg_error = -EINVAL;
++		goto end;
++	}
++
++	if (valid_addr_nr <= 0) {
++		pmic_dbg_error = -EINVAL;
++		goto end;
++	}
++
++	if (!strncmp("read", pmic_ops, PMIC_OPS_LEN)) {
++		valid_data_nr = valid_addr_nr;
++		for (i = 0; i < valid_addr_nr; i++) {
++			ret = intel_scu_ipc_ioread8(pmic_reg_addr[i],
++					&pmic_reg_data[i]);
++			if (ret) {
++				pmic_dbg_error = ret;
++				goto end;
++			}
++		}
++	} else if (!strncmp("write", pmic_ops, PMIC_OPS_LEN)) {
++		if (valid_addr_nr == valid_data_nr) {
++			for (i = 0; i < valid_addr_nr; i++) {
++				ret = intel_scu_ipc_iowrite8(pmic_reg_addr[i],
++						pmic_reg_data[i]);
++				if (ret) {
++					pmic_dbg_error = ret;
++					goto end;
++				}
++			}
++		} else {
++			pmic_dbg_error = -EINVAL;
++			goto end;
++		}
++	} else if (!strncmp("update", pmic_ops, PMIC_OPS_LEN)) {
++		if (valid_addr_nr == valid_mask_nr &&
++				valid_mask_nr == valid_bits_nr) {
++			for (i = 0; i < valid_addr_nr; i++) {
++				ret = intel_scu_ipc_update_register(
++						pmic_reg_addr[i],
++						pmic_reg_bits[i],
++						pmic_reg_mask[i]);
++				if (ret) {
++					pmic_dbg_error = ret;
++					goto end;
++				}
++			}
++		} else {
++			pmic_dbg_error = -EINVAL;
++			goto end;
++		}
++	} else {
++		pmic_dbg_error = -EINVAL;
++		goto end;
++	}
++
++		pmic_dbg_error = 0;
++
++end:
++	return size;
++}
++
++static ssize_t pmic_show_error(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	return snprintf(buf, PAGE_SIZE, "%d\n", pmic_dbg_error);
++}
++
++static KOBJ_PMIC_ATTR(addr, S_IRUGO|S_IWUSR, pmic_addr_show, pmic_addr_store);
++static KOBJ_PMIC_ATTR(bits, S_IRUGO|S_IWUSR, pmic_bits_show, pmic_bits_store);
++static KOBJ_PMIC_ATTR(data, S_IRUGO|S_IWUSR, pmic_data_show, pmic_data_store);
++static KOBJ_PMIC_ATTR(mask, S_IRUGO|S_IWUSR, pmic_mask_show, pmic_mask_store);
++static KOBJ_PMIC_ATTR(ops, S_IWUSR, NULL, pmic_ops_store);
++static KOBJ_PMIC_ATTR(error, S_IRUGO, pmic_show_error, NULL);
++
++static struct attribute *pmic_attrs[] = {
++	&addr_attr.attr,
++	&bits_attr.attr,
++	&data_attr.attr,
++	&mask_attr.attr,
++	&ops_attr.attr,
++	&error_attr.attr,
++	NULL,
++};
++
++static struct attribute_group pmic_attr_group = {
++	.name = "pmic_debug",
++	.attrs = pmic_attrs,
++};
++
++static int pmic_rpmsg_probe(struct rpmsg_channel *rpdev)
++{
++	int ret = 0;
++
++	if (rpdev == NULL) {
++		pr_err("rpmsg channel not created\n");
++		ret = -ENODEV;
++		goto out;
++	}
++
++	dev_info(&rpdev->dev, "Probed pmic rpmsg device\n");
++
++	/* Allocate rpmsg instance for pmic*/
++	ret = alloc_rpmsg_instance(rpdev, &pmic_instance);
++	if (!pmic_instance) {
++		dev_err(&rpdev->dev, "kzalloc pmic instance failed\n");
++		goto out;
++	}
++	/* Initialize rpmsg instance */
++	init_rpmsg_instance(pmic_instance);
++
++	/* Create debugfs for pmic regs */
++	scu_pmic_kobj = kobject_create_and_add(pmic_attr_group.name,
++						kernel_kobj);
++
++	if (!scu_pmic_kobj) {
++		ret = -ENOMEM;
++		goto rpmsg_err;
++	}
++
++	ret = sysfs_create_group(scu_pmic_kobj, &pmic_attr_group);
++
++	if (ret) {
++		kobject_put(scu_pmic_kobj);
++		goto rpmsg_err;
++	}
++
++	goto out;
++
++rpmsg_err:
++	free_rpmsg_instance(rpdev, &pmic_instance);
++out:
++	return ret;
++}
++
++static void pmic_rpmsg_remove(struct rpmsg_channel *rpdev)
++{
++	free_rpmsg_instance(rpdev, &pmic_instance);
++	sysfs_remove_group(scu_pmic_kobj, &pmic_attr_group);
++	kobject_put(scu_pmic_kobj);
++	dev_info(&rpdev->dev, "Removed pmic rpmsg device\n");
++}
++
++static void pmic_rpmsg_cb(struct rpmsg_channel *rpdev, void *data,
++					int len, void *priv, u32 src)
++{
++	dev_warn(&rpdev->dev, "unexpected, message\n");
++
++	print_hex_dump(KERN_DEBUG, __func__, DUMP_PREFIX_NONE, 16, 1,
++		       data, len,  true);
++}
++
++static struct rpmsg_device_id pmic_rpmsg_id_table[] = {
++	{ .name	= "rpmsg_pmic" },
++	{ },
++};
++MODULE_DEVICE_TABLE(rpmsg, pmic_rpmsg_id_table);
++
++static struct rpmsg_driver pmic_rpmsg = {
++	.drv.name	= KBUILD_MODNAME,
++	.drv.owner	= THIS_MODULE,
++	.id_table	= pmic_rpmsg_id_table,
++	.probe		= pmic_rpmsg_probe,
++	.callback	= pmic_rpmsg_cb,
++	.remove		= pmic_rpmsg_remove,
++};
++
++static int __init pmic_rpmsg_init(void)
++{
++	return register_rpmsg_driver(&pmic_rpmsg);
++}
++
++#ifdef MODULE
++module_init(pmic_rpmsg_init);
++#else
++fs_initcall_sync(pmic_rpmsg_init);
++#endif
++
++static void __exit pmic_rpmsg_exit(void)
++{
++	return unregister_rpmsg_driver(&pmic_rpmsg);
++}
++module_exit(pmic_rpmsg_exit);
++
++MODULE_AUTHOR("Bin Yang<bin.yang@intel.com>");
++MODULE_DESCRIPTION("Intel PMIC Driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/remoteproc/intel_mid_rproc_core.h b/drivers/remoteproc/intel_mid_rproc_core.h
+new file mode 100644
+index 000000000000..bfe6f6cdddf2
+--- /dev/null
++++ b/drivers/remoteproc/intel_mid_rproc_core.h
+@@ -0,0 +1,82 @@
++/*
++ * INTEL MID Remote Processor Core Head File
++ *
++ * Copyright (C) 2012 Intel, Inc.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * version 2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++
++typedef int (*rpmsg_handle_t)(void *rx_buf, void *tx_buf,
++				u32 *r_len, u32 *s_len);
++
++int scu_ipc_rpmsg_handle(void *rx_buf, void *tx_buf, u32 *r_len, u32 *s_len);
++int psh_ipc_rpmsg_handle(void *rx_buf, void *tx_buf, u32 *len);
++
++#define RPROC_FW_LOADING_TIMEOUT	(3 * HZ)
++#define IPROC_NAME_SIZE 20
++
++/**
++ * struct intel_mid_rproc - intel mid remote processor
++ * @ns_enabled: name service enabled flag
++ * @name: rproc name
++ * @type: rproc type
++ * @r_vring_last_used: last used index of rx vring
++ * @s_vring_last_used: last used index of tx vring
++ * @rproc: rproc handle
++ * @rx_vring: rproc rx vring
++ * @tx_vring: rproc tx vring
++ * @ns_info: loop cursor when creating ns channels
++ * @rproc_rpmsg_handle: rproc private rpmsg handle
++ */
++struct intel_mid_rproc {
++	bool ns_enabled;
++	char name[IPROC_NAME_SIZE];
++	u32 type;
++	u32 r_vring_last_used;
++	u32 s_vring_last_used;
++	struct rproc *rproc;
++	struct vring rx_vring;
++	struct vring tx_vring;
++	struct rpmsg_ns_info *ns_info;
++	rpmsg_handle_t rproc_rpmsg_handle;
++};
++
++enum local_vring_idx {
++	RX_VRING,
++	TX_VRING,
++};
++
++extern void intel_mid_rproc_vq_interrupt(struct rproc *rproc, int msg);
++extern int intel_mid_rproc_msg_handle(struct intel_mid_rproc *iproc);
++extern int intel_mid_rproc_ns_handle(struct intel_mid_rproc *iproc,
++					struct rpmsg_ns_info *ns_info);
++
++extern struct rproc_vdev *find_rvdev(struct rproc *rproc, int id);
++extern int find_vring_index(struct rproc *rproc, int vqid, int id);
++extern void intel_mid_rproc_vring_init(struct rproc *rproc,
++			struct vring *vring, enum local_vring_idx id);
++
++extern void rpmsg_ns_del_list(struct rpmsg_ns_list *nslist);
++
++/* Please do NOT use these APIs to send ipc commands,
++ * use rpmsg commands defined in <asm/intel_mid_rpmsg.h>
++ */
++extern void intel_scu_ipc_send_command(u32 cmd);
++
++/* Issue commands to the SCU with or without data */
++extern int intel_scu_ipc_simple_command(int cmd, int sub);
++extern int intel_scu_ipc_command(u32 cmd, u32 sub, u8 *in, u32 inlen,
++		u32 *out, u32 outlen);
++extern int intel_scu_ipc_raw_cmd(u32 cmd, u32 sub, u8 *in, u32 inlen,
++		u32 *out, u32 outlen, u32 dptr, u32 sptr);
++
++/* IPC locking */
++extern void intel_scu_ipc_lock(void);
++extern void intel_scu_ipc_unlock(void);
+diff --git a/drivers/remoteproc/intel_mid_rproc_scu.c b/drivers/remoteproc/intel_mid_rproc_scu.c
+new file mode 100644
+index 000000000000..fd5023bcbdb7
+--- /dev/null
++++ b/drivers/remoteproc/intel_mid_rproc_scu.c
+@@ -0,0 +1,438 @@
++/*
++ * INTEL MID Remote Processor - SCU driver
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * version 2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/err.h>
++#include <linux/platform_device.h>
++#include <linux/dma-mapping.h>
++#include <linux/remoteproc.h>
++#include <linux/delay.h>
++#include <linux/rpmsg.h>
++#include <linux/slab.h>
++#include <linux/virtio_ring.h>
++#include <linux/virtio_ids.h>
++#include <linux/platform_data/intel_mid_remoteproc.h>
++
++#include <asm/intel_scu_ipc.h>
++#include <asm/scu_ipc_rpmsg.h>
++#include <asm/intel-mid.h>
++
++#include "intel_mid_rproc_core.h"
++#include "remoteproc_internal.h"
++
++static struct rpmsg_ns_list *nslist;
++
++
++static int scu_ipc_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++	int ret = 0;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++
++	ret = intel_scu_ipc_command(tx_msg->cmd, tx_msg->sub,
++				tx_msg->in, tx_msg->inlen,
++				tx_msg->out, tx_msg->outlen);
++	return ret;
++}
++
++static int scu_ipc_raw_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++	int ret = 0;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++
++	intel_scu_ipc_lock();
++	ret = intel_scu_ipc_raw_cmd(tx_msg->cmd, tx_msg->sub,
++				tx_msg->in, tx_msg->inlen,
++				tx_msg->out, tx_msg->outlen,
++				tx_msg->dptr, tx_msg->sptr);
++	intel_scu_ipc_unlock();
++
++	return ret;
++}
++
++static int scu_ipc_simple_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++	int ret = 0;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++
++	ret = intel_scu_ipc_simple_command(tx_msg->cmd, tx_msg->sub);
++
++	return ret;
++}
++
++static void scu_ipc_send_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++	intel_scu_ipc_send_command(tx_msg->sub << 12 | tx_msg->cmd);
++}
++
++static int scu_ipc_fw_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++	int ret = 0;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++
++	switch (tx_msg->cmd) {
++	case RP_GET_FW_REVISION:
++		ret = scu_ipc_command(tx_buf);
++		break;
++	case RP_FW_UPDATE:
++		/* Only scu_ipc_send_command works for fw update */
++		scu_ipc_send_command(tx_buf);
++		break;
++	default:
++		pr_info("Command %x not supported\n", tx_msg->cmd);
++		break;
++	};
++
++	return ret;
++}
++
++static int scu_ipc_util_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++	int ret = 0;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++
++	switch (tx_msg->cmd) {
++	case RP_GET_FW_REVISION:
++	case RP_GET_HOBADDR:
++	case RP_OSC_CLK_CTRL:
++		ret = scu_ipc_command(tx_buf);
++		break;
++	case RP_S0IX_COUNTER:
++		ret = scu_ipc_simple_command(tx_buf);
++		break;
++	case RP_WRITE_OSNIB:
++		ret = scu_ipc_raw_command(tx_buf);
++		break;
++	default:
++		pr_info("Command %x not supported\n", tx_msg->cmd);
++		break;
++	};
++
++	return ret;
++}
++
++static int scu_ipc_vrtc_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++	int ret = 0;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++
++	switch (tx_msg->cmd) {
++	case RP_GET_HOBADDR:
++		ret = scu_ipc_command(tx_buf);
++		break;
++	case RP_VRTC:
++		ret = scu_ipc_simple_command(tx_buf);
++		break;
++	default:
++		pr_info("Command %x not supported\n", tx_msg->cmd);
++		break;
++	};
++
++	return ret;
++}
++
++static int scu_ipc_fw_logging_command(void *tx_buf)
++{
++	struct tx_ipc_msg *tx_msg;
++	int ret = 0;
++
++	tx_msg = (struct tx_ipc_msg *)tx_buf;
++
++	switch (tx_msg->cmd) {
++	case RP_GET_HOBADDR:
++		ret = scu_ipc_command(tx_buf);
++		break;
++	case RP_CLEAR_FABERROR:
++		ret = scu_ipc_simple_command(tx_buf);
++		break;
++	default:
++		pr_info("Command %x not supported\n", tx_msg->cmd);
++		break;
++	};
++
++	return ret;
++}
++
++/**
++ * scu_ipc_rpmsg_handle() - scu rproc specified ipc rpmsg handle
++ * @rx_buf: rx buffer to be add
++ * @tx_buf: tx buffer to be get
++ * @r_len: rx buffer length
++ * @s_len: tx buffer length
++ */
++int scu_ipc_rpmsg_handle(void *rx_buf, void *tx_buf, u32 *r_len, u32 *s_len)
++{
++	struct rpmsg_hdr *tx_hdr, *tmp_hdr;
++	struct tx_ipc_msg *tx_msg;
++	struct rx_ipc_msg *tmp_msg;
++	int ret = 0;
++
++	*r_len = sizeof(struct rpmsg_hdr) + sizeof(struct rx_ipc_msg);
++	*s_len = sizeof(struct rpmsg_hdr) + sizeof(struct tx_ipc_msg);
++
++	/* get tx_msg and send scu ipc command */
++	tx_hdr = (struct rpmsg_hdr *)tx_buf;
++	tx_msg = (struct tx_ipc_msg *)(tx_buf + sizeof(*tx_hdr));
++
++	tmp_hdr = (struct rpmsg_hdr *)rx_buf;
++	tmp_msg = (struct rx_ipc_msg *)tmp_hdr->data;
++
++	switch (tx_hdr->dst) {
++	case RP_PMIC_ACCESS:
++	case RP_FLIS_ACCESS:
++	case RP_IPC_COMMAND:
++		tmp_msg->status = scu_ipc_command(tx_msg);
++		break;
++	case RP_SET_WATCHDOG:
++		if (intel_mid_identify_cpu() == INTEL_MID_CPU_CHIP_TANGIER)
++			tmp_msg->status = scu_ipc_raw_command(tx_msg);
++		else
++			tmp_msg->status = scu_ipc_command(tx_msg);
++		break;
++	case RP_MIP_ACCESS:
++	case RP_IPC_RAW_COMMAND:
++		tmp_msg->status = scu_ipc_raw_command(tx_msg);
++		break;
++	case RP_IPC_SIMPLE_COMMAND:
++		tmp_msg->status = scu_ipc_simple_command(tx_msg);
++		break;
++	case RP_IPC_UTIL:
++		tmp_msg->status = scu_ipc_util_command(tx_msg);
++		break;
++	case RP_FW_ACCESS:
++		tmp_msg->status = scu_ipc_fw_command(tx_msg);
++		break;
++	case RP_VRTC:
++		tmp_msg->status = scu_ipc_vrtc_command(tx_msg);
++		break;
++	case RP_FW_LOGGING:
++		tmp_msg->status = scu_ipc_fw_logging_command(tx_msg);
++		break;
++	default:
++		tmp_msg->status = 0;
++		pr_info("Command %x not supported yet\n", tx_hdr->dst);
++		break;
++	};
++
++	/* prepare rx buffer, switch src and dst */
++	tmp_hdr->src = tx_hdr->dst;
++	tmp_hdr->dst = tx_hdr->src;
++
++	tmp_hdr->flags = tx_hdr->flags;
++	tmp_hdr->len = sizeof(struct rx_ipc_msg);
++
++	return ret;
++}
++
++/* kick a virtqueue */
++static void intel_rproc_scu_kick(struct rproc *rproc, int vqid)
++{
++	int idx;
++	int ret;
++	struct intel_mid_rproc *iproc;
++	struct rproc_vdev *rvdev;
++	struct device *dev = rproc->dev.parent;
++
++	iproc = (struct intel_mid_rproc *)rproc->priv;
++
++	/*
++	 * Remote processor virtqueue being kicked.
++	 * This part simulates remote processor handling messages.
++	 */
++	idx = find_vring_index(rproc, vqid, VIRTIO_ID_RPMSG);
++
++	switch (idx) {
++	case RX_VRING:
++		if (iproc->ns_enabled &&
++			!list_is_last(&iproc->ns_info->node, &nslist->list)) {
++			list_for_each_entry_continue(iproc->ns_info,
++				&nslist->list, node) {
++				ret = intel_mid_rproc_ns_handle(iproc,
++						iproc->ns_info);
++				if (ret) {
++					dev_err(dev, "ns handle error\n");
++					return;
++				}
++				break;
++			}
++
++			intel_mid_rproc_vq_interrupt(rproc, vqid);
++		}
++		break;
++
++	case TX_VRING:
++
++		dev_dbg(dev, "remote processor got the message ...\n");
++		intel_mid_rproc_msg_handle(iproc);
++		intel_mid_rproc_vq_interrupt(rproc, vqid);
++
++		/*
++		 * After remoteproc handles the message, it calls
++		 * the receive callback.
++		 * TODO: replace this part with real remote processor
++		 * operation.
++		 */
++		rvdev = find_rvdev(rproc, VIRTIO_ID_RPMSG);
++		if (rvdev)
++			intel_mid_rproc_vq_interrupt(rproc,
++				rvdev->vring[RX_VRING].notifyid);
++		else
++			WARN(1, "%s: can't find given rproc state\n", __func__);
++		break;
++
++	default:
++		dev_err(dev, "invalid vring index\n");
++		break;
++	}
++}
++
++/* power up the remote processor */
++static int intel_rproc_scu_start(struct rproc *rproc)
++{
++	struct intel_mid_rproc *iproc;
++
++	pr_info("Started intel scu remote processor\n");
++	iproc = (struct intel_mid_rproc *)rproc->priv;
++	intel_mid_rproc_vring_init(rproc, &iproc->rx_vring, RX_VRING);
++	intel_mid_rproc_vring_init(rproc, &iproc->tx_vring, TX_VRING);
++
++	return 0;
++}
++
++/* power off the remote processor */
++static int intel_rproc_scu_stop(struct rproc *rproc)
++{
++	pr_info("Stopped intel scu remote processor\n");
++	return 0;
++}
++
++static struct rproc_ops intel_rproc_scu_ops = {
++	.start		= intel_rproc_scu_start,
++	.stop		= intel_rproc_scu_stop,
++	.kick		= intel_rproc_scu_kick,
++};
++
++static int intel_rproc_scu_probe(struct platform_device *pdev)
++{
++	struct intel_mid_rproc_pdata *pdata = pdev->dev.platform_data;
++	struct intel_mid_rproc *iproc;
++	struct rproc *rproc;
++	int ret;
++
++	ret = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
++	if (ret) {
++		dev_err(pdev->dev.parent, "dma_set_coherent_mask: %d\n", ret);
++		return ret;
++	}
++
++	rproc = rproc_alloc(&pdev->dev, pdata->name, &intel_rproc_scu_ops,
++				pdata->firmware, sizeof(*iproc));
++	if (!rproc)
++		return -ENOMEM;
++
++	iproc = rproc->priv;
++	iproc->rproc = rproc;
++	nslist = pdata->nslist;
++
++	platform_set_drvdata(pdev, rproc);
++
++	ret = rproc_add(rproc);
++	if (ret)
++		goto free_rproc;
++
++	/*
++	 * Temporarily follow the rproc framework to load firmware
++	 * TODO: modify remoteproc code according to X86 architecture
++	 */
++	if (0 == wait_for_completion_timeout(&rproc->firmware_loading_complete,
++		RPROC_FW_LOADING_TIMEOUT)) {
++		dev_err(pdev->dev.parent, "fw loading not complete\n");
++		goto free_rproc;
++	}
++
++	/* Initialize intel_rproc_scu private data */
++	strncpy(iproc->name, pdev->id_entry->name, sizeof(iproc->name) - 1);
++	iproc->type = pdev->id_entry->driver_data;
++	iproc->r_vring_last_used = 0;
++	iproc->s_vring_last_used = 0;
++	iproc->ns_enabled = true;
++	iproc->rproc_rpmsg_handle = scu_ipc_rpmsg_handle;
++	iproc->ns_info = list_entry(&nslist->list,
++			struct rpmsg_ns_info, node);
++
++	return 0;
++
++free_rproc:
++	rproc_put(rproc);
++	return ret;
++}
++
++static int intel_rproc_scu_remove(struct platform_device *pdev)
++{
++	struct rproc *rproc = platform_get_drvdata(pdev);
++
++	if (nslist)
++		rpmsg_ns_del_list(nslist);
++
++	rproc_del(rproc);
++	rproc_put(rproc);
++
++	return 0;
++}
++
++static const struct platform_device_id intel_rproc_scu_id_table[] = {
++	{ "intel_rproc_scu", RPROC_SCU },
++	{ },
++};
++
++static struct platform_driver intel_rproc_scu_driver = {
++	.probe = intel_rproc_scu_probe,
++	.remove = intel_rproc_scu_remove,
++	.driver = {
++		.name = "intel_rproc_scu",
++		.owner = THIS_MODULE,
++	},
++	.id_table = intel_rproc_scu_id_table,
++};
++
++static int __init intel_rproc_scu_init(void)
++{
++	return platform_driver_register(&intel_rproc_scu_driver);
++}
++
++static void __exit intel_rproc_scu_exit(void)
++{
++	platform_driver_unregister(&intel_rproc_scu_driver);
++}
++
++subsys_initcall(intel_rproc_scu_init);
++module_exit(intel_rproc_scu_exit);
++
++MODULE_LICENSE("GPL v2");
++MODULE_AUTHOR("Ning Li<ning.li@intel.com>");
++MODULE_DESCRIPTION("INTEL MID Remoteproc Core driver");
+diff --git a/drivers/rtc/rtc-mrst.c b/drivers/rtc/rtc-mrst.c
+index 578baf9d9725..7b3ff00dc02c 100644
+--- a/drivers/rtc/rtc-mrst.c
++++ b/drivers/rtc/rtc-mrst.c
+@@ -38,8 +38,9 @@
+ 
+ #include <asm-generic/rtc.h>
+ #include <asm/intel_scu_ipc.h>
+-#include <asm/mrst.h>
+-#include <asm/mrst-vrtc.h>
++#include <asm/intel-mid.h>
++#include <asm/intel_mid_vrtc.h>
++#include <asm/intel_mid_rpmsg.h>
+ 
+ struct mrst_rtc {
+ 	struct rtc_device	*rtc;
+@@ -137,7 +138,8 @@ static int mrst_set_time(struct device *dev, struct rtc_time *time)
+ 
+ 	spin_unlock_irqrestore(&rtc_lock, flags);
+ 
+-	ret = intel_scu_ipc_simple_command(IPCMSG_VRTC, IPC_CMD_VRTC_SETTIME);
++	ret = rpmsg_send_generic_simple_command(IPCMSG_VRTC,
++				IPC_CMD_VRTC_SETTIME);
+ 	return ret;
+ }
+ 
+@@ -237,7 +239,8 @@ static int mrst_set_alarm(struct device *dev, struct rtc_wkalrm *t)
+ 
+ 	spin_unlock_irq(&rtc_lock);
+ 
+-	ret = intel_scu_ipc_simple_command(IPCMSG_VRTC, IPC_CMD_VRTC_SETALARM);
++	ret = rpmsg_send_generic_simple_command(IPCMSG_VRTC,
++				IPC_CMD_VRTC_SETALARM);
+ 	if (ret)
+ 		return ret;
+ 
+diff --git a/sound/soc/codecs/sn95031.c b/sound/soc/codecs/sn95031.c
+index d1ae869d3181..fc12d6ec2d5f 100644
+--- a/sound/soc/codecs/sn95031.c
++++ b/sound/soc/codecs/sn95031.c
+@@ -30,7 +30,7 @@
+ #include <linux/slab.h>
+ #include <linux/module.h>
+ 
+-#include <asm/intel_scu_ipc.h>
++#include <asm/intel_scu_pmic.h>
+ #include <sound/pcm.h>
+ #include <sound/pcm_params.h>
+ #include <sound/soc.h>
+-- 
+2.37.3
+

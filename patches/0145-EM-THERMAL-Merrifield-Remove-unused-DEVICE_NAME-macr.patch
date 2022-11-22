@@ -1,0 +1,38 @@
+From 29369c4c8ea850960cf2f7078b61de076d6f49b3 Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Mon, 28 Oct 2013 14:51:40 +0530
+Subject: [PATCH 145/429] EM/THERMAL: Merrifield: Remove unused DEVICE_NAME
+ macro
+
+[Description of issue]
+Unused macro DEVICE_NAME in thermal driver code on
+Merrifield platform.
+
+[Implemented Solution]
+Removing unused macro DEVICE_NAME in thermal driver
+for Merrifield platform.
+
+Category: feature differentiation
+Domain: EM.ThermalManagement-commmon
+Origin: internal
+Upstream-Candidate: yes
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ drivers/thermal/intel_mrfl_thermal.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/thermal/intel_mrfl_thermal.c b/drivers/thermal/intel_mrfl_thermal.c
+index 4d65a7e294ac..3d05016b12ef 100644
+--- a/drivers/thermal/intel_mrfl_thermal.c
++++ b/drivers/thermal/intel_mrfl_thermal.c
+@@ -43,7 +43,6 @@
+ #include <linux/iio/consumer.h>
+ 
+ #define DRIVER_NAME "bcove_thrm"
+-#define DEVICE_NAME "mrfl_pmic_thermal"
+ 
+ /* Number of Thermal sensors on the PMIC */
+ #define PMIC_THERMAL_SENSORS	4
+-- 
+2.37.3
+

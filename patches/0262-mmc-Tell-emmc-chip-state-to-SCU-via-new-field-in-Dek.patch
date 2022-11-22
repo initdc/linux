@@ -1,0 +1,83 @@
+From 5f415e55c2124cc01ef252157b90b47bd47cdcc0 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Wed, 17 Jul 2013 09:59:11 +0800
+Subject: [PATCH 262/429] mmc: Tell emmc chip state to SCU via new field in
+ Dekker mutex
+
+SCU may access emmc while the kernel is between device suspend-resume
+state. During that period the emmc chip is detached. SCU accesses fails
+since the SCU doesn't power on the chip.
+SCU must know the status of the emmc chip. Easiest way
+is to pass the information from the kernel driver to SCU.
+
+New field in the emmc dekker mutex may be updated only when
+IA has successfully locked the mutex.
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci.c  | 10 ++++++++++
+ include/linux/mmc/sdhci.h | 10 +++++++++-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index fee99255a82e..6180a971d6b8 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -3501,6 +3501,14 @@ EXPORT_SYMBOL_GPL(sdhci_alloc_panic_host);
+  *                                                                           *
+ \*****************************************************************************/
+ 
++static void sdhci_set_emmc_state(struct sdhci_host *host, uint32_t state)
++{
++	/* Only if there is dekker mutex available */
++	if (!host->sram_addr)
++		return;
++	writel(state, host->sram_addr + DEKKER_EMMC_STATE);
++}
++
+ #ifdef CONFIG_PM
+ void sdhci_enable_irq_wakeups(struct sdhci_host *host)
+ {
+@@ -3629,6 +3637,8 @@ int sdhci_resume_host(struct sdhci_host *host)
+ 	if (host->flags & SDHCI_USING_RETUNING_TIMER)
+ 		host->flags |= SDHCI_NEEDS_RETUNING;
+ 
++	/* Card back in active state */
++	sdhci_set_emmc_state(host, DEKKER_EMMC_CHIP_ACTIVE);
+ out:
+ 	sdhci_release_ownership(host->mmc);
+ 	return ret;
+diff --git a/include/linux/mmc/sdhci.h b/include/linux/mmc/sdhci.h
+index 4dcb2f3a90df..d14cb95ffe15 100644
+--- a/include/linux/mmc/sdhci.h
++++ b/include/linux/mmc/sdhci.h
+@@ -125,7 +125,11 @@ struct sdhci_host {
+ 	int irq;		/* Device IRQ */
+ 	void __iomem *ioaddr;	/* Mapped address */
+ 
+-	/* XXX: SCU/X86 mutex variables base address in shared SRAM */
++	/*
++	 * XXX: SCU/X86 mutex variables base address in shared SRAM
++	 * NOTE: Max size of this struct is 16 bytes
++	 * without shared SRAM re-organization.
++	 */
+ 	void __iomem *sram_addr;        /* Shared SRAM address */
+ 
+ 	void __iomem *rte_addr;	/* IOAPIC RTE register address */
+@@ -133,8 +137,12 @@ struct sdhci_host {
+ #define DEKKER_EMMC_OWNER_OFFSET        0
+ #define DEKKER_IA_REQ_OFFSET            0x04
+ #define DEKKER_SCU_REQ_OFFSET           0x08
++/* 0xc offset: state of the emmc chip to SCU. */
++#define DEKKER_EMMC_STATE               0x0c
+ #define DEKKER_OWNER_IA                 0
+ #define DEKKER_OWNER_SCU                1
++#define DEKKER_EMMC_CHIP_ACTIVE         0
++#define DEKKER_EMMC_CHIP_SUSPENDED      1
+ 
+ 	unsigned int	usage_cnt;	/* eMMC mutex usage count */
+ 
+-- 
+2.37.3
+

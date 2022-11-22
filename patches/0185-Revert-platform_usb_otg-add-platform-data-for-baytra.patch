@@ -1,0 +1,41 @@
+From 464909e35a7ebb27bd2187db44431ff5fb2305ab Mon Sep 17 00:00:00 2001
+From: "Wu, Hao" <hao.wu@intel.com>
+Date: Fri, 27 Sep 2013 15:06:09 +0800
+Subject: [PATCH 185/429] Revert platform_usb_otg: add platform data for
+ baytrail usb
+
+Add platform data for baytrail usb otg pci controller.
+
+Signed-off-by: Wu, Hao <hao.wu@intel.com>
+---
+ .../intel-mid/device_libs/pci/platform_usb_otg.c   | 14 --------------
+ 1 file changed, 14 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+index cdf73d9b5c2a..f9f1c007af0a 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+@@ -55,20 +55,6 @@ static struct intel_dwc_otg_pdata *get_otg_platform_data(struct pci_dev *pdev)
+ 			dwc_otg_pdata.charger_detect_enable = 0;
+ 		}
+ 		return &dwc_otg_pdata;
+-	case PCI_DEVICE_ID_INTEL_BYT_OTG:
+-		/* FIXME: Hardcode now, but need to use ACPI table for GPIO */
+-		if (INTEL_MID_BOARD(3, TABLET, BYT, BLK, PRO, RVP3) ||
+-			INTEL_MID_BOARD(3, TABLET, BYT, BLK, ENG, RVP3)) {
+-			pr_info("This is BYT RVP\n");
+-			dwc_otg_pdata.gpio_cs = 156;
+-			dwc_otg_pdata.gpio_reset = 144;
+-		} else if (INTEL_MID_BOARD(3, TABLET, BYT, BLK, PRO, 8PR0) ||
+-			INTEL_MID_BOARD(3, TABLET, BYT, BLK, ENG, 8PR0)) {
+-			pr_info("This is BYT FFRD8 PR0\n");
+-			dwc_otg_pdata.gpio_cs = 54;
+-			dwc_otg_pdata.gpio_reset = 144;
+-		}
+-		return &dwc_otg_pdata;
+ 	default:
+ 		break;
+ 	}
+-- 
+2.37.3
+

@@ -1,0 +1,87 @@
+From efe8f1bf65c45574eb8c3ce14f619037c5155fa2 Mon Sep 17 00:00:00 2001
+From: Jouni Hogander <jouni.hogander@intel.com>
+Date: Thu, 12 Sep 2013 10:08:59 +0300
+Subject: [PATCH 148/429] intel_scu_ipc: Fix IPC message size handling
+
+Currently SCU is expecting data to start from index 8 inside IPC tx
+buffer when writing three pmic registers. This means there is
+a two byte hole in the buffer which is ignored. These two bytes are
+not taken into account in size of the IPC message. IPC tx buffer looks
+like this when doing three byte write to pmic:
+
+IPC_WBUF[0] = addr 1.
+IPC_WBUF[1] = addr 1.
+IPC_WBUF[2] = addr 2.
+IPC_WBUF[3] = addr 2.
+IPC_WBUF[4] = addr 3.
+IPC_WBUF[5] = addr 3.
+IPC_WBUF[6] = *empty*
+IPC_WBUF[7] = *empty*
+IPC_WBUF[8] = data 1.
+IPC_WBUF[9] = data 2.
+IPC_WBUF[10] = data 3.
+IPC_WBUF[11..15] = *empty*
+
+Still size of the message should be set as 9 and _not_ 11 in IPC
+command buffer. Otherwise SCU sees the IPC message size as
+invalid. Currently IPC driver is setting the size as 11 which is
+wrong.
+
+There is similiar issue when doing read-modify write for three bytes,
+but addition there is one more hole between data and mask:
+
+IPC_WBUF[0] = addr 1.
+IPC_WBUF[1] = addr 1.
+IPC_WBUF[2] = addr 2.
+IPC_WBUF[3] = addr 2.
+IPC_WBUF[4] = addr 3.
+IPC_WBUF[5] = addr 3.
+IPC_WBUF[6] = *empty*
+IPC_WBUF[7] = *empty*
+IPC_WBUF[8] = data 1.
+IPC_WBUF[9] = data 2.
+IPC_WBUF[10] = data 3.
+IPC_WBUF[11] = *empty*
+IPC_WBUF[12] = mask 1.
+IPC_WBUF[13] = mask 2.
+IPC_WBUF[14] = mask 3.
+IPC_WBUF[15] = *empty*
+
+Fix this by decreasing messagesize by two if the IPC command is PMIC
+write and size is 11. On PMIC read-modify-write with size 15 decrease
+it by three.
+
+Signed-off-by: Jouni Hogander <jouni.hogander@intel.com>
+---
+ drivers/platform/x86/intel_scu_ipc.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/x86/intel_scu_ipc.c b/drivers/platform/x86/intel_scu_ipc.c
+index 70a115efc74b..c211cf60e073 100644
+--- a/drivers/platform/x86/intel_scu_ipc.c
++++ b/drivers/platform/x86/intel_scu_ipc.c
+@@ -411,7 +411,20 @@ int intel_scu_ipc_raw_cmd(u32 cmd, u32 sub, u8 *in, u32 inlen, u32 *out,
+ 	 */
+ 	if ((cmd & 0xFF) == IPCMSG_WATCHDOG_TIMER)
+ 		inlen = (inlen + 3) / 4;
+-
++	/*
++	 *  In case of 3 pmic writes or read-modify-writes
++	 *  there are holes in the middle of the buffer which are
++	 *  ignored by SCU. These bytes should not be included into
++	 *  size of the ipc msg. Holes are as follows:
++	 *  write: wbuf[6 & 7]
++	 *  read-modifu-write: wbuf[6 & 7 & 11]
++	 */
++	else if ((cmd & 0xFF) == IPCMSG_PCNTRL) {
++		if (sub == IPC_CMD_PCNTRL_W && inlen == 11)
++			inlen -= 2;
++		else if (sub == IPC_CMD_PCNTRL_M && inlen == 15)
++			inlen -= 3;
++	}
+ 	intel_scu_ipc_send_command((inlen << 16) | (sub << 12) | cmd);
+ 	err = intel_scu_ipc_check_status();
+ 
+-- 
+2.37.3
+

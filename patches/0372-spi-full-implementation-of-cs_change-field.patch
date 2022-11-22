@@ -1,0 +1,42 @@
+From 390412c95abbf2378d7a9ff04c6234607aa3e8c8 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Wed, 10 Sep 2014 17:48:04 +0200
+Subject: [PATCH 372/429] spi: full implementation of cs_change field
+
+Between 2 spi_transfer, the CS line should not change unless the cs_change
+field is set to 1.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/spi/intel_mid_ssp_spi.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index 4202c171a7d0..3d3dcf341347 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -751,8 +751,6 @@ static void poll_transfer_complete(struct ssp_drv_context *sspc)
+ 	sspc->cur_msg->actual_length += sspc->len - (sspc->rx_end - sspc->rx);
+ 
+ 	sspc->cur_msg->status = 0;
+-	if (sspc->cs_control)
+-		sspc->cs_control(CS_DEASSERT);
+ }
+ 
+ /**
+@@ -1164,6 +1162,12 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			poll_transfer((unsigned long)sspc);
+ 		}
+ 
++		if (list_is_last(&transfer->transfer_list, &msg->transfers)
++				|| sspc->cs_change) {
++			if (sspc->cs_control)
++				sspc->cs_control(CS_DEASSERT);
++		}
++
+ 	} /* end of list_for_each_entry */
+ 
+ 	/* Now we are done with this entire message */
+-- 
+2.37.3
+

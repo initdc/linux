@@ -1,0 +1,33 @@
+From 1e446619db575880866e770e0b3eb8dcaf3fb517 Mon Sep 17 00:00:00 2001
+From: Sathyanarayanan Kuppuswamy <sathyanarayanan.kuppuswamy@intel.com>
+Date: Mon, 9 Sep 2013 11:01:21 -0700
+Subject: [PATCH 061/429] mmc: Enabled MRFLD SD card enumeration.
+
+Enabled MRFLD SD card enumeration.
+
+Signed-off-by: Sathyanarayanan Kuppuswamy <sathyanarayanan.kuppuswamy@intel.com>
+---
+ .../platform/intel-mid/device_libs/pci/platform_sdhci_pci.c | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+index c66933d02219..b8a20f18c650 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -439,12 +439,8 @@ static struct sdhci_pci_data *get_sdhci_platform_data(struct pci_dev *pdev)
+ 			break;
+ 		case 2:
+ 			pdata = &mrfl_sdhci_pci_data[SD_INDEX];
+-			/* REVERTME: disable SD card temporarily for bring up
+-			 * revert this change once GPIO driver is updated
+-			 * with Merrifield specific changes
+-			 * if (intel_mid_identify_sim() ==
++			if (intel_mid_identify_sim() ==
+ 					INTEL_MID_CPU_SIMULATION_HVP)
+-			 */
+ 				pdata->platform_quirks |=
+ 					PLFM_QUIRK_NO_HOST_CTRL_HW;
+ 			break;
+-- 
+2.37.3
+

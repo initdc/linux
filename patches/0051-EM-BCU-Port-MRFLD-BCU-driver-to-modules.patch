@@ -1,0 +1,337 @@
+From 322e0ffc80247b8bb923a6711110343de6394f0d Mon Sep 17 00:00:00 2001
+From: Jenny TC <jenny.tc@intel.com>
+Date: Tue, 3 Sep 2013 19:35:50 +0530
+Subject: [PATCH 051/429] EM/BCU: Port MRFLD BCU driver to modules
+
+This patch ports BCU-driver related platform-files to K3.10
+
+ Following changes are ported:
+
+ [EM/BCU]: BCU driver send an uevent with environmental data to CMS             Icae582db1ea1bd4d96df8b139e1097815f70a929
+ [EM/BCU]: Program the BCU VW1, VW2 and VCRIT Exit Debounce Time to MaximumValueI6370528bd51aec5d3cbf37de4fd102b003b31c1c
+ [EM/BCU]: Debugfs support for the BCU registers read/write in BCU driver       I2454551e6045243eda5d7e2dda0eb0f92a8954c5
+ EM/BCU: Change mechanism to read smip values to configure bcu                  I2ddcda2e2a8dc5c3a4ef6db840887e0def907015
+ EM/BCU: Port MRFLD BCU driver to K3.4                                          I28dcdfc2e1dc7c3e9c3699f34205055245972b55
+
+Signed-off-by: Pavan Kumar S <pavan.kumar.s@intel.com>
+Signed-off-by: Jenny TC <jenny.tc@intel.com>
+---
+ arch/x86/include/asm/intel_basincove_ocd.h    | 166 ++++++++++++++++++
+ arch/x86/platform/intel-mid/board.c           |   4 +
+ .../platform/intel-mid/device_libs/Makefile   |   2 +
+ .../intel-mid/device_libs/platform_mrfl_ocd.c |  68 +++++++
+ .../intel-mid/device_libs/platform_mrfl_ocd.h |  19 ++
+ 5 files changed, 259 insertions(+)
+ create mode 100644 arch/x86/include/asm/intel_basincove_ocd.h
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.c
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.h
+
+diff --git a/arch/x86/include/asm/intel_basincove_ocd.h b/arch/x86/include/asm/intel_basincove_ocd.h
+new file mode 100644
+index 000000000000..ace10c683365
+--- /dev/null
++++ b/arch/x86/include/asm/intel_basincove_ocd.h
+@@ -0,0 +1,166 @@
++#ifndef __INTEL_BASINCOVE_OCD_H__
++#define __INTEL_BASINCOVE_OCD_H__
++
++#define DRIVER_NAME "bcove_bcu"
++#define DEVICE_NAME "mrfl_pmic_bcu"
++
++/* Generic bit representaion macros */
++#define B0	(1 << 0)
++#define B1	(1 << 1)
++#define B2	(1 << 2)
++#define B3	(1 << 3)
++#define B4	(1 << 4)
++#define B5	(1 << 5)
++#define B6	(1 << 6)
++#define B7	(1 << 7)
++
++/* IRQ registers */
++#define BCUIRQ                  0x05
++#define IRQLVL1                 0x01
++#define MIRQLVL1                0x0C
++
++/* Status registers */
++#define S_BCUINT                0x3B
++#define S_BCUCTRL               0x49
++
++/* PMIC SRAM address for BCU register */
++#define PMIC_SRAM_BCU_ADDR      0xFFFFF614
++#define IOMAP_LEN               1
++
++#define NUM_VOLT_LEVELS         3
++#define NUM_CURR_LEVELS         2
++
++/* Macros for the Exit Debounce Time for VW1, VW2 and VCRIT trip points */
++#define VW_EXIT_DB_CLK0		~(B6 | B5 | B4)
++#define VW_EXIT_DB_CLK1		B4
++#define VW_EXIT_DB_CLK2		B5
++#define VW_EXIT_DB_CLK5		(B5 | B4)
++#define VW_EXIT_DB_CLK10	B6
++#define VW_EXIT_DB_CLK20	(B6 | B4)
++#define VW_EXIT_DB_CLK40	(B6 | B5)
++#define VW_EXIT_DB_CLK160	(B6 | B5 | B4)
++
++/* Macros for the Exit Debounce Time for VCRIT trip point */
++#define VCRIT_EXIT_DB_CLK0	~(B6 | B5)
++#define VCRIT_EXIT_DB_CLK5	B5
++#define VCRIT_EXIT_DB_CLK40	B6
++#define VCRIT_EXIT_DB_CLK160	(B6 | B5)
++
++/* Macros for the Exit Debounce Time for VW1, VW2 and VCRIT trip points Mask */
++#define VW_EXIT_DB_MASK		(B6 | B5 | B4)
++#define VCRIT_EXIT_DB_MASK	(B6 | B5)
++
++#define VWARN_EN_MASK		B3
++#define ICCMAXVCC_EN_MASK	B6
++
++#define ICCMAXVCC_EN		(1 << 6)
++#define VWARN_EN		(1 << 3)
++#define VCRIT_SHUTDOWN		(1 << 4)
++
++#define BCU_ALERT               (1 << 3)
++#define VWARN1_IRQ              (1 << 0)
++#define VWARN2_IRQ              (1 << 1)
++#define VCRIT_IRQ               (1 << 2)
++#define GSMPULSE_IRQ            (1 << 3)
++#define TXPWRTH_IRQ             (1 << 4)
++
++/* Number of configurable thresholds for current and voltage */
++#define NUM_THRESHOLDS          8
++
++/* BCU real time status flags for corresponding input signals */
++#define SVWARN1                 (1<<0)
++#define SVWARN2                 (1<<1)
++#define SVCRIT                  (1<<2)
++
++/* S_BCUCTRL register status bits */
++#define SBCUCTRL_CAMTORCH       (1<<3)
++#define SBCUCTRL_CAMFLDIS       (1<<2)
++#define SBCUCTRL_BCUDISW2       (1<<1)
++
++/* check whether bit is sticky or not by checking 5th bit */
++#define IS_STICKY(data)         (!!(data & 0x10))
++
++/* check whether signal asserted for VW1/VW2/VC */
++#define IS_ASSRT_ON_VW1(data)   (!!(data & 0x01))
++#define IS_ASSRT_ON_VW2(data)   (!!(data & 0x02))
++#define IS_ASSRT_ON_VC(data)    (!!(data & 0x04))
++
++/* Configuration registers that monitor the voltage drop */
++#define VWARN1_CFG              0x3C
++#define VWARN2_CFG              0x3D
++#define VCRIT_CFG               0x3E
++#define ICCMAXVSYS_CFG          0x3F
++#define ICCMAXVCC_CFG           0x40
++#define ICCMAXVNN_CFG           0x41
++
++/* Behaviour registers */
++#define VFLEXSRC_BEH            0x42
++#define VFLEXDIS_BEH            0x43
++#define VIBDIS_BEH              0x44
++#define CAMFLTORCH_BEH          0x45
++#define CAMFLDIS_BEH            0x46
++#define BCUDISW2_BEH            0x47
++#define BCUDISCRIT_BEH          0x48
++
++/*IRQ Mask Register*/
++#define MBCUIRQ                 0x10
++
++#define MRFL_SMIP_SRAM_ADDR	0xFFFCE000
++
++/* SMIP offset address from where the BCU related info should be read */
++#define BCU_SMIP_OFFSET		0x3BA
++
++/* No of Bytes we have to read from SMIP from BCU_SMIP_BASE*/
++#define NUM_SMIP_BYTES          14
++
++/* Max length of the register name string */
++#define MAX_REGNAME_LEN		15
++
++/* String to send the uevent along with env info to user space */
++#define EVT_STR	"BCUEVT="
++
++/* Macro to get the mode of acess for the BCU registers	*/
++#define MODE(m)	(((m != S_BCUINT) && (m != BCUIRQ) && (m != IRQLVL1))	\
++			? (S_IRUGO | S_IWUSR) : S_IRUGO)
++
++/* Generic macro to assign the parameters (reg name and address) */
++#define reg_info(x)	{ .name = #x, .addr = x, .mode = MODE(x) }
++
++/* Generic macro to fill the environmental data for bcu uevent */
++#define get_envp(evt)	(EVT_STR#evt)
++
++/*
++* These values are read from SMIP.
++* SMIP contains these entries - default register configurations
++* BCU is programmed to these default values during boot time.
++*/
++
++struct ocd_bcove_config_data {
++	uint8_t vwarn1_cfg;
++	uint8_t vwarn2_cfg;
++	uint8_t vcrit_cfg;
++	uint8_t iccmaxvsys_cfg;
++	uint8_t iccmaxvcc_cfg;
++	uint8_t iccmaxvnn_cfg;
++	uint8_t vflexsrc_beh;
++	uint8_t vflexdis_beh;
++	uint8_t vibdis_beh;
++	uint8_t camfltorch_beh;
++	uint8_t camfldis_beh;
++	uint8_t bcudisw2_beh;
++	uint8_t bcudiscrit_beh;
++	uint8_t mbcuirq;
++} __packed;
++
++struct ocd_platform_data {
++	int (*bcu_config_data) (struct ocd_bcove_config_data *);
++};
++
++struct bcu_reg_info {
++	char	name[MAX_REGNAME_LEN];	/* register name   */
++	u16	addr;			/* offset address  */
++	u16	mode;			/* permission mode */
++};
++
++#endif
++
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 682708fc861a..108f2089077d 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -53,6 +53,8 @@
+ #include "device_libs/platform_msic_audio.h"
+ #include "device_libs/platform_msic_power_btn.h"
+ #include "device_libs/platform_msic_ocd.h"
++#include "device_libs/platform_msic_vdd.h"
++#include "device_libs/platform_mrfl_ocd.h"
+ #include "device_libs/platform_msic_thermal.h"
+ #include "device_libs/platform_msic_adc.h"
+ #include "device_libs/platform_bcove_adc.h"
+@@ -116,6 +118,8 @@ struct devs_id __initconst device_ids[] = {
+ 					&ipc_device_handler},
+ 	{"msic_ocd", SFI_DEV_TYPE_IPC, 1, &msic_ocd_platform_data,
+ 					&ipc_device_handler},
++	{"bcove_bcu", SFI_DEV_TYPE_IPC, 1, &mrfl_ocd_platform_data,
++					&ipc_device_handler},
+ 	{"msic_thermal", SFI_DEV_TYPE_IPC, 1, &msic_thermal_platform_data,
+ 					&ipc_device_handler},
+ 	{"bcove_adc", SFI_DEV_TYPE_IPC, 1, &bcove_adc_platform_data,
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index 6801d8ac9489..d819962ebc09 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -11,6 +11,8 @@ obj-$(subst m,y,$(CONFIG_BATTERY_INTEL_MDF)) += platform_msic_battery.o
+ obj-$(subst m,y,$(CONFIG_INTEL_MID_POWER_BUTTON)) += platform_msic_power_btn.o
+ obj-$(subst m,y,$(CONFIG_GPIO_INTEL_PMIC)) += platform_pmic_gpio.o
+ obj-$(subst m,y,$(CONFIG_INTEL_MFLD_THERMAL)) += platform_msic_thermal.o
++obj-$(subst m,y,$(CONFIG_SENSORS_MID_VDD)) += platform_msic_vdd.o
++obj-$(subst m,y,$(CONFIG_SENSORS_MRFL_OCD)) += platform_mrfl_ocd.o
+ # I2C Devices
+ obj-$(subst m,y,$(CONFIG_I2C_DESIGNWARE_PCI_FORK)) += platform_dw_i2c.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_EMC1403)) += platform_emc1403.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.c b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.c
+new file mode 100644
+index 000000000000..a1792554a5e8
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.c
+@@ -0,0 +1,68 @@
++/*
++ * platform_mrfl_ocd.c: Platform data for Merrifield Platform OCD  Driver
++ *
++ * (C) Copyright 2013 Intel Corporation
++ *  Author: Saranya Gopal <saranya.gopal@intel.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <asm/intel-mid.h>
++#include <asm/intel_mid_remoteproc.h>
++#include <asm/intel_scu_ipc.h>
++#include <asm/intel_basincove_ocd.h>
++
++#include "platform_msic.h"
++#include "platform_mrfl_ocd.h"
++
++static int get_bcu_config(struct ocd_bcove_config_data *ocd_smip_data)
++{
++	int i;
++	void __iomem *bcu_smip_sram_addr;
++	u8 *plat_smip_data;
++
++	if (!ocd_smip_data)
++		return -ENXIO;
++
++	plat_smip_data = (u8 *)ocd_smip_data;
++	bcu_smip_sram_addr = ioremap_nocache(MRFL_SMIP_SRAM_ADDR +
++					BCU_SMIP_OFFSET, NUM_SMIP_BYTES);
++
++	for (i = 0; i < NUM_SMIP_BYTES; i++)
++		*(plat_smip_data + i) = ioread8(bcu_smip_sram_addr + i);
++
++	return 0;
++}
++
++static struct ocd_platform_data ocd_data;
++
++void __init *mrfl_ocd_platform_data(void *info)
++{
++	struct sfi_device_table_entry *entry = info;
++	struct platform_device *pdev;
++
++	pdev = platform_device_alloc(MRFL_OCD_DEV_NAME, -1);
++	if (!pdev) {
++		pr_err("out of memory for SFI platform dev %s\n",
++			MRFL_OCD_DEV_NAME);
++		return NULL;
++	}
++
++	if (platform_device_add(pdev)) {
++		pr_err("failed to add merrifield ocd platform device\n");
++		platform_device_put(pdev);
++		return NULL;
++	}
++
++	install_irq_resource(pdev, entry->irq);
++	ocd_data.bcu_config_data = &get_bcu_config;
++	pdev->dev.platform_data	= &ocd_data;
++	register_rpmsg_service("rpmsg_mrfl_ocd", RPROC_SCU, RP_MRFL_OCD);
++
++	return &ocd_data;
++}
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.h b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.h
+new file mode 100644
+index 000000000000..d817e7da9a3b
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_ocd.h
+@@ -0,0 +1,19 @@
++/*
++ * platform_mrfl_ocd.h: msic_thermal platform data header file
++ *
++ * (C) Copyright 2013 Intel Corporation
++ * Author: Saranya Gopal <saranya.gopal@intel.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++#ifndef _PLATFORM_MRFL_OCD_H_
++#define _PLATFORM_MRFL_OCD_H_
++
++#define MRFL_OCD_DEV_NAME "bcove_bcu"
++
++extern void __init *mrfl_ocd_platform_data(void *info)
++			__attribute__((weak));
++#endif
+-- 
+2.37.3
+

@@ -1,0 +1,65 @@
+From 4568a6983b913f5d30a541bb3cbf5451e3a3eac8 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Thu, 7 Nov 2013 21:36:14 +0800
+Subject: [PATCH 193/429] dwc-otg: Fix ACA-Dock can't work when battery lower
+ than 20%.
+
+When battery lower than 20%, EM will notify USB OTG driver that VBus
+can't be drive. USB OTG driver will giveup to start host mode when
+battery is low. But haven't consider the ACA-Dock case.
+
+This patch is add one more condition for low battery case. If charger
+type is ACA-Dock, then can be ignore the low battery. Because ACA-Dock
+will drive VBus for its upstream port.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/otg.c | 25 ++++++++++++++++++++++++-
+ 1 file changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index 92c8116d5edb..0344a976d537 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -564,7 +564,17 @@ static enum dwc_otg_state do_a_host(struct dwc_otg2 *otg)
+ 	int id = RID_UNKNOWN;
+ 	unsigned long flags;
+ 
+-	if (otg->charging_cap.chrg_type != CHRG_ACA_DOCK) {
++	/* If Battery low and connected charger is not ACA-DOCK.
++	 * Then stop trying to start host mode. */
++	if ((otg->usb2_phy.vbus_state == VBUS_DISABLED) &&
++			(otg->charging_cap.chrg_type !=
++			POWER_SUPPLY_CHARGER_TYPE_ACA_DOCK)) {
++		otg_uevent_trigger(&otg->usb2_phy);
++		return DWC_STATE_B_IDLE;
++	}
++
++	if (otg->charging_cap.chrg_type !=
++			POWER_SUPPLY_CHARGER_TYPE_ACA_DOCK) {
+ 		dwc_otg_enable_vbus(otg, 1);
+ 
+ 		/* meant receive vbus valid event*/
+@@ -613,6 +623,19 @@ static enum dwc_otg_state do_a_host(struct dwc_otg2 *otg)
+ 		return DWC_STATE_B_IDLE;
+ 	}
+ 
++	if (user_events & USER_A_BUS_DROP) {
++		/* Due to big consume by DUT, even ACA-Dock connected,
++		 * the battery capability still maybe decrease. For this
++		 * case, still save host mode. Because DUT haven't drive VBus.*/
++		if (otg->charging_cap.chrg_type ==
++				POWER_SUPPLY_CHARGER_TYPE_ACA_DOCK)
++			goto stay_host;
++
++		dwc_otg_enable_vbus(otg, 0);
++		stop_host(otg);
++		return DWC_STATE_B_IDLE;
++	}
++
+ 	if (otg_events & OEVT_CONN_ID_STS_CHNG_EVNT) {
+ 		otg_dbg(otg, "OEVT_CONN_ID_STS_CHNG_EVNT\n");
+ 		id = get_id(otg);
+-- 
+2.37.3
+

@@ -1,0 +1,119 @@
+From 079c039605bcfeb0f9011f572c1bf60ba53ca1bb Mon Sep 17 00:00:00 2001
+From: Yunpeng Gao <yunpeng.gao@intel.com>
+Date: Thu, 28 Nov 2013 11:48:00 +0800
+Subject: [PATCH 256/429] mmc: busy wait during SD 1.8v switch to avoid ACG
+ issue
+
+Some SD card need X (device dependent) clock cycles
+to drive data lines DAT[3:0] from 0000b to 1111b.
+Since the time varies between SD cards, then after
+host controller enable SD clock and wait for 1ms,
+the ACG (based on the threshold set) may kick in
+and thus the SD clock will be stopped and thus the
+SD card can not drive the DAT line any more.
+
+This patch just replace the 1ms delay with busy_wait.
+It will repeat read a SDHC host controller register
+every 4us to make sure the ACG will not be triggered
+during the 1ms delay.
+
+Signed-off-by: Yunpeng Gao <yunpeng.gao@intel.com>
+---
+ drivers/mmc/core/core.c  |  5 ++++-
+ drivers/mmc/host/sdhci.c | 22 ++++++++++++++++++++++
+ include/linux/mmc/host.h |  2 ++
+ 3 files changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/core/core.c b/drivers/mmc/core/core.c
+index 0fb3b28c653c..25a3e856f9b7 100644
+--- a/drivers/mmc/core/core.c
++++ b/drivers/mmc/core/core.c
+@@ -1407,7 +1407,10 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage)
+ 	mmc_set_ios(host);
+ 
+ 	/* Wait for at least 1 ms according to spec */
+-	mmc_delay(1);
++	if (host->ops->busy_wait)
++		host->ops->busy_wait(host, 1000);
++	else
++		mmc_delay(1);
+ 
+ 	/*
+ 	 * Failure to switch is indicated by the card holding
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 355405b37b5e..de608c763edf 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -174,6 +174,21 @@ static void sdhci_disable_card_detection(struct sdhci_host *host)
+ 	sdhci_set_card_detection(host, false);
+ }
+ 
++static void sdhci_busy_wait(struct mmc_host *mmc, u32 delay)
++{
++	struct sdhci_host *host = mmc_priv(mmc);
++
++	/* totally 'delay' us, each loop 4us */
++	u32 loop = delay / 4;
++	while (loop) {
++		/* have a delay here */
++		udelay(4);
++		/* read register to make sure host won't be clock gated */
++		sdhci_readw(host, SDHCI_HOST_VERSION);
++		loop--;
++	}
++}
++
+ static void sdhci_reset(struct sdhci_host *host, u8 mask)
+ {
+ 	unsigned long timeout;
+@@ -961,6 +976,8 @@ static void sdhci_finish_data(struct sdhci_host *host)
+ 		 * upon error conditions.
+ 		 */
+ 		if (data->error) {
++			if (host->quirks2 & SDHCI_QUIRK2_WAIT_FOR_IDLE)
++				sdhci_busy_wait(host->mmc, 1000);
+ 			sdhci_reset(host, SDHCI_RESET_CMD);
+ 			sdhci_reset(host, SDHCI_RESET_DATA);
+ 		}
+@@ -2304,6 +2321,8 @@ static void sdhci_card_event(struct mmc_host *mmc)
+ 		pr_err("%s: Resetting controller.\n",
+ 			mmc_hostname(host->mmc));
+ 
++		if (host->quirks2 & SDHCI_QUIRK2_WAIT_FOR_IDLE)
++			sdhci_busy_wait(mmc, 1000);
+ 		sdhci_reset(host, SDHCI_RESET_CMD);
+ 		sdhci_reset(host, SDHCI_RESET_DATA);
+ 
+@@ -2344,6 +2363,7 @@ static const struct mmc_host_ops sdhci_ops = {
+ 	.card_busy	= sdhci_card_busy,
+ 	.set_dev_power = sdhci_set_dev_power,
+ 	.init_card = sdhci_init_card,
++	.busy_wait	= sdhci_busy_wait,
+ };
+ 
+ /*****************************************************************************\
+@@ -2401,6 +2421,8 @@ static void sdhci_tasklet_finish(unsigned long param)
+ 
+ 		/* Spec says we should do both at the same time, but Ricoh
+ 		   controllers do not like that. */
++		if (host->quirks2 & SDHCI_QUIRK2_WAIT_FOR_IDLE)
++			sdhci_busy_wait(host->mmc, 1000);
+ 		sdhci_reset(host, SDHCI_RESET_CMD);
+ 		sdhci_reset(host, SDHCI_RESET_DATA);
+ 	}
+diff --git a/include/linux/mmc/host.h b/include/linux/mmc/host.h
+index cda37d9feb71..63c22189ba2d 100644
+--- a/include/linux/mmc/host.h
++++ b/include/linux/mmc/host.h
+@@ -141,6 +141,8 @@ struct mmc_host_ops {
+ 	void	(*hw_reset)(struct mmc_host *host);
+ 	void	(*card_event)(struct mmc_host *host);
+ 	void	(*set_dev_power)(struct mmc_host *, bool);
++	/* Prevent host controller from Auto Clock Gating by busy reading */
++	void	(*busy_wait)(struct mmc_host *mmc, u32 delay);
+ };
+ 
+ struct mmc_card;
+-- 
+2.37.3
+

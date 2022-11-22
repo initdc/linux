@@ -1,0 +1,66 @@
+From 3f73bfdcb756fc057b585e1d3714e1b823d8b3e3 Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Wed, 28 Jan 2015 11:17:33 +0100
+Subject: [PATCH 400/429] Audio: move platform kernel header to correct
+ location
+
+Platform audio kernel header doesn't need to be in include path
+as it is only included by specific intel's platforms.
+
+This patch move the platform_mrfld_audio header from large include folder
+to the intel platform specific folder.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c                             | 2 +-
+ arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c  | 2 +-
+ .../intel-mid/device_libs}/platform_mrfld_audio.h               | 0
+ sound/soc/intel/board/merr_dpcm_wm8958.c                        | 1 -
+ 4 files changed, 2 insertions(+), 3 deletions(-)
+ rename arch/x86/{include/asm => platform/intel-mid/device_libs}/platform_mrfld_audio.h (100%)
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index abf7ec81f5f9..eb3d8a480560 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -60,7 +60,7 @@
+ #include "device_libs/platform_soc_thermal.h"
+ #include "device_libs/platform_msic_adc.h"
+ #include "device_libs/platform_bcove_adc.h"
+-#include <asm/platform_mrfld_audio.h>
++#include "device_libs/platform_mrfld_audio.h"
+ #include "device_libs/platform_mrfl_thermal.h"
+ 
+ /*
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c b/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
+index 2efac01fd877..0e8738b852f5 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
+@@ -22,7 +22,7 @@
+ #include <asm/intel-mid.h>
+ #include <linux/platform_data/intel_mid_remoteproc.h>
+ #include <asm/platform_sst_audio.h>
+-#include <asm/platform_mrfld_audio.h>
++#include "platform_mrfld_audio.h"
+ #include "platform_msic.h"
+ #include "platform_wm8994.h"
+ 
+diff --git a/arch/x86/include/asm/platform_mrfld_audio.h b/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.h
+similarity index 100%
+rename from arch/x86/include/asm/platform_mrfld_audio.h
+rename to arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.h
+diff --git a/sound/soc/intel/board/merr_dpcm_wm8958.c b/sound/soc/intel/board/merr_dpcm_wm8958.c
+index 9d3aba8b7e79..3b89a826aef7 100644
+--- a/sound/soc/intel/board/merr_dpcm_wm8958.c
++++ b/sound/soc/intel/board/merr_dpcm_wm8958.c
+@@ -32,7 +32,6 @@
+ #include <linux/gpio.h>
+ #include <asm/intel_scu_pmic.h>
+ #include <asm/intel_mid_rpmsg.h>
+-#include <asm/platform_mrfld_audio.h>
+ #include <asm/intel_sst_mrfld.h>
+ #include <sound/pcm.h>
+ #include <sound/pcm_params.h>
+-- 
+2.37.3
+

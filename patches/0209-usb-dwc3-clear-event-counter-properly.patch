@@ -1,0 +1,32 @@
+From e7c8cf1ecbfb1159e8055cc4585d463d9347db6f Mon Sep 17 00:00:00 2001
+From: Jiebing Li <jiebing.li@intel.com>
+Date: Thu, 5 Sep 2013 18:25:52 +0800
+Subject: [PATCH 209/429] usb:dwc3: clear event counter properly.
+
+Writing 0 to event counter is not the proper way to clean it
+to 0, actually, you need to write what you read from it to clear
+it to 0.
+
+Signed-off-by: Jiebing Li <jiebing.li@intel.com>
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/core.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/core.c b/drivers/usb/dwc3/core.c
+index 1d386030d3c4..02e7e782d471 100644
+--- a/drivers/usb/dwc3/core.c
++++ b/drivers/usb/dwc3/core.c
+@@ -256,7 +256,8 @@ static void dwc3_event_buffers_cleanup(struct dwc3 *dwc)
+ 		dwc3_writel(dwc->regs, DWC3_GEVNTADRLO(n), 0);
+ 		dwc3_writel(dwc->regs, DWC3_GEVNTADRHI(n), 0);
+ 		dwc3_writel(dwc->regs, DWC3_GEVNTSIZ(n), 0);
+-		dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(n), 0);
++		dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(n),
++			dwc3_readl(dwc->regs, DWC3_GEVNTCOUNT(n)));
+ 	}
+ }
+ 
+-- 
+2.37.3
+

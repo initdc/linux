@@ -1,0 +1,43 @@
+From e1c9f1a5f6171dfcc133099f9ca67cb067029416 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Thu, 19 Feb 2015 11:32:46 +0100
+Subject: [PATCH 403/429] audio: update list of static libraries for Edison
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The snd_intel_sst module tries to load static librairies dedicated
+to offload audio processes like mp3 decode/encode that are not
+available on Edison.
+Let's remove references to these, thus keeping the automatic loading mechanism.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ sound/soc/intel/sst/sst_dsp.c | 11 ++++-------
+ 1 file changed, 4 insertions(+), 7 deletions(-)
+
+diff --git a/sound/soc/intel/sst/sst_dsp.c b/sound/soc/intel/sst/sst_dsp.c
+index edfe4715ad0a..29950f9843fb 100644
+--- a/sound/soc/intel/sst/sst_dsp.c
++++ b/sound/soc/intel/sst/sst_dsp.c
+@@ -50,13 +50,10 @@
+ #define MEMCPY_TOIO memcpy32_toio
+ #endif
+ 
+-static struct sst_module_info sst_modules_mrfld[] = {
+-	{"mp3_dec", SST_CODEC_TYPE_MP3, 0, SST_LIB_NOT_FOUND},
+-	{"aac_dec", SST_CODEC_TYPE_AAC, 0, SST_LIB_NOT_FOUND},
+-	{"audclass_lib", SST_ALGO_AUDCLASSIFIER, 0, SST_LIB_NOT_FOUND},
+-	{"vtsv_lib", SST_ALGO_VTSV, 0, SST_LIB_NOT_FOUND},
+-	{"geq_lib", SST_ALGO_GEQ, 0, SST_LIB_NOT_FOUND},
+-};
++/**
++ * Add here all the static librairies to be downloaded at bootup
++ */
++static struct sst_module_info sst_modules_mrfld[] = {};
+ 
+ static struct sst_module_info sst_modules_byt[] = {
+ 	{"mp3_dec", SST_CODEC_TYPE_MP3, 0, SST_LIB_NOT_FOUND},
+-- 
+2.37.3
+

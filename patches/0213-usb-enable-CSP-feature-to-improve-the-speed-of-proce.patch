@@ -1,0 +1,63 @@
+From b128563f103b3091ef5e6f031e381ecf8fe5b350 Mon Sep 17 00:00:00 2001
+From: wu xia <xia.wu@intel.com>
+Date: Wed, 16 Oct 2013 17:35:01 +0800
+Subject: [PATCH 213/429] usb: enable CSP feature to improve the speed of
+ processing short packets
+
+The USB2 iperf UDP dowload performance is only about 100Mbps, far away from the target.
+
+For USB iperf case, each usb request is short packet(about 1.5KB). USB core has to stop
+after receiving one short packet. SW will re-start USB core to receive the next short
+packet. This is not a efficient way to process short packets.
+
+CSP feature can make sure the usb core will continue to process the next short packet
+after receiving the current short packet. It need not to wait SW to re-start it.
+
+Signed-off-by: wu xia <xia.wu@intel.com>
+---
+ drivers/usb/dwc3/core.h      | 1 +
+ drivers/usb/dwc3/gadget.c    | 2 +-
+ drivers/usb/gadget/u_ether.c | 2 --
+ 3 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/usb/dwc3/core.h b/drivers/usb/dwc3/core.h
+index 77611e96a2b7..f0c2ef10b36c 100644
+--- a/drivers/usb/dwc3/core.h
++++ b/drivers/usb/dwc3/core.h
+@@ -622,6 +622,7 @@ struct dwc3_request {
+ 	unsigned		direction:1;
+ 	unsigned		mapped:1;
+ 	unsigned		queued:1;
++	unsigned		short_packet:1;
+ };
+ 
+ /*
+diff --git a/drivers/usb/dwc3/gadget.c b/drivers/usb/dwc3/gadget.c
+index 31688bb36ea3..cc7f92096442 100644
+--- a/drivers/usb/dwc3/gadget.c
++++ b/drivers/usb/dwc3/gadget.c
+@@ -1439,7 +1439,7 @@ static int dwc3_gadget_ep_queue(struct usb_ep *ep, struct usb_request *request,
+ 	/* pad OUT endpoint buffer to MaxPacketSize per databook requirement*/
+ 	req->short_packet = false;
+ 	if (!IS_ALIGNED(request->length, ep->desc->wMaxPacketSize)
+-		&& !(dep->number & 1) && (dep->number != DWC3_EP_EBC_OUT_NB)) {
++				&& !(dep->number & 1)) {
+ 		request->length = roundup(request->length,
+ 					(u32) ep->desc->wMaxPacketSize);
+ 		/* set flag for bulk-out short request */
+diff --git a/drivers/usb/gadget/u_ether.c b/drivers/usb/gadget/u_ether.c
+index 4b76124ce96b..0d130b431f02 100644
+--- a/drivers/usb/gadget/u_ether.c
++++ b/drivers/usb/gadget/u_ether.c
+@@ -223,8 +223,6 @@ rx_submit(struct eth_dev *dev, struct usb_request *req, gfp_t gfp_flags)
+ 	 */
+ 	size += sizeof(struct ethhdr) + dev->net->mtu + RX_EXTRA;
+ 	size += dev->port_usb->header_len;
+-	size += out->maxpacket - 1;
+-	size -= size % out->maxpacket;
+ 
+ 	if (dev->port_usb->is_fixed)
+ 		size = max_t(size_t, size, dev->port_usb->fixed_out_len);
+-- 
+2.37.3
+

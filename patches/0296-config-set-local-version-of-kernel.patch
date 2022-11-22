@@ -1,0 +1,29 @@
+From b58ec8f428c5b82e4362497adfd92b75fe90ddba Mon Sep 17 00:00:00 2001
+From: Franck Fleter <franck.fleter@intel.com>
+Date: Mon, 7 Apr 2014 17:25:08 +0200
+Subject: [PATCH 296/429] config: set local version of kernel
+
+Signed-off-by: Franck Fleter <franck.fleter@intel.com>
+Signed-off-by: Fabien Chereau <fabien.chereau@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 6c0dff2ad224..18cad7146480 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -46,8 +46,8 @@ CONFIG_BUILDTIME_EXTABLE_SORT=y
+ #
+ CONFIG_INIT_ENV_ARG_LIMIT=32
+ CONFIG_CROSS_COMPILE=""
+-CONFIG_LOCALVERSION="-yocto-standard"
+-CONFIG_LOCALVERSION_AUTO=y
++CONFIG_LOCALVERSION="-poky-edison"
++CONFIG_LOCALVERSION_AUTO=n
+ CONFIG_HAVE_KERNEL_GZIP=y
+ CONFIG_HAVE_KERNEL_BZIP2=y
+ CONFIG_HAVE_KERNEL_LZMA=y
+-- 
+2.37.3
+

@@ -1,0 +1,28 @@
+From e43d465c73d2e1c420bd9867b870d738a7815574 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Mon, 24 Mar 2014 17:16:41 +0100
+Subject: [PATCH 283/429] Power: Put MIO unit in D0i3
+
+MIO is powered off.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ arch/x86/platform/intel-mid/pmu_tng.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/x86/platform/intel-mid/pmu_tng.c b/arch/x86/platform/intel-mid/pmu_tng.c
+index 063cfc437c88..fdb0dd651dc4 100644
+--- a/arch/x86/platform/intel-mid/pmu_tng.c
++++ b/arch/x86/platform/intel-mid/pmu_tng.c
+@@ -207,6 +207,8 @@ int pmu_set_power_state_tng(u32 reg_pm0, u32 si_mask, u32 ns_mask)
+ static int __init pmu_nc_poweroff(void) {
+ 	/* Power off DPA */
+ 	pmu_set_power_state_tng (DSP_SS_PM, DPA_SSC, TNG_COMPOSITE_D3);
++	/* Power off MIO */
++	pmu_set_power_state_tng (MIO_SS_PM, MIO_SSC, TNG_COMPOSITE_D3);
+ 	return 0;
+ }
+ 
+-- 
+2.37.3
+

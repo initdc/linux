@@ -1,0 +1,115 @@
+From 14abe34fe5cb176d00442b3779c6e1c558f4afb1 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Tue, 8 Oct 2013 20:24:31 +0800
+Subject: [PATCH 290/429] dwc3: Fix DWC3 controller can't detect any USB2
+ signals issue.
+
+This patch is one workaround for DWC3 controller BUG. Driver need to
+clear GUSB2PHYACC0[16:21] after do phy access. Otherwise ULPI State
+machine inside otg3 controller continuously perform USB interrupt status
+register read forever preventing other ULPI transactions on the bus to
+PHY. Thus enumeration of devices will not happen
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/dwc3-host-intel.c |  6 +-----
+ drivers/usb/dwc3/otg.c             | 25 ++++++++++++++++++++++---
+ 2 files changed, 23 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-host-intel.c b/drivers/usb/dwc3/dwc3-host-intel.c
+index ce21b684c89e..029e1cc25f77 100644
+--- a/drivers/usb/dwc3/dwc3-host-intel.c
++++ b/drivers/usb/dwc3/dwc3-host-intel.c
+@@ -49,7 +49,7 @@ static void xhci_dwc3_quirks(struct device *dev, struct xhci_hcd *xhci)
+ 	 * Synopsys DWC3 controller will generate PLC when link transfer to
+ 	 * compliance/loopback mode.
+ 	 */
+-	xhci->quirks |= XHCI_PLAT; 
++	xhci->quirks |= XHCI_PLAT;
+ }
+ 
+ /* called during probe() after chip reset completes */
+@@ -304,10 +304,6 @@ static int dwc3_start_host(struct usb_hcd *hcd)
+ 	 * To prevent incorrect flags set during last time. */
+ 	hcd->flags = 0;
+ 
+-	/* Clear the hcd->flags.
+-	 * To prevent incorrect flags set during last time. */
+-	hcd->flags = 0;
+-
+ 	ret = usb_add_hcd(hcd, otg_irqnum, IRQF_SHARED);
+ 	if (ret)
+ 		return -EINVAL;
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index cc82b435060b..34cdf6e717b1 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -948,7 +948,7 @@ static int ulpi_read(struct usb_phy *phy, u32 reg)
+ {
+ 	struct dwc_otg2 *otg = container_of(phy, struct dwc_otg2, usb2_phy);
+ 	u32 val32 = 0, count = 200;
+-	u8 val;
++	u8 val, tmp;
+ 
+ 	reg &= 0xFF;
+ 
+@@ -986,7 +986,7 @@ static int ulpi_read(struct usb_phy *phy, u32 reg)
+ 				  GUSB2PHYACC0_REGDATA_MASK;
+ 			otg_dbg(otg, "%s - reg 0x%x data 0x%x\n",
+ 					__func__, reg, val);
+-			return val;
++			goto cleanup;
+ 		}
+ 
+ 		count--;
+@@ -995,12 +995,22 @@ static int ulpi_read(struct usb_phy *phy, u32 reg)
+ 	otg_err(otg, "%s read PHY data failed.\n", __func__);
+ 
+ 	return -ETIMEDOUT;
++
++cleanup:
++	/* Clear GUSB2PHYACC0[16:21] before return.
++	 * Otherwise, it will cause PHY can't in workable
++	 * state. This is one dwc3 controller silicon bug. */
++	tmp = otg_read(otg, GUSB2PHYACC0);
++	otg_write(otg, GUSB2PHYACC0, tmp &
++			~GUSB2PHYACC0_REGADDR(0x3F));
++	return val;
+ }
+ 
+ static int ulpi_write(struct usb_phy *phy, u32 val, u32 reg)
+ {
+ 	struct dwc_otg2 *otg = container_of(phy, struct dwc_otg2, usb2_phy);
+ 	u32 val32 = 0, count = 200;
++	u8 tmp;
+ 
+ 	val &= 0xFF;
+ 	reg &= 0xFF;
+@@ -1040,7 +1050,7 @@ static int ulpi_write(struct usb_phy *phy, u32 val, u32 reg)
+ 		if (otg_read(otg, GUSB2PHYACC0) & GUSB2PHYACC0_VSTSDONE) {
+ 			otg_dbg(otg, "%s - reg 0x%x data 0x%x write done\n",
+ 					__func__, reg, val);
+-			return 0;
++			goto cleanup;
+ 		}
+ 
+ 		count--;
+@@ -1049,6 +1059,15 @@ static int ulpi_write(struct usb_phy *phy, u32 val, u32 reg)
+ 	otg_err(otg, "%s read PHY data failed.\n", __func__);
+ 
+ 	return -ETIMEDOUT;
++
++cleanup:
++	/* Clear GUSB2PHYACC0[16:21] before return.
++	 * Otherwise, it will cause PHY can't in workable
++	 * state. This is one dwc3 controller silicon bug. */
++	tmp = otg_read(otg, GUSB2PHYACC0);
++	otg_write(otg, GUSB2PHYACC0, tmp &
++			~GUSB2PHYACC0_REGADDR(0x3F));
++	return 0;
+ }
+ 
+ static struct usb_phy_io_ops dwc_otg_io_ops = {
+-- 
+2.37.3
+

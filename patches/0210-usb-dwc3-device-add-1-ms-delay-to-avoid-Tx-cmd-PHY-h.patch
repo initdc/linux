@@ -1,0 +1,69 @@
+From b7a66d6241709c09995f1e2269ecd17d1dc58015 Mon Sep 17 00:00:00 2001
+From: Jiebing Li <jiebing.li@intel.com>
+Date: Thu, 5 Sep 2013 18:18:23 +0800
+Subject: [PATCH 210/429] usb/dwc3-device: add 1 ms delay to avoid Tx-cmd PHY
+ hang
+
+The patch adds 1 ms delay before DCTL core soft reset, making
+the PHY more stable to avoid hitting Tx-cmd PHY hang issue.
+
+The patch also dumps an error message in case of Erratic Error Event,
+the event indicates PHY is hang. If we see this message, possibly
+the Tx-CMD still exists, then we should implement a PHY reset
+workaround.
+
+And this patch puts GCTL core soft reset before DCTL softer reset,
+which follows requirement of DWC3 databook section 8.1.1.
+
+Signed-off-by: jzhuan5 <jin.can.zhuang@intel.com>
+Signed-off-by: Jiebing Li <jiebing.li@intel.com>
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/core.c | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/core.c b/drivers/usb/dwc3/core.c
+index 02e7e782d471..fbb8a9dd87af 100644
+--- a/drivers/usb/dwc3/core.c
++++ b/drivers/usb/dwc3/core.c
+@@ -298,6 +298,7 @@ static int dwc3_core_init(struct dwc3 *dwc)
+ 	unsigned long		timeout;
+ 	u32			reg;
+ 	int			ret;
++	struct usb_phy		*usb_phy;
+ 
+ 	reg = dwc3_readl(dwc->regs, DWC3_GSNPSID);
+ 	/* This should read as U3 followed by revision number */
+@@ -308,6 +309,13 @@ static int dwc3_core_init(struct dwc3 *dwc)
+ 	}
+ 	dwc->revision = reg;
+ 
++	dwc3_core_soft_reset(dwc);
++
++	/* Delay 1 ms Before DCTL soft reset to make it safer from hitting
++	 * Tx-CMD PHY hang issue.
++	 */
++	mdelay(1);
++
+ 	/* issue device SoftReset too */
+ 	timeout = jiffies + msecs_to_jiffies(500);
+ 	dwc3_writel(dwc->regs, DWC3_DCTL, DWC3_DCTL_CSFTRST);
+@@ -325,7 +333,14 @@ static int dwc3_core_init(struct dwc3 *dwc)
+ 		cpu_relax();
+ 	} while (true);
+ 
+-	dwc3_core_soft_reset(dwc);
++	/* DCTL core soft reset may cause PHY hang, delay 1 ms and check ulpi */
++	mdelay(1);
++	usb_phy = usb_get_phy(USB_PHY_TYPE_USB2);
++	if (usb_phy &&
++		usb_phy_io_read(usb_phy, ULPI_VENDOR_ID_LOW) < 0)
++		dev_err(dwc->dev,
++			"ULPI not working after DCTL soft reset\n");
++	usb_put_phy(usb_phy);
+ 
+ 	reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+ 	reg &= ~DWC3_GCTL_SCALEDOWN_MASK;
+-- 
+2.37.3
+

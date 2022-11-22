@@ -1,0 +1,180 @@
+From ebd9dadb7e3b7bc8967b345d5f385332475857d5 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Thu, 18 Jul 2013 10:48:52 +0800
+Subject: [PATCH 252/429] mmc: sdhci: add spinlock when acquire/release eMMC
+ mutex
+
+If sdhci driver really has multiple threads acquiring eMMC mutex,
+there is a race condition within acquiring and release mutex. This
+patch will add a spinlock to avoid such race condition.
+
+Since this bug didn't totally resolved this issue, this patch also include
+the fix for bug#42752
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c |  1 +
+ drivers/mmc/host/sdhci.c     | 33 +++++++++++++++++++++++++--------
+ include/linux/mmc/sdhci.h    |  3 ++-
+ 3 files changed, 28 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 9c4a6783f125..aa0a0efaf599 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -325,6 +325,7 @@ static void mfd_emmc_mutex_register(struct sdhci_pci_slot *slot)
+ 				readl(slot->host->sram_addr +
+ 					DEKKER_SCU_REQ_OFFSET));
+ 	}
++	spin_lock_init(&slot->host->dekker_lock);
+ }
+ 
+ static int mfd_emmc_probe_slot(struct sdhci_pci_slot *slot)
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index f3bc9224cf19..ac816cc23555 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1400,17 +1400,23 @@ static int sdhci_do_acquire_ownership(struct mmc_host *mmc)
+ {
+ 	struct sdhci_host *host;
+ 	unsigned long t1, t2;
++	unsigned long flags;
+ 
+ 	host = mmc_priv(mmc);
+ 
+ 	if (!host->sram_addr)
+ 		return 0;
+ 
+-	atomic_inc(&host->usage_cnt);
++	/* if host has sram_addr, dekker_lock is initialized */
++	spin_lock_irqsave(&host->dekker_lock, flags);
++
++	host->usage_cnt++;
+ 
+ 	/* If IA has already hold the eMMC mutex, then just exit */
+-	if (readl(host->sram_addr + DEKKER_IA_REQ_OFFSET))
++	if (readl(host->sram_addr + DEKKER_IA_REQ_OFFSET)) {
++		spin_unlock_irqrestore(&host->dekker_lock, flags);
+ 		return 0;
++	}
+ 
+ 	DBG("Acquire ownership - eMMC owner: %d, IA req: %d, SCU req: %d\n",
+ 			readl(host->sram_addr + DEKKER_EMMC_OWNER_OFFSET),
+@@ -1431,7 +1437,10 @@ static int sdhci_do_acquire_ownership(struct mmc_host *mmc)
+ 					DEKKER_EMMC_OWNER_OFFSET) ==
+ 						DEKKER_OWNER_IA)
+ 					break;
++				spin_unlock_irqrestore(&host->dekker_lock,
++						flags);
+ 				usleep_range(8000, 12000);
++				spin_lock_irqsave(&host->dekker_lock, flags);
+ 				t2--;
+ 			}
+ 			if (t2)
+@@ -1446,6 +1455,7 @@ static int sdhci_do_acquire_ownership(struct mmc_host *mmc)
+ 		cpu_relax();
+ 	}
+ 
++	spin_unlock_irqrestore(&host->dekker_lock, flags);
+ 	/*
+ 	 * if the last owner is SCU, will do the re-config host controller
+ 	 * in the next
+@@ -1465,6 +1475,8 @@ timeout:
+ 	writel(DEKKER_OWNER_SCU, host->sram_addr + DEKKER_EMMC_OWNER_OFFSET);
+ 	writel(0, host->sram_addr + DEKKER_IA_REQ_OFFSET);
+ 
++	spin_unlock_irqrestore(&host->dekker_lock, flags);
++
+ 	return -EBUSY;
+ }
+ 
+@@ -1496,13 +1508,17 @@ static int sdhci_acquire_ownership(struct mmc_host *mmc)
+ static void sdhci_release_ownership(struct mmc_host *mmc)
+ {
+ 	struct sdhci_host *host;
++	unsigned long flags;
+ 
+ 	host = mmc_priv(mmc);
+ 
+ 	if (!host->sram_addr)
+ 		return;
+ 
+-	if (atomic_dec_and_test(&host->usage_cnt)) {
++	spin_lock_irqsave(&host->dekker_lock, flags);
++	BUG_ON(host->usage_cnt == 0);
++	host->usage_cnt--;
++	if (host->usage_cnt == 0) {
+ 		writel(DEKKER_OWNER_SCU,
+ 				host->sram_addr + DEKKER_EMMC_OWNER_OFFSET);
+ 		writel(0, host->sram_addr + DEKKER_IA_REQ_OFFSET);
+@@ -1511,6 +1527,7 @@ static void sdhci_release_ownership(struct mmc_host *mmc)
+ 			readl(host->sram_addr + DEKKER_IA_REQ_OFFSET),
+ 			readl(host->sram_addr + DEKKER_SCU_REQ_OFFSET));
+ 	}
++	spin_unlock_irqrestore(&host->dekker_lock, flags);
+ }
+ 
+ /*****************************************************************************\
+@@ -1528,10 +1545,10 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 
+ 	host = mmc_priv(mmc);
+ 
+-	sdhci_acquire_ownership(host->mmc);
+-
+ 	sdhci_runtime_pm_get(host);
+ 
++	sdhci_acquire_ownership(host->mmc);
++
+ 	present = mmc_gpio_get_cd(host->mmc);
+ 
+ 	spin_lock_irqsave(&host->lock, flags);
+@@ -1799,11 +1816,11 @@ static void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+ {
+ 	struct sdhci_host *host = mmc_priv(mmc);
+ 
+-	sdhci_acquire_ownership(mmc);
+ 	sdhci_runtime_pm_get(host);
++	sdhci_acquire_ownership(mmc);
+ 	sdhci_do_set_ios(host, ios);
+-	sdhci_runtime_pm_put(host);
+ 	sdhci_release_ownership(mmc);
++	sdhci_runtime_pm_put(host);
+ }
+ 
+ static int sdhci_do_get_cd(struct sdhci_host *host)
+@@ -2398,9 +2415,9 @@ static void sdhci_tasklet_finish(unsigned long param)
+ 	mmiowb();
+ 	spin_unlock_irqrestore(&host->lock, flags);
+ 
++	sdhci_release_ownership(host->mmc);
+ 	mmc_request_done(host->mmc, mrq);
+ 	sdhci_runtime_pm_put(host);
+-	sdhci_release_ownership(host->mmc);
+ }
+ 
+ static void dump_rte_apic_reg(struct sdhci_host *host, void __iomem *idx_addr)
+diff --git a/include/linux/mmc/sdhci.h b/include/linux/mmc/sdhci.h
+index 10db1a845ef7..17ebeeede15a 100644
+--- a/include/linux/mmc/sdhci.h
++++ b/include/linux/mmc/sdhci.h
+@@ -136,7 +136,7 @@ struct sdhci_host {
+ #define DEKKER_OWNER_IA                 0
+ #define DEKKER_OWNER_SCU                1
+ 
+-	atomic_t usage_cnt; /* eMMC mutex usage count */
++	unsigned int	usage_cnt;	/* eMMC mutex usage count */
+ 
+ 	const struct sdhci_ops *ops;	/* Low level hw interface */
+ 
+@@ -153,6 +153,7 @@ struct sdhci_host {
+ #endif
+ 
+ 	spinlock_t lock;	/* Mutex */
++	spinlock_t dekker_lock; /* eMMC Dekker Mutex lock */
+ 
+ 	int flags;		/* Host attributes */
+ #define SDHCI_USE_SDMA		(1<<0)	/* Host is SDMA capable */
+-- 
+2.37.3
+

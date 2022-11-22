@@ -1,0 +1,741 @@
+From 7a4196fefeaddb6fff8071a47423b2f0c0f165d0 Mon Sep 17 00:00:00 2001
+From: "Li, Ning" <ning.li@intel.com>
+Date: Mon, 2 Sep 2013 09:26:36 +0800
+Subject: [PATCH 172/429] Port Designware SPI driver to K3.10
+
+This patch ports DW SPI driver to K3.10.
+Including:
+e0570ac2 enable dw spi DMA mode
+96159d2e fix compiling error when sets CONFIG_SPI_DW_MID_DMA
+as well as Power Management support in K3.4.
+
+Signed-off-by: Li, Ning <ning.li@intel.com>
+---
+ drivers/spi/spi-dw-mid.c | 101 ++++++++++++++++------------
+ drivers/spi/spi-dw-pci.c | 102 ++++++++++++++++++++++++----
+ drivers/spi/spi-dw.c     | 142 +++++++++++++++++++++++----------------
+ drivers/spi/spi-dw.h     |   5 +-
+ 4 files changed, 233 insertions(+), 117 deletions(-)
+
+diff --git a/drivers/spi/spi-dw-mid.c b/drivers/spi/spi-dw-mid.c
+index 1389fefe8814..32a38b70b4df 100644
+--- a/drivers/spi/spi-dw-mid.c
++++ b/drivers/spi/spi-dw-mid.c
+@@ -22,7 +22,6 @@
+ #include <linux/interrupt.h>
+ #include <linux/slab.h>
+ #include <linux/spi/spi.h>
+-#include <linux/types.h>
+ 
+ #include "spi-dw.h"
+ 
+@@ -55,6 +54,8 @@ static int mid_spi_dma_init(struct dw_spi *dws)
+ 	dws->dmac = pci_get_device(PCI_VENDOR_ID_INTEL, 0x0813, NULL);
+ 	if (!dws->dmac)
+ 		dws->dmac = pci_get_device(PCI_VENDOR_ID_INTEL, 0x0827, NULL);
++	if (!dws->dmac)
++		dws->dmac = pci_get_device(PCI_VENDOR_ID_INTEL, 0x08EF, NULL);
+ 
+ 	dma_cap_zero(mask);
+ 	dma_cap_set(DMA_SLAVE, mask);
+@@ -117,8 +118,11 @@ static int mid_spi_dma_transfer(struct dw_spi *dws, int cs_change)
+ {
+ 	struct dma_async_tx_descriptor *txdesc = NULL, *rxdesc = NULL;
+ 	struct dma_chan *txchan, *rxchan;
+-	struct dma_slave_config txconf, rxconf;
++	struct dma_slave_config *txconf, *rxconf;
+ 	u16 dma_ctrl = 0;
++	enum dma_ctrl_flags flag;
++	struct device *dev = &dws->master->dev;
++	struct intel_mid_dma_slave *rxs, *txs;
+ 
+ 	/* 1. setup DMA related registers */
+ 	if (cs_change) {
+@@ -137,51 +141,64 @@ static int mid_spi_dma_transfer(struct dw_spi *dws, int cs_change)
+ 	txchan = dws->txchan;
+ 	rxchan = dws->rxchan;
+ 
+-	/* 2. Prepare the TX dma transfer */
+-	txconf.direction = DMA_MEM_TO_DEV;
+-	txconf.dst_addr = dws->dma_addr;
+-	txconf.dst_maxburst = LNW_DMA_MSIZE_16;
+-	txconf.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+-	txconf.dst_addr_width = dws->dma_width;
+-	txconf.device_fc = false;
++	txs = txchan->private;
++	rxs = rxchan->private;
+ 
+-	txchan->device->device_control(txchan, DMA_SLAVE_CONFIG,
+-				       (unsigned long) &txconf);
++	txconf = &txs->dma_slave;
++	rxconf = &rxs->dma_slave;
+ 
+-	memset(&dws->tx_sgl, 0, sizeof(dws->tx_sgl));
+-	dws->tx_sgl.dma_address = dws->tx_dma;
+-	dws->tx_sgl.length = dws->len;
++	flag = DMA_PREP_INTERRUPT | DMA_COMPL_SKIP_DEST_UNMAP | DMA_CTRL_ACK;
+ 
+-	txdesc = dmaengine_prep_slave_sg(txchan,
+-				&dws->tx_sgl,
+-				1,
+-				DMA_MEM_TO_DEV,
+-				DMA_PREP_INTERRUPT | DMA_COMPL_SKIP_DEST_UNMAP);
+-	txdesc->callback = dw_spi_dma_done;
+-	txdesc->callback_param = dws;
++	/* 2. Prepare the TX dma transfer */
++	txconf->direction = DMA_MEM_TO_DEV;
++	txconf->dst_addr = dws->dma_addr;
++	txconf->src_maxburst = LNW_DMA_MSIZE_16;
++	txconf->dst_maxburst = LNW_DMA_MSIZE_16;
++	txconf->src_addr_width = dws->dma_width;
++	txconf->dst_addr_width = dws->dma_width;
++	txconf->device_fc = false;
+ 
++	txchan->device->device_control(txchan, DMA_SLAVE_CONFIG,
++				       (unsigned long) txconf);
++
++	txdesc = txchan->device->device_prep_dma_memcpy
++		(txchan,			/* DMA Channel */
++		dws->dma_addr,			/* DAR */
++		dws->tx_dma,			/* SAR */
++		dws->len,			/* Data Length */
++		flag);
++	if (txdesc) {
++		txdesc->callback = dw_spi_dma_done;
++		txdesc->callback_param = dws;
++	} else {
++		dev_err(dev, "ERROR: prepare txdesc failed\n");
++		return -EINVAL;
++	}
+ 	/* 3. Prepare the RX dma transfer */
+-	rxconf.direction = DMA_DEV_TO_MEM;
+-	rxconf.src_addr = dws->dma_addr;
+-	rxconf.src_maxburst = LNW_DMA_MSIZE_16;
+-	rxconf.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+-	rxconf.src_addr_width = dws->dma_width;
+-	rxconf.device_fc = false;
++	rxconf->direction = DMA_DEV_TO_MEM;
++	rxconf->src_addr = dws->dma_addr;
++	rxconf->src_maxburst = LNW_DMA_MSIZE_16;
++	rxconf->dst_maxburst = LNW_DMA_MSIZE_16;
++	rxconf->dst_addr_width = dws->dma_width;
++	rxconf->src_addr_width = dws->dma_width;
++	rxconf->device_fc = false;
+ 
+ 	rxchan->device->device_control(rxchan, DMA_SLAVE_CONFIG,
+-				       (unsigned long) &rxconf);
+-
+-	memset(&dws->rx_sgl, 0, sizeof(dws->rx_sgl));
+-	dws->rx_sgl.dma_address = dws->rx_dma;
+-	dws->rx_sgl.length = dws->len;
+-
+-	rxdesc = dmaengine_prep_slave_sg(rxchan,
+-				&dws->rx_sgl,
+-				1,
+-				DMA_DEV_TO_MEM,
+-				DMA_PREP_INTERRUPT | DMA_COMPL_SKIP_DEST_UNMAP);
+-	rxdesc->callback = dw_spi_dma_done;
+-	rxdesc->callback_param = dws;
++				       (unsigned long) rxconf);
++
++	rxdesc = rxchan->device->device_prep_dma_memcpy
++		(rxchan,			/* DMA Channel */
++		dws->rx_dma,			/* DAR */
++		dws->dma_addr,			/* SAR */
++		dws->len,			/* Data Length */
++		flag);
++	if (rxdesc) {
++		rxdesc->callback = dw_spi_dma_done;
++		rxdesc->callback_param = dws;
++	} else {
++		dev_err(dev, "ERROR: prepare rxdesc failed\n");
++		return -EINVAL;
++	}
+ 
+ 	/* rx must be started before tx due to spi instinct */
+ 	rxdesc->tx_submit(rxdesc);
+@@ -207,12 +224,12 @@ static struct dw_spi_dma_ops mid_dma_ops = {
+ #define CLK_SPI_CDIV_MASK	0x00000e00
+ #define CLK_SPI_DISABLE_OFFSET	8
+ 
+-int dw_spi_mid_init(struct dw_spi *dws)
++int dw_spi_mid_init(struct dw_spi *dws, int bus_num)
+ {
+ 	void __iomem *clk_reg;
+ 	u32 clk_cdiv;
+ 
+-	clk_reg = ioremap_nocache(MRST_CLK_SPI0_REG, 16);
++	clk_reg = ioremap_nocache(MRST_CLK_SPI0_REG + bus_num * 4, 16);
+ 	if (!clk_reg)
+ 		return -ENOMEM;
+ 
+diff --git a/drivers/spi/spi-dw-pci.c b/drivers/spi/spi-dw-pci.c
+index 6055c8d9fdd7..c2c0756f38af 100644
+--- a/drivers/spi/spi-dw-pci.c
++++ b/drivers/spi/spi-dw-pci.c
+@@ -20,6 +20,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/pci.h>
+ #include <linux/slab.h>
++#include <linux/pm_runtime.h>
+ #include <linux/spi/spi.h>
+ #include <linux/module.h>
+ 
+@@ -72,7 +73,7 @@ static int spi_pci_probe(struct pci_dev *pdev,
+ 	}
+ 
+ 	dws->parent_dev = &pdev->dev;
+-	dws->bus_num = 0;
++	dws->bus_num = ent->driver_data;
+ 	dws->num_cs = 4;
+ 	dws->irq = pdev->irq;
+ 
+@@ -80,11 +81,9 @@ static int spi_pci_probe(struct pci_dev *pdev,
+ 	 * Specific handling for Intel MID paltforms, like dma setup,
+ 	 * clock rate, FIFO depth.
+ 	 */
+-	if (pdev->device == 0x0800) {
+-		ret = dw_spi_mid_init(dws);
+-		if (ret)
+-			goto err_unmap;
+-	}
++	ret = dw_spi_mid_init(dws, ent->driver_data);
++	if (ret)
++		goto err_unmap;
+ 
+ 	ret = dw_spi_add_host(dws);
+ 	if (ret)
+@@ -92,6 +91,11 @@ static int spi_pci_probe(struct pci_dev *pdev,
+ 
+ 	/* PCI hook and SPI hook use the same drv data */
+ 	pci_set_drvdata(pdev, dwpci);
++
++	pm_suspend_ignore_children(&pdev->dev, true);
++	pm_runtime_put_noidle(&pdev->dev);
++	pm_runtime_allow(&pdev->dev);
++
+ 	return 0;
+ 
+ err_unmap:
+@@ -111,6 +115,8 @@ static void spi_pci_remove(struct pci_dev *pdev)
+ 
+ 	pci_set_drvdata(pdev, NULL);
+ 	dw_spi_remove_host(&dwpci->dws);
++	pm_runtime_forbid(&pdev->dev);
++	pm_runtime_get_noresume(&pdev->dev);
+ 	iounmap(dwpci->dws.regs);
+ 	pci_release_region(pdev, 0);
+ 	kfree(dwpci);
+@@ -118,8 +124,9 @@ static void spi_pci_remove(struct pci_dev *pdev)
+ }
+ 
+ #ifdef CONFIG_PM
+-static int spi_suspend(struct pci_dev *pdev, pm_message_t state)
++static int spi_suspend(struct device *dev)
+ {
++	struct pci_dev *pdev = to_pci_dev(dev);
+ 	struct dw_spi_pci *dwpci = pci_get_drvdata(pdev);
+ 	int ret;
+ 
+@@ -128,12 +135,13 @@ static int spi_suspend(struct pci_dev *pdev, pm_message_t state)
+ 		return ret;
+ 	pci_save_state(pdev);
+ 	pci_disable_device(pdev);
+-	pci_set_power_state(pdev, pci_choose_state(pdev, state));
++	pci_set_power_state(pdev, PCI_D3hot);
+ 	return ret;
+ }
+ 
+-static int spi_resume(struct pci_dev *pdev)
++static int spi_resume(struct device *dev)
+ {
++	struct pci_dev *pdev = to_pci_dev(dev);
+ 	struct dw_spi_pci *dwpci = pci_get_drvdata(pdev);
+ 	int ret;
+ 
+@@ -144,27 +152,93 @@ static int spi_resume(struct pci_dev *pdev)
+ 		return ret;
+ 	return dw_spi_resume_host(&dwpci->dws);
+ }
++
++static int spi_dw_pci_runtime_suspend(struct device *dev)
++{
++	struct pci_dev *pdev = to_pci_dev(dev);
++	struct dw_spi_pci *dwpci = pci_get_drvdata(pdev);
++
++	dev_dbg(dev, "PCI runtime suspend called\n");
++	return dw_spi_suspend_host(&dwpci->dws);
++}
++
++static int spi_dw_pci_runtime_resume(struct device *dev)
++{
++	struct pci_dev *pdev = to_pci_dev(dev);
++	struct dw_spi_pci *dwpci = pci_get_drvdata(pdev);
++
++	dev_dbg(dev, "pci_runtime_resume called\n");
++	return dw_spi_resume_host(&dwpci->dws);
++}
++
++static int spi_dw_pci_runtime_idle(struct device *dev)
++{
++	int err;
++
++	dev_dbg(dev, "pci_runtime_idle called\n");
++	if (system_state == SYSTEM_BOOTING)
++		/* if SPI UART is set as default console and earlyprintk
++		 * is enabled, it cannot shutdown SPI controller during booting.
++		 */
++		err = pm_schedule_suspend(dev, 30000);
++	else
++		err = pm_schedule_suspend(dev, 500);
++
++	if (err != 0)
++		return 0;
++
++	return -EBUSY;
++}
++
+ #else
+ #define spi_suspend	NULL
+ #define spi_resume	NULL
++#define spi_dw_pci_runtime_suspend NULL
++#define spi_dw_pci_runtime_resume NULL
++#define spi_dw_pci_runtime_idle NULL
+ #endif
+ 
+ static DEFINE_PCI_DEVICE_TABLE(pci_ids) = {
+-	/* Intel MID platform SPI controller 0 */
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x0800) },
++	/* Intel Medfield platform SPI controller 1 */
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x0800), .driver_data = 0 },
++	/* Intel Cloverview platform SPI controller 1 */
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x08E1), .driver_data = 0 },
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x08EE), .driver_data = 1 },
++	/* Intel EVx platform SPI controller 1 */
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x0812), .driver_data = 2 },
+ 	{},
+ };
+ 
++static const struct dev_pm_ops dw_spi_pm_ops = {
++	.suspend = spi_suspend,
++	.resume = spi_resume,
++	.runtime_suspend = spi_dw_pci_runtime_suspend,
++	.runtime_resume = spi_dw_pci_runtime_resume,
++	.runtime_idle = spi_dw_pci_runtime_idle,
++};
++
+ static struct pci_driver dw_spi_driver = {
+ 	.name =		DRIVER_NAME,
+ 	.id_table =	pci_ids,
+ 	.probe =	spi_pci_probe,
+ 	.remove =	spi_pci_remove,
+-	.suspend =	spi_suspend,
+-	.resume	=	spi_resume,
++	.driver =	{
++		.pm	= &dw_spi_pm_ops,
++	},
+ };
+ 
+-module_pci_driver(dw_spi_driver);
++static int __init mrst_spi_init(void)
++{
++	return pci_register_driver(&dw_spi_driver);
++}
++
++static void __exit mrst_spi_exit(void)
++{
++	pci_unregister_driver(&dw_spi_driver);
++}
++
++module_init(mrst_spi_init);
++module_exit(mrst_spi_exit);
+ 
+ MODULE_AUTHOR("Feng Tang <feng.tang@intel.com>");
+ MODULE_DESCRIPTION("PCI interface driver for DW SPI Core");
+diff --git a/drivers/spi/spi-dw.c b/drivers/spi/spi-dw.c
+index 137a4deba5a3..5d2c4b8db661 100644
+--- a/drivers/spi/spi-dw.c
++++ b/drivers/spi/spi-dw.c
+@@ -23,6 +23,7 @@
+ #include <linux/highmem.h>
+ #include <linux/delay.h>
+ #include <linux/slab.h>
++#include <linux/pm_runtime.h>
+ #include <linux/spi/spi.h>
+ 
+ #include "spi-dw.h"
+@@ -63,6 +64,12 @@ struct chip_data {
+ };
+ 
+ #ifdef CONFIG_DEBUG_FS
++static int spi_show_regs_open(struct inode *inode, struct file *file)
++{
++	file->private_data = inode->i_private;
++	return 0;
++}
++
+ #define SPI_REGS_BUFSIZE	1024
+ static ssize_t  spi_show_regs(struct file *file, char __user *user_buf,
+ 				size_t count, loff_t *ppos)
+@@ -122,7 +129,7 @@ static ssize_t  spi_show_regs(struct file *file, char __user *user_buf,
+ 
+ static const struct file_operations mrst_spi_regs_ops = {
+ 	.owner		= THIS_MODULE,
+-	.open		= simple_open,
++	.open		= spi_show_regs_open,
+ 	.read		= spi_show_regs,
+ 	.llseek		= default_llseek,
+ };
+@@ -191,7 +198,7 @@ static void dw_writer(struct dw_spi *dws)
+ 	u16 txw = 0;
+ 
+ 	while (max--) {
+-		/* Set the tx word if the transfer's original "tx" is not null */
++		/* Set the txw if the transfer's original "tx" is not null */
+ 		if (dws->tx_end - dws->len) {
+ 			if (dws->n_bytes == 1)
+ 				txw = *(u8 *)(dws->tx);
+@@ -256,7 +263,40 @@ static int map_dma_buffers(struct dw_spi *dws)
+ 	if (dws->cur_transfer->rx_dma)
+ 		dws->rx_dma = dws->cur_transfer->rx_dma;
+ 
++	/* map dma buffer if it's not mapped */
++	if (!dws->tx_dma) {
++		dws->tx_dma = dma_map_single(NULL, dws->tx,
++				dws->len, DMA_TO_DEVICE);
++		if (dma_mapping_error(NULL, dws->tx_dma)) {
++			pr_err("map tx dma buffer failed\n");
++			goto err1;
++		}
++	}
++
++	if (!dws->rx_dma) {
++		dws->rx_dma = dma_map_single(NULL, dws->rx,
++				dws->len, DMA_FROM_DEVICE);
++		if (dma_mapping_error(NULL, dws->rx_dma)) {
++			pr_err("map rx dma buffer failed\n");
++			goto err2;
++		}
++	}
++
+ 	return 1;
++
++err2:
++	dma_unmap_single(NULL, dws->tx_dma, dws->len, DMA_TO_DEVICE);
++err1:
++	dws->cur_msg->is_dma_mapped = 0;
++	return 0;
++}
++
++static void unmap_dma_buffers(struct dw_spi *dws)
++{
++	dma_unmap_single(NULL, dws->rx_dma,
++				dws->len, DMA_FROM_DEVICE);
++	dma_unmap_single(NULL, dws->tx_dma,
++				dws->len, DMA_TO_DEVICE);
+ }
+ 
+ /* Caller already set message->status; dma and pio irqs are blocked */
+@@ -267,7 +307,12 @@ static void giveback(struct dw_spi *dws)
+ 	struct spi_message *msg;
+ 
+ 	spin_lock_irqsave(&dws->lock, flags);
++
++	if (dws->dma_mapped)
++		unmap_dma_buffers(dws);
++
+ 	msg = dws->cur_msg;
++	list_del_init(&dws->cur_msg->queue);
+ 	dws->cur_msg = NULL;
+ 	dws->cur_transfer = NULL;
+ 	dws->prev_chip = dws->cur_chip;
+@@ -312,6 +357,7 @@ void dw_spi_xfer_done(struct dw_spi *dws)
+ 		giveback(dws);
+ 	} else
+ 		tasklet_schedule(&dws->pump_transfers);
++
+ }
+ EXPORT_SYMBOL_GPL(dw_spi_xfer_done);
+ 
+@@ -324,7 +370,7 @@ static irqreturn_t interrupt_transfer(struct dw_spi *dws)
+ 		dw_readw(dws, DW_SPI_TXOICR);
+ 		dw_readw(dws, DW_SPI_RXOICR);
+ 		dw_readw(dws, DW_SPI_RXUICR);
+-		int_error_stop(dws, "interrupt_transfer: fifo overrun/underrun");
++		int_error_stop(dws, "interrupt_transfer: fifo over/underrun");
+ 		return IRQ_HANDLED;
+ 	}
+ 
+@@ -502,7 +548,8 @@ static void pump_transfers(unsigned long data)
+ 		txint_level = dws->fifo_len / 2;
+ 		txint_level = (templen > txint_level) ? txint_level : templen;
+ 
+-		imask |= SPI_INT_TXEI | SPI_INT_TXOI | SPI_INT_RXUI | SPI_INT_RXOI;
++		imask |= SPI_INT_TXEI | SPI_INT_TXOI | SPI_INT_RXUI
++			| SPI_INT_RXOI;
+ 		dws->transfer_handler = interrupt_transfer;
+ 	}
+ 
+@@ -512,7 +559,8 @@ static void pump_transfers(unsigned long data)
+ 	 *	2. clk_div is changed
+ 	 *	3. control value changes
+ 	 */
+-	if (dw_readw(dws, DW_SPI_CTRL0) != cr0 || cs_change || clk_div || imask) {
++	if (dw_readw(dws, DW_SPI_CTRL0) != cr0 || cs_change
++			|| clk_div || imask) {
+ 		spi_enable_chip(dws, 0);
+ 
+ 		if (dw_readw(dws, DW_SPI_CTRL0) != cr0)
+@@ -552,23 +600,19 @@ static void pump_messages(struct work_struct *work)
+ 		container_of(work, struct dw_spi, pump_messages);
+ 	unsigned long flags;
+ 
++	pm_runtime_get_sync(dws->parent_dev);
++
+ 	/* Lock queue and check for queue work */
+ 	spin_lock_irqsave(&dws->lock, flags);
+-	if (list_empty(&dws->queue) || dws->run == QUEUE_STOPPED) {
+-		dws->busy = 0;
+-		spin_unlock_irqrestore(&dws->lock, flags);
+-		return;
+-	}
++	if (list_empty(&dws->queue) || dws->run == QUEUE_STOPPED)
++		goto exit;
+ 
+ 	/* Make sure we are not already running a message */
+-	if (dws->cur_msg) {
+-		spin_unlock_irqrestore(&dws->lock, flags);
+-		return;
+-	}
++	if (dws->cur_msg)
++		goto exit;
+ 
+ 	/* Extract head of queue */
+ 	dws->cur_msg = list_entry(dws->queue.next, struct spi_message, queue);
+-	list_del_init(&dws->cur_msg->queue);
+ 
+ 	/* Initial message state*/
+ 	dws->cur_msg->state = START_STATE;
+@@ -580,8 +624,9 @@ static void pump_messages(struct work_struct *work)
+ 	/* Mark as busy and launch transfers */
+ 	tasklet_schedule(&dws->pump_transfers);
+ 
+-	dws->busy = 1;
++exit:
+ 	spin_unlock_irqrestore(&dws->lock, flags);
++	pm_runtime_put_sync(dws->parent_dev);
+ }
+ 
+ /* spi_device use this to queue in their spi_msg */
+@@ -592,29 +637,13 @@ static int dw_spi_transfer(struct spi_device *spi, struct spi_message *msg)
+ 
+ 	spin_lock_irqsave(&dws->lock, flags);
+ 
+-	if (dws->run == QUEUE_STOPPED) {
+-		spin_unlock_irqrestore(&dws->lock, flags);
+-		return -ESHUTDOWN;
+-	}
+-
+ 	msg->actual_length = 0;
+ 	msg->status = -EINPROGRESS;
+ 	msg->state = START_STATE;
+ 
+ 	list_add_tail(&msg->queue, &dws->queue);
+ 
+-	if (dws->run == QUEUE_RUNNING && !dws->busy) {
+-
+-		if (dws->cur_transfer || dws->cur_msg)
+-			queue_work(dws->workqueue,
+-					&dws->pump_messages);
+-		else {
+-			/* If no other data transaction in air, just go */
+-			spin_unlock_irqrestore(&dws->lock, flags);
+-			pump_messages(&dws->pump_messages);
+-			return 0;
+-		}
+-	}
++	queue_work(dws->workqueue, &dws->pump_messages);
+ 
+ 	spin_unlock_irqrestore(&dws->lock, flags);
+ 	return 0;
+@@ -692,13 +721,12 @@ static void dw_spi_cleanup(struct spi_device *spi)
+ 	kfree(chip);
+ }
+ 
+-static int init_queue(struct dw_spi *dws)
++static int dw_spi_init_queue(struct dw_spi *dws)
+ {
+ 	INIT_LIST_HEAD(&dws->queue);
+ 	spin_lock_init(&dws->lock);
+ 
+ 	dws->run = QUEUE_STOPPED;
+-	dws->busy = 0;
+ 
+ 	tasklet_init(&dws->pump_transfers,
+ 			pump_transfers,	(unsigned long)dws);
+@@ -712,13 +740,13 @@ static int init_queue(struct dw_spi *dws)
+ 	return 0;
+ }
+ 
+-static int start_queue(struct dw_spi *dws)
++static int dw_spi_start_queue(struct dw_spi *dws)
+ {
+ 	unsigned long flags;
+ 
+ 	spin_lock_irqsave(&dws->lock, flags);
+ 
+-	if (dws->run == QUEUE_RUNNING || dws->busy) {
++	if (dws->run == QUEUE_RUNNING) {
+ 		spin_unlock_irqrestore(&dws->lock, flags);
+ 		return -EBUSY;
+ 	}
+@@ -735,32 +763,27 @@ static int start_queue(struct dw_spi *dws)
+ 	return 0;
+ }
+ 
+-static int stop_queue(struct dw_spi *dws)
++int dw_spi_stop_queue(struct dw_spi *dws)
+ {
+ 	unsigned long flags;
+-	unsigned limit = 50;
+ 	int status = 0;
+ 
+ 	spin_lock_irqsave(&dws->lock, flags);
+-	dws->run = QUEUE_STOPPED;
+-	while ((!list_empty(&dws->queue) || dws->busy) && limit--) {
+-		spin_unlock_irqrestore(&dws->lock, flags);
+-		msleep(10);
+-		spin_lock_irqsave(&dws->lock, flags);
+-	}
+-
+-	if (!list_empty(&dws->queue) || dws->busy)
++	if (!list_empty(&dws->queue))
+ 		status = -EBUSY;
++	else
++		dws->run = QUEUE_STOPPED;
+ 	spin_unlock_irqrestore(&dws->lock, flags);
+ 
+ 	return status;
+ }
++EXPORT_SYMBOL_GPL(dw_spi_stop_queue);
+ 
+-static int destroy_queue(struct dw_spi *dws)
++static int dw_spi_destroy_queue(struct dw_spi *dws)
+ {
+ 	int status;
+ 
+-	status = stop_queue(dws);
++	status = dw_spi_stop_queue(dws);
+ 	if (status != 0)
+ 		return status;
+ 	destroy_workqueue(dws->workqueue);
+@@ -768,11 +791,10 @@ static int destroy_queue(struct dw_spi *dws)
+ }
+ 
+ /* Restart the controller, disable all interrupts, clean rx fifo */
+-static void spi_hw_init(struct dw_spi *dws)
++static void dw_spi_hw_init(struct dw_spi *dws)
+ {
+ 	spi_enable_chip(dws, 0);
+ 	spi_mask_intr(dws, 0xff);
+-	spi_enable_chip(dws, 1);
+ 
+ 	/*
+ 	 * Try to detect the FIFO depth if not set by interface driver,
+@@ -789,6 +811,8 @@ static void spi_hw_init(struct dw_spi *dws)
+ 		dws->fifo_len = (fifo == 257) ? 0 : fifo;
+ 		dw_writew(dws, DW_SPI_TXFLTR, 0);
+ 	}
++
++	spi_enable_chip(dws, 1);
+ }
+ 
+ int dw_spi_add_host(struct dw_spi *dws)
+@@ -827,7 +851,7 @@ int dw_spi_add_host(struct dw_spi *dws)
+ 	master->transfer = dw_spi_transfer;
+ 
+ 	/* Basic HW init */
+-	spi_hw_init(dws);
++	dw_spi_hw_init(dws);
+ 
+ 	if (dws->dma_ops && dws->dma_ops->dma_init) {
+ 		ret = dws->dma_ops->dma_init(dws);
+@@ -838,12 +862,12 @@ int dw_spi_add_host(struct dw_spi *dws)
+ 	}
+ 
+ 	/* Initial and start queue */
+-	ret = init_queue(dws);
++	ret = dw_spi_init_queue(dws);
+ 	if (ret) {
+ 		dev_err(&master->dev, "problem initializing queue\n");
+ 		goto err_diable_hw;
+ 	}
+-	ret = start_queue(dws);
++	ret = dw_spi_start_queue(dws);
+ 	if (ret) {
+ 		dev_err(&master->dev, "problem starting queue\n");
+ 		goto err_diable_hw;
+@@ -860,7 +884,7 @@ int dw_spi_add_host(struct dw_spi *dws)
+ 	return 0;
+ 
+ err_queue_alloc:
+-	destroy_queue(dws);
++	dw_spi_destroy_queue(dws);
+ 	if (dws->dma_ops && dws->dma_ops->dma_exit)
+ 		dws->dma_ops->dma_exit(dws);
+ err_diable_hw:
+@@ -882,7 +906,7 @@ void dw_spi_remove_host(struct dw_spi *dws)
+ 	mrst_spi_debugfs_remove(dws);
+ 
+ 	/* Remove the queue */
+-	status = destroy_queue(dws);
++	status = dw_spi_destroy_queue(dws);
+ 	if (status != 0)
+ 		dev_err(&dws->master->dev, "dw_spi_remove: workqueue will not "
+ 			"complete, message memory not freed\n");
+@@ -903,7 +927,7 @@ int dw_spi_suspend_host(struct dw_spi *dws)
+ {
+ 	int ret = 0;
+ 
+-	ret = stop_queue(dws);
++	ret = dw_spi_stop_queue(dws);
+ 	if (ret)
+ 		return ret;
+ 	spi_enable_chip(dws, 0);
+@@ -916,8 +940,8 @@ int dw_spi_resume_host(struct dw_spi *dws)
+ {
+ 	int ret;
+ 
+-	spi_hw_init(dws);
+-	ret = start_queue(dws);
++	dw_spi_hw_init(dws);
++	ret = dw_spi_start_queue(dws);
+ 	if (ret)
+ 		dev_err(&dws->master->dev, "fail to start queue (%d)\n", ret);
+ 	return ret;
+diff --git a/drivers/spi/spi-dw.h b/drivers/spi/spi-dw.h
+index 9c57c078031e..e1e93ebfff5b 100644
+--- a/drivers/spi/spi-dw.h
++++ b/drivers/spi/spi-dw.h
+@@ -111,7 +111,6 @@ struct dw_spi {
+ 	struct work_struct	pump_messages;
+ 	spinlock_t		lock;
+ 	struct list_head	queue;
+-	int			busy;
+ 	int			run;
+ 
+ 	/* Message Transfer pump */
+@@ -236,7 +235,9 @@ extern void dw_spi_remove_host(struct dw_spi *dws);
+ extern int dw_spi_suspend_host(struct dw_spi *dws);
+ extern int dw_spi_resume_host(struct dw_spi *dws);
+ extern void dw_spi_xfer_done(struct dw_spi *dws);
++extern int dw_spi_stop_queue(struct dw_spi *dws);
+ 
+ /* platform related setup */
+-extern int dw_spi_mid_init(struct dw_spi *dws); /* Intel MID platforms */
++/* Intel MID platforms */
++extern int dw_spi_mid_init(struct dw_spi *dws, int bus_num);
+ #endif /* DW_SPI_HEADER_H */
+-- 
+2.37.3
+

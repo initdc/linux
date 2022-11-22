@@ -1,0 +1,66 @@
+From a933209411efe7d37ae3f3736832f77c9e6d1daf Mon Sep 17 00:00:00 2001
+From: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+Date: Wed, 9 Oct 2013 22:47:25 +0530
+Subject: [PATCH 318/429] intel_idle: S0ix are not always the real C states of
+ CPU
+
+On some platforms S0ix are not the real C states enumerated
+by CPU and hence this check is not required anymore. Fix it.
+
+Also, since platforms like BYT are no longer intel-mid, but
+follows the same strategy, let's fix this platform as well.
+One can debate SOC_POWER can be enabled for BYT, but that
+config has a tight relation with PMU which BYT is no more
+interested in it. So, rather enabling ATOM_SOC_POWER for
+BYT, let's use the runtime checks which will help enabling
+the single binary support for all these patforms in future.
+
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+Signed-off-by: Vishwesh M Rudramuni <vishwesh.m.rudramuni@intel.com>
+---
+ drivers/idle/intel_idle.c | 22 ++++++++++++++--------
+ 1 file changed, 14 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/idle/intel_idle.c b/drivers/idle/intel_idle.c
+index c2605fbcad32..87200f4a0a48 100644
+--- a/drivers/idle/intel_idle.c
++++ b/drivers/idle/intel_idle.c
+@@ -920,10 +920,13 @@ static int intel_idle_cpuidle_driver_init(void)
+ 		num_substates = (mwait_substates >> ((mwait_cstate + 1) * 4))
+ 					& MWAIT_SUBSTATE_MASK;
+ 
+-		/* if sub-state in table is not enumerated by CPUID */
+-		if ((mwait_substate + 1) > num_substates)
+-			continue;
+-
++#if !defined(CONFIG_ATOM_SOC_POWER)
++		if (boot_cpu_data.x86_model != 0x37) {
++			/* if sub-state in table is not enumerated by CPUID */
++			if ((mwait_substate + 1) > num_substates)
++				continue;
++		}
++#endif
+ 		if (((mwait_cstate + 1) > 2) &&
+ 			!boot_cpu_has(X86_FEATURE_NONSTOP_TSC))
+ 			mark_tsc_unstable("TSC halts in idle"
+@@ -978,10 +981,13 @@ static int intel_idle_cpu_init(int cpu)
+ 		num_substates = (mwait_substates >> ((mwait_cstate + 1) * 4))
+ 					& MWAIT_SUBSTATE_MASK;
+ 
+-		/* if sub-state in table is not enumerated by CPUID */
+-		if ((mwait_substate + 1) > num_substates)
+-			continue;
+-
++#if !defined(CONFIG_ATOM_SOC_POWER)
++		if (boot_cpu_data.x86_model != 0x37) {
++			/* if sub-state in table is not enumerated by CPUID */
++			if ((mwait_substate + 1) > num_substates)
++				continue;
++		}
++#endif
+ 		dev->state_count += 1;
+ 	}
+ 
+-- 
+2.37.3
+

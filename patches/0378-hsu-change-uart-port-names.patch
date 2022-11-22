@@ -1,0 +1,77 @@
+From 6c8ff4707bdda029db72bb94098d5ea83121dfaa Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Wed, 29 Oct 2014 15:34:30 +0100
+Subject: [PATCH 378/429] hsu: change uart port names
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+As these ports may be used for generic application, we
+change their names to be generic.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/platform_hsu.c | 8 ++++----
+ arch/x86/platform/intel-mid/device_libs/platform_hsu.h | 6 +++---
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index 293793e6ff8e..f1e3d29cf8b9 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -51,7 +51,7 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
+ 			},
+ 			[hsu_port1] = {
+ 				.id = 1,
+-				.name = HSU_GPS_PORT,
++				.name = HSU_UART1_PORT,
+ 				.wake_gpio = 130,
+ 				.rx_gpio = 130,
+ 				.rx_alt = 1,
+@@ -64,7 +64,7 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
+ 			},
+ 			[hsu_port2] = {
+ 				.id = 2,
+-				.name = HSU_DEBUG_PORT,
++				.name = HSU_UART2_PORT,
+ 				.wake_gpio = 134,
+ 				.rx_gpio = 134,
+ 				.rx_alt = 1,
+@@ -98,7 +98,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 			.type = gps_port,
+ 			.hw_ip = hsu_intel,
+ 			.index = 1,
+-			.name = HSU_GPS_PORT,
++			.name = HSU_UART1_PORT,
+ 			.idle = 30,
+ 			.preamble = 1,
+ 			.hw_init = intel_mid_hsu_init,
+@@ -114,7 +114,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 			.type = debug_port,
+ 			.hw_ip = hsu_intel,
+ 			.index = 2,
+-			.name = HSU_DEBUG_PORT,
++			.name = HSU_UART2_PORT,
+ 			.idle = 5000,
+ 			.hw_init = intel_mid_hsu_init,
+ 			.hw_set_alt = intel_mid_hsu_switch,
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.h b/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
+index 1a0182ca5e37..7bc6eafde25f 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
+@@ -13,9 +13,9 @@
+ #define _PLATFORM_HSU_H_
+ 
+ #define HSU_BT_PORT "hsu_bt_port"
+-#define HSU_MODEM_PORT "hsu_modem_port"
+-#define HSU_GPS_PORT "hsu_gps_port"
+-#define HSU_DEBUG_PORT "hsu_debug_port"
++#define HSU_UART0_PORT "hsu_uart0_port"
++#define HSU_UART1_PORT "hsu_uart1_port"
++#define HSU_UART2_PORT "hsu_uart2_port"
+ 
+ enum hsu_core {
+ 	hsu_pnw,
+-- 
+2.37.3
+

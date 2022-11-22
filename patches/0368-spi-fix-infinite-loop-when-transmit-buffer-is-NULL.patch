@@ -1,0 +1,63 @@
+From 154b44e81e2f89570940ab5fa8426e40af9272fa Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Wed, 17 Sep 2014 16:32:05 +0200
+Subject: [PATCH 368/429] spi: fix infinite loop when transmit buffer is NULL
+
+tx_buff == null means the user wants to read the spi device without sending
+specific data. In this case, spi driver have to write zeros through the bus in
+order to get datas from the device.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/spi/intel_mid_ssp_spi.c | 33 ++++++++++++++++-----------------
+ 1 file changed, 16 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index 70aa59ec17ea..e5e4aee19442 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -813,25 +813,24 @@ static void poll_transfer(unsigned long data)
+ 		delay = true;
+ 	}
+ 
+-	if (sspc->tx)
+-		while (sspc->tx != sspc->tx_end) {
+-			/* [REVERT ME] Tangier simulator requires a delay */
+-			if (delay)
+-				udelay(10);
+-			if (ssp_timing_wr) {
+-				int timeout = 100;
+-				/* It is used as debug UART on Tangier. Since
+-				   baud rate = 115200, it needs at least 312us
+-				   for one word transferring. Becuase of silicon
+-				   issue, it MUST check SFIFOL here instead of
+-				   TNF. It is the workaround for A0 stepping*/
+-				while (--timeout &&
++	while (sspc->tx < sspc->tx_end) {
++		/* [REVERT ME] Tangier simulator requires a delay */
++		if (delay)
++			udelay(10);
++		if (ssp_timing_wr) {
++			int timeout = 100;
++			/* It is used as debug UART on Tangier. Since
++			   baud rate = 115200, it needs at least 312us
++			   for one word transferring. Becuase of silicon
++			   issue, it MUST check SFIFOL here instead of
++			   TNF. It is the workaround for A0 stepping*/
++			while (--timeout &&
+ 					((read_SFIFOL(sspc->ioaddr)) & 0xFFFF))
+-					udelay(10);
+-			}
+-			sspc->write(sspc);
+-			sspc->read(sspc);
++				udelay(10);
+ 		}
++		sspc->write(sspc);
++		sspc->read(sspc);
++	}
+ 
+ 	while (!sspc->read(sspc))
+ 		cpu_relax();
+-- 
+2.37.3
+

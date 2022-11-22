@@ -1,0 +1,153 @@
+From bcc5d3986134574c7426f42cd1a1c16a2d292df1 Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Wed, 9 Oct 2013 11:59:14 +0530
+Subject: [PATCH 088/429] Thermal: Merrifield: Set the device name for adc
+ channels
+
+[Description of issue]
+Device name for basin cove gpadc drvier does not match with mapped adc
+channels. Also, this adc channel mapping iio_map present in iio adc driver code.
+
+[Implemented Solution]
+Set the device name in basin cove gpadc driver for mapping the adc
+channels to make it working on Merrifield platform for K3.10.
+Moving the adc channel mapping iio_map from driver to platform side.
+
+Category: aosp improvement
+Domain: Kernel.Thermal-Common
+Origin: Internal
+Upstream-Candidate: no
+
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ arch/x86/include/asm/intel_basincove_gpadc.h  |  1 +
+ .../device_libs/platform_bcove_adc.c          | 27 +++++++++++++++++++
+ drivers/iio/adc/iio_basincove_gpadc.c         | 27 +------------------
+ drivers/thermal/intel_mrfl_thermal.c          |  2 +-
+ 4 files changed, 30 insertions(+), 27 deletions(-)
+
+diff --git a/arch/x86/include/asm/intel_basincove_gpadc.h b/arch/x86/include/asm/intel_basincove_gpadc.h
+index d4083c57e73f..58bb1775d0da 100644
+--- a/arch/x86/include/asm/intel_basincove_gpadc.h
++++ b/arch/x86/include/asm/intel_basincove_gpadc.h
+@@ -24,6 +24,7 @@ struct iio_dev;
+ 
+ struct intel_basincove_gpadc_platform_data {
+ 	unsigned long intr;
++	struct iio_map *iio_maps;
+ };
+ 
+ struct gpadc_result {
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_bcove_adc.c b/arch/x86/platform/intel-mid/device_libs/platform_bcove_adc.c
+index 2f4261e72423..44c898a4f663 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_bcove_adc.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_bcove_adc.c
+@@ -12,6 +12,7 @@
+ #include <linux/kernel.h>
+ #include <linux/init.h>
+ #include <linux/sfi.h>
++#include <linux/iio/machine.h>
+ #include <asm/intel-mid.h>
+ #include <asm/intel_basincove_gpadc.h>
+ #include <asm/intel_mid_remoteproc.h>
+@@ -21,6 +22,31 @@
+ /* SRAM address where the GPADC interrupt register is cached */
+ #define GPADC_SRAM_INTR_ADDR	0xfffff615
+ 
++#define MSIC_ADC_MAP(_adc_channel_label,			\
++		     _consumer_dev_name,                        \
++		     _consumer_channel)                         \
++	{                                                       \
++		.adc_channel_label = _adc_channel_label,        \
++		.consumer_dev_name = _consumer_dev_name,        \
++		.consumer_channel = _consumer_channel,          \
++	}
++
++struct iio_map iio_maps[] = {
++	MSIC_ADC_MAP("CH0", "VIBAT", "VBAT"),
++	MSIC_ADC_MAP("CH1", "BATID", "BATID"),
++	MSIC_ADC_MAP("CH2", "VIBAT", "IBAT"),
++	MSIC_ADC_MAP("CH3", "PMICTEMP", "PMICTEMP"),
++	MSIC_ADC_MAP("CH4", "BATTEMP", "BATTEMP0"),
++	MSIC_ADC_MAP("CH5", "BATTEMP", "BATTEMP1"),
++	MSIC_ADC_MAP("CH6", "SYSTEMP", "SYSTEMP0"),
++	MSIC_ADC_MAP("CH7", "SYSTEMP", "SYSTEMP1"),
++	MSIC_ADC_MAP("CH8", "SYSTEMP", "SYSTEMP2"),
++	MSIC_ADC_MAP("CH6", "bcove_thrm", "SYSTEMP0"),
++	MSIC_ADC_MAP("CH7", "bcove_thrm", "SYSTEMP1"),
++	MSIC_ADC_MAP("CH8", "bcove_thrm", "SYSTEMP2"),
++	MSIC_ADC_MAP("CH3", "bcove_thrm", "PMICTEMP"),
++};
++
+ void __init *bcove_adc_platform_data(void *info)
+ {
+ 	struct platform_device *pdev = NULL;
+@@ -37,6 +63,7 @@ void __init *bcove_adc_platform_data(void *info)
+ 	}
+ 
+ 	bcove_adc_pdata.intr = GPADC_SRAM_INTR_ADDR;
++	bcove_adc_pdata.iio_maps = iio_maps;
+ 
+ 	pdev->dev.platform_data = &bcove_adc_pdata;
+ 
+diff --git a/drivers/iio/adc/iio_basincove_gpadc.c b/drivers/iio/adc/iio_basincove_gpadc.c
+index a399230c3db1..9821be0fb9b1 100644
+--- a/drivers/iio/adc/iio_basincove_gpadc.c
++++ b/drivers/iio/adc/iio_basincove_gpadc.c
+@@ -401,31 +401,6 @@ static const struct iio_info basincove_adc_info = {
+ 	.driver_module = THIS_MODULE,
+ };
+ 
+-#define MSIC_ADC_MAP(_adc_channel_label,			\
+-		     _consumer_dev_name,			\
+-		     _consumer_channel)				\
+-	{							\
+-		.adc_channel_label = _adc_channel_label,	\
+-		.consumer_dev_name = _consumer_dev_name,	\
+-		.consumer_channel = _consumer_channel,		\
+-	}
+-
+-struct iio_map iio_maps[] = {
+-	MSIC_ADC_MAP("CH0", "VIBAT", "VBAT"),
+-	MSIC_ADC_MAP("CH1", "BATID", "BATID"),
+-	MSIC_ADC_MAP("CH2", "VIBAT", "IBAT"),
+-	MSIC_ADC_MAP("CH3", "PMICTEMP", "PMICTEMP"),
+-	MSIC_ADC_MAP("CH4", "BATTEMP", "BATTEMP0"),
+-	MSIC_ADC_MAP("CH5", "BATTEMP", "BATTEMP1"),
+-	MSIC_ADC_MAP("CH6", "SYSTEMP", "SYSTEMP0"),
+-	MSIC_ADC_MAP("CH7", "SYSTEMP", "SYSTEMP1"),
+-	MSIC_ADC_MAP("CH8", "SYSTEMP", "SYSTEMP2"),
+-	MSIC_ADC_MAP("CH6", "THERMAL", "SYSTEMP0"),
+-	MSIC_ADC_MAP("CH7", "THERMAL", "SYSTEMP1"),
+-	MSIC_ADC_MAP("CH8", "THERMAL", "SYSTEMP2"),
+-	MSIC_ADC_MAP("CH3", "THERMAL", "PMICTEMP"),
+-};
+-
+ static int bcove_gpadc_probe(struct platform_device *pdev)
+ {
+ 	int err;
+@@ -478,7 +453,7 @@ static int bcove_gpadc_probe(struct platform_device *pdev)
+ 	indio_dev->info = &basincove_adc_info;
+ 	indio_dev->modes = INDIO_DIRECT_MODE;
+ 
+-	err = iio_map_array_register(indio_dev, iio_maps);
++	err = iio_map_array_register(indio_dev, pdata->iio_maps);
+ 	if (err)
+ 		goto err_release_irq;
+ 
+diff --git a/drivers/thermal/intel_mrfl_thermal.c b/drivers/thermal/intel_mrfl_thermal.c
+index af2a5a1441d4..eaf2af4b32b9 100644
+--- a/drivers/thermal/intel_mrfl_thermal.c
++++ b/drivers/thermal/intel_mrfl_thermal.c
+@@ -699,7 +699,7 @@ static int mrfl_thermal_probe(struct platform_device *pdev)
+ 	 * Order of the channels obtained from adc:
+ 	 * "SYSTHERM0", "SYSTHERM1", "SYSTHERM2", "PMICDIE"
+ 	 */
+-	tdata->iio_chan = iio_channel_get_all(dev);
++	tdata->iio_chan = iio_channel_get_all(&pdev->dev);
+ 	if (tdata->iio_chan == NULL) {
+ 		dev_err(&pdev->dev, "tdata->iio_chan is null\n");
+ 		ret = -EINVAL;
+-- 
+2.37.3
+

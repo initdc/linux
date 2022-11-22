@@ -1,0 +1,34 @@
+From 8cb35ccb8b029f31162b1976276bfdd305e7dcf8 Mon Sep 17 00:00:00 2001
+From: zhoushix <shimingx.zhou@intel.com>
+Date: Wed, 18 Mar 2015 16:03:57 +0800
+Subject: [PATCH 405/429] nfs: enable nfs server in kernel
+
+By default, nfs-server is disabled in kernel. You need
+to enable this feature if you want to provide nfsd
+daemon service.
+
+Signed-off-by: zhoushix <shimingx.zhou@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 02cd5fe5b256..d186936bc366 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -3400,7 +3400,11 @@ CONFIG_NFS_V4=y
+ # CONFIG_NFS_V4_1 is not set
+ # CONFIG_NFS_USE_LEGACY_DNS is not set
+ CONFIG_NFS_USE_KERNEL_DNS=y
+-# CONFIG_NFSD is not set
++CONFIG_NFSD=y
++CONFIG_NFSD_V2_ACL=y
++CONFIG_NFSD_V3=y
++CONFIG_NFSD_V3_ACL=y
++# CONFIG_NFSD_V4 is not set
+ CONFIG_LOCKD=y
+ CONFIG_LOCKD_V4=y
+ CONFIG_NFS_ACL_SUPPORT=y
+-- 
+2.37.3
+

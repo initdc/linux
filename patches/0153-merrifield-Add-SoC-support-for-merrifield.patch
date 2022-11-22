@@ -1,0 +1,344 @@
+From e5c275a264a97354fd27facf2c2ef5cd3754fa4f Mon Sep 17 00:00:00 2001
+From: Fei Yang <fei.yang@intel.com>
+Date: Thu, 17 Jan 2013 11:30:06 -0800
+Subject: [PATCH 153/429] merrifield: Add SoC support for merrifield
+
+This is the initial commit for 3.9 kernel to add minimal support
+for merrifield SoC. patch creates mrfl.c for merrifield, also remove
+compile time dependecies in SOC layer. For single binary kernel, we
+need to support multiple SOC's in the same image. But, our current
+SOC design does not allow us to compile more than one SOC. This patch
+fixes that problem.
+
+Signed-off-by: Fei Yang <fei.yang@intel.com>
+---
+ arch/x86/include/asm/fixmap.h                 |  1 +
+ arch/x86/include/asm/intel-mid.h              | 19 +++-
+ arch/x86/pci/mrst.c                           |  6 +-
+ arch/x86/platform/intel-mid/Makefile          |  1 -
+ arch/x86/platform/intel-mid/intel-mid.c       | 36 ++++++-
+ arch/x86/platform/intel-mid/intel_mid_sfi.c   | 33 ++++++-
+ .../platform/intel-mid/intel_mid_weak_decls.h |  9 +-
+ arch/x86/platform/intel-mid/mfld.c            | 94 +++++++++++++++++++
+ 8 files changed, 185 insertions(+), 14 deletions(-)
+ create mode 100644 arch/x86/platform/intel-mid/mfld.c
+
+diff --git a/arch/x86/include/asm/fixmap.h b/arch/x86/include/asm/fixmap.h
+index 9d7d36c82fc2..fcc715eb351c 100644
+--- a/arch/x86/include/asm/fixmap.h
++++ b/arch/x86/include/asm/fixmap.h
+@@ -119,6 +119,7 @@ enum fixed_addresses {
+ 	FIX_TEXT_POKE0, /* first page is last, because allocation is backward */
+ #ifdef	CONFIG_X86_INTEL_MID
+ 	FIX_LNW_VRTC,
++	FIX_CLOCK_CTL,
+ #endif
+ 	__end_of_permanent_fixed_addresses,
+ 
+diff --git a/arch/x86/include/asm/intel-mid.h b/arch/x86/include/asm/intel-mid.h
+index 6102fafb1214..4737938d9af6 100644
+--- a/arch/x86/include/asm/intel-mid.h
++++ b/arch/x86/include/asm/intel-mid.h
+@@ -104,6 +104,8 @@ enum intel_mid_cpu_type {
+ 	/* 1 was Moorestown */
+ 	INTEL_MID_CPU_CHIP_PENWELL = 2,
+ 	INTEL_MID_CPU_CHIP_CLOVERVIEW,
++	INTEL_MID_CPU_CHIP_TANGIER,
++	INTEL_MID_CPU_CHIP_ANNIEDALE,
+ };
+ 
+ extern enum intel_mid_cpu_type __intel_mid_cpu_chip;
+@@ -168,8 +170,21 @@ static struct kobj_attribute _name##_attr = { \
+  * Penwell uses spread spectrum clock, so the freq number is not exactly
+  * the same as reported by MSR based on SDM.
+  */
+-#define PENWELL_FSB_FREQ_83SKU         83200
+-#define PENWELL_FSB_FREQ_100SKU        99840
++#define FSB_FREQ_83SKU	83200
++#define FSB_FREQ_100SKU	99840
++#define FSB_FREQ_133SKU	133000
++
++#define FSB_FREQ_167SKU	167000
++#define FSB_FREQ_200SKU	200000
++#define FSB_FREQ_267SKU	267000
++#define FSB_FREQ_333SKU	333000
++#define FSB_FREQ_400SKU	400000
++
++/* Bus Select SoC Fuse value */
++#define BSEL_SOC_FUSE_MASK	0x7
++#define BSEL_SOC_FUSE_001	0x1 /* FSB 133MHz */
++#define BSEL_SOC_FUSE_101	0x5 /* FSB 100MHz */
++#define BSEL_SOC_FUSE_111	0x7 /* FSB 83MHz */
+ 
+ #define SFI_MTMR_MAX_NUM 8
+ #define SFI_MRTC_MAX	8
+diff --git a/arch/x86/pci/mrst.c b/arch/x86/pci/mrst.c
+index 741642258ff1..c387ebbd28ed 100644
+--- a/arch/x86/pci/mrst.c
++++ b/arch/x86/pci/mrst.c
+@@ -31,6 +31,7 @@
+ #include <asm/pci_x86.h>
+ #include <asm/hw_irq.h>
+ #include <asm/io_apic.h>
++#include <asm/intel-mid.h>
+ 
+ #define PCIE_CAP_OFFSET	0x100
+ 
+@@ -218,7 +219,10 @@ static int mrst_pci_irq_enable(struct pci_dev *dev)
+ 		return -1;
+ 	irq_attr.ioapic_pin = dev->irq;
+ 	irq_attr.trigger = 1; /* level */
+-	irq_attr.polarity = 1; /* active low */
++	if (intel_mid_identify_cpu() == INTEL_MID_CPU_CHIP_TANGIER)
++		irq_attr.polarity = 0; /* active high */
++	else
++		irq_attr.polarity = 1; /* active low */
+ 	io_apic_set_pci_routing(&dev->dev, dev->irq, &irq_attr);
+ 
+ 	return 0;
+diff --git a/arch/x86/platform/intel-mid/Makefile b/arch/x86/platform/intel-mid/Makefile
+index a110678cd34a..0584d0cb6892 100644
+--- a/arch/x86/platform/intel-mid/Makefile
++++ b/arch/x86/platform/intel-mid/Makefile
+@@ -13,7 +13,6 @@ obj-$(CONFIG_X86_INTEL_MID) += mfld.o mrfl.o
+ obj-$(CONFIG_X86_WANT_INTEL_MID) += vlv2.o intel_mid_pcihelpers.o
+ obj-$(CONFIG_X86_INTEL_MID) += intel_mid_scu.o
+ 
+->>>>>>> 6a9f567... intel_mid: Added intel mid scu remoteproc init code.
+ # BOARD files
+ obj-$(CONFIG_X86_INTEL_MID) += board.o
+ 
+diff --git a/arch/x86/platform/intel-mid/intel-mid.c b/arch/x86/platform/intel-mid/intel-mid.c
+index 8a4a70017d47..210913911af9 100644
+--- a/arch/x86/platform/intel-mid/intel-mid.c
++++ b/arch/x86/platform/intel-mid/intel-mid.c
+@@ -60,6 +60,10 @@
+  */
+ __cpuinitdata enum intel_mid_timer_options intel_mid_timer_options;
+ 
++/* intel_mid_ops to store sub arch ops */
++struct intel_mid_ops *intel_mid_ops;
++/* getter function for sub arch ops*/
++static void *(*get_intel_mid_ops[])(void) = INTEL_MID_OPS_INIT;
+ enum intel_mid_cpu_type __intel_mid_cpu_chip;
+ EXPORT_SYMBOL_GPL(__intel_mid_cpu_chip);
+ 
+@@ -74,6 +78,10 @@ static void intel_mid_power_off(void)
+ 	pmu_power_off();
+ };
+ 
++static void intel_mid_power_off(void)
++{
++};
++
+ static void intel_mid_reboot(void)
+ {
+ 	if (intel_scu_ipc_fw_update()) {
+@@ -90,6 +98,11 @@ static unsigned long __init intel_mid_calibrate_tsc(void)
+ 	return 0;
+ }
+ 
++static unsigned long __init intel_mid_calibrate_tsc(void)
++{
++	return 0;
++}
++
+ static void __init intel_mid_time_init(void)
+ {
+ 
+@@ -121,11 +134,28 @@ static void __cpuinit intel_mid_arch_setup(void)
+ 		__intel_mid_cpu_chip = INTEL_MID_CPU_CHIP_PENWELL;
+ 	else if (boot_cpu_data.x86 == 6 && boot_cpu_data.x86_model == 0x35)
+ 		__intel_mid_cpu_chip = INTEL_MID_CPU_CHIP_CLOVERVIEW;
+-	else {
+-		pr_err("Unknown Intel MID CPU (%d:%d), default to Penwell\n",
+-			boot_cpu_data.x86, boot_cpu_data.x86_model);
++		break;
++	case 0x3C:
++	case 0x4A:
++		__intel_mid_cpu_chip = INTEL_MID_CPU_CHIP_TANGIER;
++		break;
++	case 0x5A:
++		__intel_mid_cpu_chip = INTEL_MID_CPU_CHIP_ANNIEDALE;
++		break;
++	case 0x27:
++	default:
+ 		__intel_mid_cpu_chip = INTEL_MID_CPU_CHIP_PENWELL;
+ 	}
++
++	if (__intel_mid_cpu_chip < MAX_CPU_OPS(get_intel_mid_ops))
++		intel_mid_ops = get_intel_mid_ops[__intel_mid_cpu_chip]();
++	else {
++		intel_mid_ops = get_intel_mid_ops[INTEL_MID_CPU_CHIP_PENWELL]();
++		pr_info("ARCH: Uknown SoC, assuming PENWELL!\n");
++	}
++
++	if (intel_mid_ops->arch_setup)
++		intel_mid_ops->arch_setup();
+ }
+ 
+ /* MID systems don't have i8042 controller */
+diff --git a/arch/x86/platform/intel-mid/intel_mid_sfi.c b/arch/x86/platform/intel-mid/intel_mid_sfi.c
+index fad58df0ddd1..d34b21062a27 100644
+--- a/arch/x86/platform/intel-mid/intel_mid_sfi.c
++++ b/arch/x86/platform/intel-mid/intel_mid_sfi.c
+@@ -463,11 +463,34 @@ static int __init sfi_parse_devs(struct sfi_table_header *table)
+ 			 * so we have to enable them one by one here
+ 			 */
+ 			ioapic = mp_find_ioapic(irq);
+-			irq_attr.ioapic = ioapic;
+-			irq_attr.ioapic_pin = irq;
+-			irq_attr.trigger = 1;
+-			irq_attr.polarity = 1;
+-			io_apic_set_pci_routing(NULL, irq, &irq_attr);
++			if (ioapic >= 0) {
++				irq_attr.ioapic = ioapic;
++				irq_attr.ioapic_pin = irq;
++				irq_attr.trigger = 1;
++				if (intel_mid_identify_cpu() ==
++						INTEL_MID_CPU_CHIP_TANGIER) {
++					if (!strncmp(pentry->name,
++							"r69001-ts-i2c", 13))
++						/* active low */
++						irq_attr.polarity = 1;
++					else if (!strncmp(pentry->name,
++							"synaptics_3202", 14))
++						/* active low */
++						irq_attr.polarity = 1;
++					else if (irq == 41)
++						/* fast_int_1 */
++						irq_attr.polarity = 1;
++					else
++						/* active high */
++						irq_attr.polarity = 0;
++				} else {
++					/* PNW and CLV go with active low */
++					irq_attr.polarity = 1;
++				}
++				io_apic_set_pci_routing(NULL, irq, &irq_attr);
++			} else
++				printk(KERN_INFO "APIC entry not found for: name=%s, irq=%d, ioapic=%d\n",
++					pentry->name, irq, ioapic);
+ 		}
+ 		dev = get_device_id(pentry->type, pentry->name);
+ 
+diff --git a/arch/x86/platform/intel-mid/intel_mid_weak_decls.h b/arch/x86/platform/intel-mid/intel_mid_weak_decls.h
+index abff38ee240d..015bf42f516e 100644
+--- a/arch/x86/platform/intel-mid/intel_mid_weak_decls.h
++++ b/arch/x86/platform/intel-mid/intel_mid_weak_decls.h
+@@ -13,5 +13,10 @@
+ 
+ /* __attribute__((weak)) makes these declarations overridable */
+ extern struct devs_id __initconst device_ids[] __attribute__((weak));
+-extern void intel_mid_power_off(void) __attribute__((weak));
+-extern unsigned long __init intel_mid_calibrate_tsc(void) __attribute__((weak));
++/* For every CPU addition a new get_<cpuname>_ops interface needs
++ * to be added.
++ */
++extern void * __init get_penwell_ops(void) __attribute__((weak));
++extern void * __init get_cloverview_ops(void) __attribute__((weak));
++extern void * __init get_tangier_ops(void) __attribute__((weak));
++extern void * __init get_anniedale_ops(void) __attribute__((weak));
+diff --git a/arch/x86/platform/intel-mid/mfld.c b/arch/x86/platform/intel-mid/mfld.c
+new file mode 100644
+index 000000000000..d0aa01068e00
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/mfld.c
+@@ -0,0 +1,94 @@
++/*
++ * mfld.c: Intel Medfield platform setup code
++ *
++ * (C) Copyright 2012 Intel Corporation
++ * Author:
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/interrupt.h>
++#include <linux/input.h>
++#include <linux/platform_device.h>
++#include <linux/mfd/intel_msic.h>
++#include <linux/irq.h>
++#include <linux/module.h>
++#include <linux/notifier.h>
++#include <linux/intel_pmic_gpio.h>
++#include <linux/gpio.h>
++#include <linux/gpio_keys.h>
++
++#include <asm/setup.h>
++#include <asm/mpspec_def.h>
++#include <asm/hw_irq.h>
++#include <asm/apic.h>
++#include <asm/io_apic.h>
++#include <asm/intel-mid.h>
++#include <asm/intel_mid_vrtc.h>
++#include <asm/io.h>
++#include <asm/i8259.h>
++#include <asm/intel_scu_ipc.h>
++#include <asm/apb_timer.h>
++#include <asm/reboot.h>
++
++static void penwell_arch_setup(void);
++/* penwell arch ops */
++static struct intel_mid_ops penwell_ops = {
++	.arch_setup = penwell_arch_setup,
++};
++
++static void mfld_power_off(void)
++{
++}
++
++static unsigned long __init mfld_calibrate_tsc(void)
++{
++	unsigned long fast_calibrate;
++	u32 lo, hi, ratio, fsb;
++
++	rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
++	pr_debug("IA32 perf status is 0x%x, 0x%0x\n", lo, hi);
++	ratio = (hi >> 8) & 0x1f;
++	pr_debug("ratio is %d\n", ratio);
++	if (!ratio) {
++		pr_err("read a zero ratio, should be incorrect!\n");
++		pr_err("force tsc ratio to 16 ...\n");
++		ratio = 16;
++	}
++	rdmsr(MSR_FSB_FREQ, lo, hi);
++	if ((lo & 0x7) == 0x7)
++		fsb = FSB_FREQ_83SKU;
++	else
++		fsb = FSB_FREQ_100SKU;
++	fast_calibrate = ratio * fsb;
++	pr_debug("read penwell tsc %lu khz\n", fast_calibrate);
++	lapic_timer_frequency = fsb * 1000 / HZ;
++	/* mark tsc clocksource as reliable */
++	set_cpu_cap(&boot_cpu_data, X86_FEATURE_TSC_RELIABLE);
++
++	if (fast_calibrate)
++		return fast_calibrate;
++
++	return 0;
++}
++
++static void penwell_arch_setup()
++{
++	x86_platform.calibrate_tsc = mfld_calibrate_tsc;
++	pm_power_off = mfld_power_off;
++}
++
++void *get_penwell_ops()
++{
++	return &penwell_ops;
++}
++
++void *get_cloverview_ops()
++{
++	return &penwell_ops;
++}
+-- 
+2.37.3
+

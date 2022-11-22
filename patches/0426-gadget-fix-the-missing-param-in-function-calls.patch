@@ -1,0 +1,29 @@
+From 11c5ce35d087c174b95a3ed4e69b57ee472ca576 Mon Sep 17 00:00:00 2001
+From: Zhenming Zhao <zhenmingx.zhao@intel.com>
+Date: Sat, 5 Mar 2016 13:37:31 +0800
+Subject: [PATCH 426/429] gadget: fix the missing param in function calls
+
+In updating linux to 3.10.98, the prototype of functions might change.
+Add this missing parameter.
+
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ drivers/usb/dwc3/gadget.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/gadget.c b/drivers/usb/dwc3/gadget.c
+index 5cf8e124f2e8..bd2585c62ee6 100644
+--- a/drivers/usb/dwc3/gadget.c
++++ b/drivers/usb/dwc3/gadget.c
+@@ -3630,7 +3630,7 @@ int dwc3_runtime_resume(struct device *device)
+ 			dwc3_writel(dwc->regs, DWC3_DALEPENA, reg);
+ 
+ 			if (dep->flags_backup & DWC3_EP_STALL)
+-				__dwc3_gadget_ep_set_halt(dep, 1);
++				__dwc3_gadget_ep_set_halt(dep, 1, false);
+ 
+ 			if (dep->flags_backup & DWC3_EP_BUSY) {
+ 				struct dwc3_request			*req;
+-- 
+2.37.3
+

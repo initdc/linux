@@ -1,0 +1,363 @@
+From 79609424e29214fc80f079d27d670536a4b29cdf Mon Sep 17 00:00:00 2001
+From: Wang Yiyang <yiyang.wang@intel.com>
+Date: Thu, 10 Oct 2013 10:05:24 +0800
+Subject: [PATCH 080/429] HSU:flexible code for different platforms
+
+flexible code for different platforms
+
+Signed-off-by: Wang Yiyang <yiyang.wang@intel.com>
+---
+ arch/x86/include/asm/intel_mid_hsu.h          |  14 +-
+ .../intel-mid/device_libs/platform_hsu.c      | 140 +++++++++++++++---
+ .../intel-mid/device_libs/platform_hsu.h      |   5 +
+ 3 files changed, 137 insertions(+), 22 deletions(-)
+
+diff --git a/arch/x86/include/asm/intel_mid_hsu.h b/arch/x86/include/asm/intel_mid_hsu.h
+index a48e873aed57..36b91fc12fc1 100644
+--- a/arch/x86/include/asm/intel_mid_hsu.h
++++ b/arch/x86/include/asm/intel_mid_hsu.h
+@@ -19,8 +19,14 @@ enum {
+ 	debug_port,
+ };
+ 
++enum {
++	hsu_intel,
++	hsu_dw,
++};
++
+ struct hsu_port_cfg {
+ 	int type;
++	int hw_ip;
+ 	int index;
+ 	char *name;
+ 	int idle;
+@@ -39,6 +45,9 @@ struct hsu_port_cfg {
+ 	void(*hw_resume)(int port, struct device *dev);
+ 	unsigned int (*hw_get_clk)(void);
+ 	void (*wake_peer)(struct device *tty);
++	void (*set_clk)(unsigned int m, unsigned int n,
++			void __iomem *addr);
++	void (*hw_reset)(void __iomem *addr);
+ };
+ 
+ 
+@@ -53,5 +62,8 @@ unsigned int intel_mid_hsu_get_clk(void);
+ int hsu_register_board_info(void *inf);
+ void intel_mid_hsu_suspend_post(int port);
+ struct device *intel_mid_hsu_set_wake_peer(int port,
+-	void (*wake_peer)(struct device *));
++			void (*wake_peer)(struct device *));
++void intel_mid_hsu_reset(void __iomem *addr);
++void intel_mid_hsu_set_clk(unsigned int m, unsigned int n,
++			void __iomem *addr);
+ #endif
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index b6a5d07852af..b4ea3d0884a1 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -26,6 +26,9 @@
+ #define TNG_CLOCK_CTL 0xFF00B830
+ #define TNG_CLOCK_SC  0xFF00B868
+ 
++#define VLV_HSU_CLOCK	0x0800
++#define VLV_HSU_RESET	0x0804
++
+ static unsigned int clock;
+ static struct hsu_port_pin_cfg *hsu_port_gpio_mux;
+ static struct hsu_port_cfg *platform_hsu_info;
+@@ -263,6 +266,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 	[hsu_pnw] = {
+ 		[hsu_port0] = {
+ 			.type = bt_port,
++			.hw_ip = hsu_intel,
+ 			.index = 0,
+ 			.name = HSU_BT_PORT,
+ 			.idle = 20,
+@@ -275,6 +279,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port1] = {
+ 			.type = modem_port,
++			.hw_ip = hsu_intel,
+ 			.index = 1,
+ 			.name = HSU_MODEM_PORT,
+ 			.idle = 100,
+@@ -290,6 +295,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port2] = {
+ 			.type = gps_port,
++			.hw_ip = hsu_intel,
+ 			.index = 2,
+ 			.name = HSU_GPS_PORT,
+ 			.idle = 30,
+@@ -304,6 +310,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port_share] = {
+ 			.type = debug_port,
++			.hw_ip = hsu_intel,
+ 			.index = 3,
+ 			.name = HSU_DEBUG_PORT,
+ 			.idle = 2000,
+@@ -320,6 +327,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 	[hsu_clv] = {
+ 		[hsu_port0] = {
+ 			.type = bt_port,
++			.hw_ip = hsu_intel,
+ 			.index = 0,
+ 			.name = HSU_BT_PORT,
+ 			.idle = 20,
+@@ -332,6 +340,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port1] = {
+ 			.type = modem_port,
++			.hw_ip = hsu_intel,
+ 			.index = 1,
+ 			.name = HSU_MODEM_PORT,
+ 			.idle = 100,
+@@ -347,6 +356,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port2] = {
+ 			.type = debug_port,
++			.hw_ip = hsu_intel,
+ 			.index = 2,
+ 			.name = HSU_DEBUG_PORT,
+ 			.idle = 2000,
+@@ -358,6 +368,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port_share] = {
+ 			.type = gps_port,
++			.hw_ip = hsu_intel,
+ 			.index = 3,
+ 			.name = HSU_GPS_PORT,
+ 			.idle = 30,
+@@ -377,6 +388,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 	[hsu_tng] = {
+ 		[hsu_port0] = {
+ 			.type = bt_port,
++			.hw_ip = hsu_intel,
+ 			.index = 0,
+ 			.name = HSU_BT_PORT,
+ 			.idle = 20,
+@@ -390,6 +402,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port1] = {
+ 			.type = gps_port,
++			.hw_ip = hsu_intel,
+ 			.index = 1,
+ 			.name = HSU_GPS_PORT,
+ 			.idle = 30,
+@@ -405,6 +418,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port2] = {
+ 			.type = debug_port,
++			.hw_ip = hsu_intel,
+ 			.index = 2,
+ 			.name = HSU_DEBUG_PORT,
+ 			.idle = 2000,
+@@ -419,9 +433,12 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 	[hsu_vlv2] = {
+ 		[hsu_port0] = {
+ 			.type = bt_port,
++			.hw_ip = hsu_dw,
+ 			.index = 0,
+ 			.name = HSU_BT_PORT,
+ 			.idle = 100,
++			.hw_reset = intel_mid_hsu_reset,
++			.set_clk = intel_mid_hsu_set_clk,
+ 			.hw_ctrl_cts = 1,
+ 			.hw_init = intel_mid_hsu_init,
+ 			/* Trust FW has set it correctly */
+@@ -433,10 +450,13 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 		},
+ 		[hsu_port1] = {
+ 			.type = gps_port,
++			.hw_ip = hsu_dw,
+ 			.index = 1,
+ 			.name = HSU_GPS_PORT,
+ 			.idle = 30,
+ 			.preamble = 1,
++			.hw_reset = intel_mid_hsu_reset,
++			.set_clk = intel_mid_hsu_set_clk,
+ 			.hw_ctrl_cts = 1,
+ 			.hw_init = intel_mid_hsu_init,
+ 			/* Trust FW has set it correctly */
+@@ -450,30 +470,78 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 
+ };
+ 
+-static int hsu_port_func_id_tlb[][hsu_port_func_max] = {
++static struct hsu_func2port hsu_port_func_id_tlb[][hsu_port_func_max] = {
+ 	[hsu_pnw] = {
+-		[0] = hsu_port0,
+-		[1] = hsu_port1,
+-		[2] = hsu_port2,
+-		[3] = -1,
++		[0] = {
++			.func = 0,
++			.port = hsu_port0,
++		},
++		[1] = {
++			.func = 1,
++			.port = hsu_port1,
++		},
++		[2] = {
++			.func = 2,
++			.port = hsu_port2,
++		},
++		[3] = {
++			.func = -1,
++			.port = -1,
++		},
+ 	},
+ 	[hsu_clv] = {
+-		[0] = hsu_port0,
+-		[1] = hsu_port1,
+-		[2] = hsu_port2,
+-		[3] = -1,
++		[0] = {
++			.func = 0,
++			.port = hsu_port0,
++		},
++		[1] = {
++			.func = 1,
++			.port = hsu_port1,
++		},
++		[2] = {
++			.func = 2,
++			.port = hsu_port2,
++		},
++		[3] = {
++			.func = -1,
++			.port = -1,
++		},
+ 	},
+ 	[hsu_tng] = {
+-		[0] = -1,
+-		[1] = hsu_port0,
+-		[2] = hsu_port1,
+-		[3] = hsu_port2,
++		[0] = {
++			.func = 0,
++			.port = -1,
++		},
++		[1] = {
++			.func = 1,
++			.port = hsu_port0,
++		},
++		[2] = {
++			.func = 2,
++			.port = hsu_port1,
++		},
++		[3] = {
++			.func = 3,
++			.port = hsu_port2,
++		},
+ 	},
+ 	[hsu_vlv2] = {
+-		[0] = hsu_port0,
+-		[1] = hsu_port1,
+-		[2] = -1,
+-		[3] = -1,
++		[0] = {
++			.func = 3,
++			.port = hsu_port0,
++		},
++		[1] = {
++			.func = 4,
++			.port = hsu_port1,
++		},
++		[2] = {
++			.func = -1,
++			.port = -1,
++		},
++		[3] = {
++			.func = -1,
++			.port = -1,
++		},
+ 	},
+ };
+ 
+@@ -608,6 +676,25 @@ void intel_mid_hsu_suspend_post(int port)
+ 	}
+ }
+ 
++void intel_mid_hsu_set_clk(unsigned int m, unsigned int n,
++				void __iomem *addr)
++{
++	unsigned int param, update_bit;
++
++	update_bit = 1 << 31;
++	param = (m << 1) | (n << 16) | 0x1;
++
++	writel(param, addr + VLV_HSU_CLOCK);
++	writel((param | update_bit), addr + VLV_HSU_CLOCK);
++	writel(param, addr + VLV_HSU_CLOCK);
++}
++
++void intel_mid_hsu_reset(void __iomem *addr)
++{
++	writel(0, addr + VLV_HSU_RESET);
++	writel(3, addr + VLV_HSU_RESET);
++}
++
+ unsigned int intel_mid_hsu_get_clk(void)
+ {
+ 	return clock;
+@@ -615,24 +702,35 @@ unsigned int intel_mid_hsu_get_clk(void)
+ 
+ int intel_mid_hsu_func_to_port(unsigned int func)
+ {
++	int i;
++	struct hsu_func2port *tbl = NULL;
+ 
+ 	switch (intel_mid_identify_cpu()) {
+ 	case INTEL_MID_CPU_CHIP_CLOVERVIEW:
+-		return hsu_port_func_id_tlb[hsu_clv][func];
++		tbl = &hsu_port_func_id_tlb[hsu_clv][0];
+ 		break;
+ 	case INTEL_MID_CPU_CHIP_TANGIER:
+-		return hsu_port_func_id_tlb[hsu_tng][func];
++	case INTEL_MID_CPU_CHIP_ANNIEDALE:
++		tbl = &hsu_port_func_id_tlb[hsu_tng][0];
+ 		break;
+ 
+ 	case INTEL_MID_CPU_CHIP_PENWELL:
+-		return hsu_port_func_id_tlb[hsu_pnw][func];
++		tbl = &hsu_port_func_id_tlb[hsu_pnw][0];
+ 		break;
+ 	default:
+ 		/* FIXME: VALLEYVIEW2? */
+ 		/* 1e.3 and 1e.4 */
+-		return hsu_port_func_id_tlb[hsu_vlv2][func-3];
++		tbl = &hsu_port_func_id_tlb[hsu_vlv2][0];
+ 		break;
+ 	}
++
++	for (i = 0; i < hsu_port_func_max; i++) {
++		if (tbl->func == func)
++			return tbl->port;
++		tbl++;
++	}
++
++	return -1;
+ }
+ 
+ int intel_mid_hsu_init(struct device *dev, int port)
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.h b/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
+index 992883500c09..1a0182ca5e37 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
+@@ -32,6 +32,11 @@ enum hsu_pid {
+ 	hsu_pid_max,
+ };
+ 
++struct hsu_func2port {
++	int func;
++	int port;
++};
++
+ struct hsu_port_pin_cfg {
+ 	char *name;
+ 	int id;
+-- 
+2.37.3
+

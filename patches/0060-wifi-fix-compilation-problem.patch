@@ -1,0 +1,34 @@
+From 62d51813b2317b94ea0366d9f24aef42f3b65d35 Mon Sep 17 00:00:00 2001
+From: David Cohen <david.a.cohen@intel.com>
+Date: Wed, 11 Sep 2013 15:48:12 -0700
+Subject: [PATCH 060/429] wifi: fix compilation problem
+
+Wifi platform code calls a symbol from SDHCI platform code. But this
+symbol is only compiled if CONFIG_MMC_SDHCI_PCI is selected:
+'sdhci_pdata_set_quirks'
+
+This patch adds #ifdef protection to avoid calling that symbol when it's
+not present.
+
+Signed-off-by: David Cohen <david.a.cohen@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/platform_wifi.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wifi.c b/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
+index c7e674737ae6..6ea011db9b01 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
+@@ -75,7 +75,9 @@ void __init *wifi_platform_data(void *info)
+ 	pr_err("Using WiFi platform data\n");
+ 
+ 	/* Set vendor specific SDIO quirks */
++#ifdef CONFIG_MMC_SDHCI_PCI
+ 	sdhci_pdata_set_quirks(sdhci_quirk);
++#endif
+ 
+ #ifndef CONFIG_ACPI
+ 	/* We are SFI here, register platform device */
+-- 
+2.37.3
+

@@ -1,0 +1,50 @@
+From d758f620813562e07e757bc529f19da94c6faa60 Mon Sep 17 00:00:00 2001
+From: Saadi Maalem <saadi.maalem@intel.com>
+Date: Fri, 29 Aug 2014 17:54:14 +0200
+Subject: [PATCH 361/429] usb: workaround the lockup when removing g_multi
+
+When doing rmmod g_multi without any USB cable connected,
+we get a softlockup.
+
+The kernel actually wait forever in the unbind for the gadget.
+Changing the wait_event() to wait_event_timeout() to avoid the lockup.
+
+Remaining issue: PMU error after the rmmod, because dwc3 driver does not
+answer. Before doing rmmod, the user space will need to do:
+echo on > /sys/devices/pci0000:00/0000:00:11.0/dwc3-device.1/power/control
+
+Signed-off-by: Saadi Maalem <saadi.maalem@intel.com>
+---
+ drivers/usb/gadget/f_mass_storage.c | 2 +-
+ drivers/usb/gadget/u_serial.c       | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/usb/gadget/f_mass_storage.c b/drivers/usb/gadget/f_mass_storage.c
+index c35a9ecc576b..1a847b7d1d9e 100644
+--- a/drivers/usb/gadget/f_mass_storage.c
++++ b/drivers/usb/gadget/f_mass_storage.c
+@@ -2871,7 +2871,7 @@ static void fsg_unbind(struct usb_configuration *c, struct usb_function *f)
+ 		fsg->common->new_fsg = NULL;
+ 		raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
+ 		/* FIXME: make interruptible or killable somehow? */
+-		wait_event(common->fsg_wait, common->fsg != fsg);
++		wait_event_timeout(common->fsg_wait, common->fsg != fsg, msecs_to_jiffies(1000));
+ 	}
+ 
+ 	fsg_common_put(common);
+diff --git a/drivers/usb/gadget/u_serial.c b/drivers/usb/gadget/u_serial.c
+index b369292d4b90..f0ab6cd73882 100644
+--- a/drivers/usb/gadget/u_serial.c
++++ b/drivers/usb/gadget/u_serial.c
+@@ -1075,7 +1075,7 @@ static void gserial_free_port(struct gs_port *port)
+ {
+ 	tasklet_kill(&port->push);
+ 	/* wait for old opens to finish */
+-	wait_event(port->port.close_wait, gs_closed(port));
++	wait_event_timeout(port->port.close_wait, gs_closed(port), msecs_to_jiffies(1000));
+ 	WARN_ON(port->port_usb != NULL);
+ 	tty_port_destroy(&port->port);
+ 	kfree(port);
+-- 
+2.37.3
+

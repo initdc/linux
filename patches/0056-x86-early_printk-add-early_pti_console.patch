@@ -1,0 +1,40 @@
+From 43caef78d771d548bd36724b4de798a96bab8f91 Mon Sep 17 00:00:00 2001
+From: Jeremy Rocher <jeremy.rocher@intel.com>
+Date: Tue, 10 Sep 2013 17:47:04 +0200
+Subject: [PATCH 056/429] x86, early_printk: add early_pti_console
+
+Signed-off-by: Jeremy Rocher <jeremy.rocher@intel.com>
+---
+ arch/x86/include/asm/intel-mid.h | 2 ++
+ arch/x86/kernel/early_printk.c   | 2 ++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/arch/x86/include/asm/intel-mid.h b/arch/x86/include/asm/intel-mid.h
+index ad968787f2cc..6102fafb1214 100644
+--- a/arch/x86/include/asm/intel-mid.h
++++ b/arch/x86/include/asm/intel-mid.h
+@@ -183,6 +183,8 @@ extern void mrfld_early_console_init(void);
+ extern struct console early_hsu_console;
+ extern void hsu_early_console_init(const char *);
+ 
++extern struct console early_pti_console;
++
+ extern void intel_scu_devices_create(void);
+ extern void intel_scu_devices_destroy(void);
+ 
+diff --git a/arch/x86/kernel/early_printk.c b/arch/x86/kernel/early_printk.c
+index aab335f5e619..0c115e81efe5 100644
+--- a/arch/x86/kernel/early_printk.c
++++ b/arch/x86/kernel/early_printk.c
+@@ -236,6 +236,8 @@ static int __init setup_early_printk(char *buf)
+ 			hsu_early_console_init(buf + 3);
+ 			early_console_register(&early_hsu_console, keep);
+ 		}
++		if (!strncmp(buf, "pti", 3))
++			early_console_register(&early_pti_console, keep);
+ #endif
+ 		buf++;
+ 	}
+-- 
+2.37.3
+

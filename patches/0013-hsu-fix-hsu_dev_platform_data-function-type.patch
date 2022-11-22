@@ -1,0 +1,49 @@
+From 73fc773262976633fbe53bc06f61849212de8abc Mon Sep 17 00:00:00 2001
+From: David Cohen <david.a.cohen@intel.com>
+Date: Tue, 18 Jun 2013 16:38:04 -0700
+Subject: [PATCH 013/429] hsu: fix hsu_dev_platform_data() function type
+
+Fix hsu_dev_platform_data to match function pointer arch_initcall()
+expects to.
+
+Signed-off-by: David Cohen <david.a.cohen@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/platform_hsu.c | 4 +++-
+ arch/x86/platform/intel-mid/device_libs/platform_hsu.h | 2 +-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index ac99074c56eb..91547fe0969c 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -365,7 +365,7 @@ int intel_mid_hsu_init(int port)
+ 	return 1;
+ }
+ 
+-void *hsu_dev_platform_data(void *data)
++int hsu_dev_platform_data(void)
+ {
+ 	switch (intel_mid_identify_cpu()) {
+ 	case INTEL_MID_CPU_CHIP_CLOVERVIEW:
+@@ -377,5 +377,7 @@ void *hsu_dev_platform_data(void *data)
+ 		hsu_register_board_info(&hsu_port_cfgs[hsu_pnw][0]);
+ 		break;
+ 	}
++
++	return 0;
+ }
+ arch_initcall(hsu_dev_platform_data);
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.h b/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
+index 145503762326..46648034a9f8 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.h
+@@ -39,5 +39,5 @@ struct hsu_port_pin_cfg {
+ 	irq_handler_t wake_isr;
+ };
+ 
+-extern void *hsu_dev_platform_data(void *data) __attribute__((weak));
++extern int hsu_dev_platform_data(void) __attribute__((weak));
+ #endif
+-- 
+2.37.3
+

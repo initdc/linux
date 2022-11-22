@@ -1,0 +1,54 @@
+From 5b6690e0edef706cd418de4a88a6eeb5c13e3c7e Mon Sep 17 00:00:00 2001
+From: "Liu, Chuansheng" <chuansheng.liu@intel.com>
+Date: Tue, 5 Nov 2013 11:07:51 +0800
+Subject: [PATCH 332/429] sdhci: Fixing the race which causes the mrq is
+ corrupted
+
+When sdhci_request() is called, when SDHCI_NEEDS_RETUNING is set for
+some hosts, the sdhci_execute_tuning() is possible to be called.
+
+And the below race will corrupt the orignal mrq:
+T1:                                            PENDING tasklet_finish:
+sdhci_request()
+ spin_lock_irqsave(&host->lock)
+   host->mrq = original_mrq
+ ...
+ [For executing the tuning, the spin is unlocked below]
+ spin_unlock_irqrestore(&host->lock)           sdhci_tasklet_finish()
+                                                spin_lock_irqsave(&host->lock)
+                                                  ...
+                                                spin_unlock_irqrestore(&host->lock)
+                                                ...
+                                                mmc_request_done(host->mmc, mrq)
+                                                   <==== Here it will notify the orginial
+                                                         mrq is finished!!!!
+sdhci_execute_tuning(mmc, tuning_opcode)
+....
+spin_lock_irqsave(&host->lock)
+host->mrq = orginal_mrq;
+<=== Here the orginal_mrq is finished already.
+
+So after that, we are operating the dangerous mrq.
+
+So this fix is set the host->mrq to NULL before tuning execution.
+
+Signed-off-by: Liu, Chuansheng <chuansheng.liu@intel.com>
+---
+ drivers/mmc/host/sdhci.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 4610c67e541d..c419ab248fb4 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1645,6 +1645,7 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 					mmc->card->type == MMC_TYPE_MMC ?
+ 					MMC_SEND_TUNING_BLOCK_HS200 :
+ 					MMC_SEND_TUNING_BLOCK;
++				host->mrq = NULL;
+ 				spin_unlock_irqrestore(&host->lock, flags);
+ 				sdhci_execute_tuning(mmc, tuning_opcode);
+ 				spin_lock_irqsave(&host->lock, flags);
+-- 
+2.37.3
+

@@ -1,0 +1,35 @@
+From 028267bfa8eb67b8a635e98dc4f7293d0b1cd851 Mon Sep 17 00:00:00 2001
+From: roberto crippa <roberto.crippa@intel.com>
+Date: Fri, 18 Jul 2014 10:21:46 +0200
+Subject: [PATCH 354/429] bluetooth: fix spinlock recursion issue
+
+Add patch in kernel to fix issue of spinlock recursion.
+It will be integrated in further versions of the kernel.
+Patch sources are:
+https://lkml.org/lkml/2014/4/23/470
+https://lkml.org/lkml/2014/3/20/623
+
+Signed-off-by: roberto crippa <roberto.crippa@intel.com>
+---
+ include/linux/tty_ldisc.h | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/tty_ldisc.h b/include/linux/tty_ldisc.h
+index 58390c73df8b..ae4a77907fd9 100644
+--- a/include/linux/tty_ldisc.h
++++ b/include/linux/tty_ldisc.h
+@@ -91,7 +91,10 @@
+  *	This function is called by the low-level tty driver to signal
+  *	that line discpline should try to send more characters to the
+  *	low-level driver for transmission.  If the line discpline does
+- *	not have any more data to send, it can just return.
++ *	not have any more data to send, it can just return. If the line
++ *	discpline does have some data to send, please arise a tasklet
++ *	or workqueue to do the real data transfer. Do not send data in
++ *	this hook, it may lead to a deadlock.
+  *
+  * int (*hangup)(struct tty_struct *)
+  *
+-- 
+2.37.3
+

@@ -1,0 +1,47 @@
+From e9c9f6acdd05ecb4e41f19ba254bf38976d8f425 Mon Sep 17 00:00:00 2001
+From: Illyas Mansoor <illyas.mansoor@intel.com>
+Date: Wed, 11 Dec 2013 12:11:53 +0530
+Subject: [PATCH 128/429] intel_soc_pmu: fix pmu_wait_not_busy_yield
+
+After requesting D0ix command to SCU in pmu_set_power_state() PMU driver waits
+for PM_BUSY bit to be cleared, it waits in a loop using usleep_range(10, 500)
+worst case looping for 50000, this means it can take any where between 10usecs
+to 25secs! the worst case is too high.
+
+Hence this need to be fixed.
+
+Signed-off-by: Illyas Mansoor <illyas.mansoor@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_pmu.c | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 346ba3e0c07f..8bf93b11c26f 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -218,15 +218,16 @@ int _pmu2_wait_not_busy(void)
+ 
+ static int _pmu2_wait_not_busy_yield(void)
+ {
+-	int pmu_busy_retry = 50000; /* 500msec minimum */
++	int pmu_busy_retry = PMU2_BUSY_TIMEOUT;
+ 
+-	/* wait for the latest pmu command finished */
++	/* wait max 500ms that the latest pmu command finished */
+ 	do {
+-		usleep_range(10, 500);
+-
+-		if (!_pmu_read_status(PMU_BUSY_STATUS))
++		if (_pmu_read_status(PMU_BUSY_STATUS) == 0)
+ 			return 0;
+-	} while (--pmu_busy_retry);
++
++		usleep_range(10, 12);
++		pmu_busy_retry -= 11;
++	} while (pmu_busy_retry > 0);
+ 
+ 	WARN(1, "pmu2 busy!");
+ 
+-- 
+2.37.3
+

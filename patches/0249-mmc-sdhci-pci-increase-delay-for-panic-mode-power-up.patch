@@ -1,0 +1,37 @@
+From 65e61393c521792ad3e6854439b63af739b0ba68 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Thu, 10 Oct 2013 19:27:19 +0800
+Subject: [PATCH 249/429] mmc: sdhci-pci: increase delay for panic mode power
+ up
+
+Increase the 10ms delay to be 50ms delay after pci_set_power_state()
+is done for sdhci host controller in kernel panic mode. With 10ms delay
+seems it is not enough to make sure the sdhci host controller's power
+stable
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index fc5dbe749a5c..9c946aa2e856 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -1593,6 +1593,13 @@ static int sdhci_pci_power_up_host(struct sdhci_host *host)
+ 
+ 	if (slot->data && slot->data->power_up)
+ 		ret = slot->data->power_up(host);
++	else {
++		/*
++		 * use standard PCI power up function
++		 */
++		ret = pci_set_power_state(slot->chip->pdev, PCI_D0);
++		mdelay(50);
++	}
+ 	/*
+ 	 * If there is no power_up callbacks in platform data,
+ 	 * return -ENOSYS;
+-- 
+2.37.3
+

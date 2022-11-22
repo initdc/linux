@@ -1,0 +1,62 @@
+From 3f55e062ac34071122023c38efb6e55fa91c7e5b Mon Sep 17 00:00:00 2001
+From: Shravan B M <shravan.k.b.m@intel.com>
+Date: Wed, 9 Oct 2013 13:52:17 +0530
+Subject: [PATCH 091/429] EM/THERMAL: Limiting prints when throttling event
+ received.
+
+[Description of issue]
+When bit of a register is toggled continously, interrupts
+are generated in huge number. For every interrupt handled
+there is print associated. Huge number of similar prints
+could over flows the buffer.
+
+[Implemented Solution]
+Limit the prints. For limiting use rateLimited().
+
+Category: aosp improvement
+Domain: Kernel.Thermal-Common
+
+Origin: upstream
+Upstream-Candidate: yes
+
+Signed-off-by: Shravan B M <shravan.k.b.m@intel.com>
+---
+ arch/x86/kernel/cpu/mcheck/therm_throt.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/mcheck/therm_throt.c b/arch/x86/kernel/cpu/mcheck/therm_throt.c
+index 47a1870279aa..b4f2344e8a0d 100644
+--- a/arch/x86/kernel/cpu/mcheck/therm_throt.c
++++ b/arch/x86/kernel/cpu/mcheck/therm_throt.c
+@@ -177,12 +177,12 @@ static int therm_throt_process(bool new_event, int event, int level)
+ 	/* if we just entered the thermal event */
+ 	if (new_event) {
+ 		if (event == THERMAL_THROTTLING_EVENT)
+-			printk(KERN_CRIT "CPU%d: %s temperature above threshold, cpu clock throttled (total events = %lu)\n",
++			pr_info_ratelimited(KERN_CRIT "CPU%d: %s temperature above threshold, cpu clock throttled (total events = %lu)\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package",
+ 				state->count);
+ 		else
+-			printk(KERN_CRIT "CPU%d: %s power limit notification (total events = %lu)\n",
++			pr_info_ratelimited(KERN_CRIT "CPU%d: %s power limit notification (total events = %lu)\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package",
+ 				state->count);
+@@ -190,11 +190,11 @@ static int therm_throt_process(bool new_event, int event, int level)
+ 	}
+ 	if (old_event) {
+ 		if (event == THERMAL_THROTTLING_EVENT)
+-			printk(KERN_INFO "CPU%d: %s temperature/speed normal\n",
++			pr_info_ratelimited(KERN_INFO "CPU%d: %s temperature/speed normal\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package");
+ 		else
+-			printk(KERN_INFO "CPU%d: %s power limit normal\n",
++			pr_info_ratelimited(KERN_INFO "CPU%d: %s power limit normal\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package");
+ 		return 1;
+-- 
+2.37.3
+

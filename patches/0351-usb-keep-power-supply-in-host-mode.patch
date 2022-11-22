@@ -1,0 +1,43 @@
+From 52b32b192a78de8f1715005bcb6fb4cb928f1e48 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Thu, 10 Jul 2014 14:52:23 +0200
+Subject: [PATCH 351/429] usb: keep power-supply in host mode
+
+In host mode, when plugin a device to the board, the PSW signal to th PHY was
+de-asserted, resulting of a power-supply cut and enumeration issue.
+
+This patch re-assert PSW through the dwc ULPI registers.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/usb/dwc3/dwc3-host-intel.c | 1 +
+ drivers/usb/dwc3/otg.h             | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/drivers/usb/dwc3/dwc3-host-intel.c b/drivers/usb/dwc3/dwc3-host-intel.c
+index 2588c79adf54..558547bad717 100644
+--- a/drivers/usb/dwc3/dwc3-host-intel.c
++++ b/drivers/usb/dwc3/dwc3-host-intel.c
+@@ -149,6 +149,7 @@ static void dwc_xhci_enable_phy_auto_resume(struct usb_hcd *hcd, bool enable)
+ 	u32 val;
+ 
+ 	val = readl(hcd->regs + GUSB2PHYCFG0);
++	val |= GUSB2PHYCFG_ULPI_EXT_VBUS_DRV;
+ 	if (enable)
+ 		val |= GUSB2PHYCFG_ULPI_AUTO_RESUME;
+ 	else
+diff --git a/drivers/usb/dwc3/otg.h b/drivers/usb/dwc3/otg.h
+index a448e6e9dccb..a1bcd9757610 100644
+--- a/drivers/usb/dwc3/otg.h
++++ b/drivers/usb/dwc3/otg.h
+@@ -87,6 +87,7 @@ struct dwc_device_par {
+ #define GUSB2PHYCFG_SUS_PHY                     0x40
+ #define GUSB2PHYCFG_PHYSOFTRST (1 << 31)
+ #define GUSB2PHYCFG_ULPI_AUTO_RESUME (1 << 15)
++#define GUSB2PHYCFG_ULPI_EXT_VBUS_DRV (1 << 17)
+ 
+ #define EXTEND_ULPI_REGISTER_ACCESS_MASK	0xC0
+ #define GUSB2PHYACC0	0xc280
+-- 
+2.37.3
+

@@ -1,0 +1,106 @@
+From 854495c2124bec7ad3a031d32478f46c582add4b Mon Sep 17 00:00:00 2001
+From: zhoushix <shimingx.zhou@intel.com>
+Date: Fri, 10 Apr 2015 17:05:29 +0800
+Subject: [PATCH 407/429] spi: improve spi write speed
+
+In order to meet the need of clear LCD screen,
+it is has to improve the spi write data speed.
+So first remove the delay source code in write
+cycle, second move write cycle action code to
+another new thread workqueue.
+
+Signed-off-by: zhoushix <shimingx.zhou@intel.com>
+---
+ drivers/spi/intel_mid_ssp_spi.c       | 40 ++++++++++-----------------
+ include/linux/spi/intel_mid_ssp_spi.h |  2 ++
+ 2 files changed, 16 insertions(+), 26 deletions(-)
+
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index d790620e3358..b68b1eb9c85c 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -793,6 +793,16 @@ static irqreturn_t ssp_int(int irq, void *dev_id)
+ 	return IRQ_HANDLED;
+ }
+ 
++static void poll_writer(struct work_struct *work)
++{
++	struct ssp_drv_context *sspc =
++		container_of(work, struct ssp_drv_context, poll_write);
++
++	while (sspc->tx < sspc->tx_end)
++		sspc->write(sspc);
++
++}
++
+ /*
+  * Perform a single transfer.
+  */
+@@ -800,32 +810,6 @@ static void poll_transfer(unsigned long data)
+ {
+ 	struct ssp_drv_context *sspc = (void *)data;
+ 
+-	bool delay = false;
+-
+-	if ((intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_VP) ||
+-	     intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_HVP) {
+-		delay = true;
+-	}
+-
+-	while (sspc->tx < sspc->tx_end) {
+-		/* [REVERT ME] Tangier simulator requires a delay */
+-		if (delay)
+-			udelay(10);
+-		if (ssp_timing_wr) {
+-			int timeout = 100;
+-			/* It is used as debug UART on Tangier. Since
+-			   baud rate = 115200, it needs at least 312us
+-			   for one word transferring. Becuase of silicon
+-			   issue, it MUST check SFIFOL here instead of
+-			   TNF. It is the workaround for A0 stepping*/
+-			while (--timeout &&
+-					((read_SFIFOL(sspc->ioaddr)) & 0xFFFF))
+-				udelay(10);
+-		}
+-		sspc->write(sspc);
+-		sspc->read(sspc);
+-	}
+-
+ 	while (!sspc->read(sspc))
+ 		cpu_relax();
+ 
+@@ -1171,6 +1155,7 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			dma_transfer(sspc);
+ 		} else {
+ 			/* Do the transfer syncronously */
++			queue_work(sspc->wq_poll_write, &sspc->poll_write);
+ 			poll_transfer((unsigned long)sspc);
+ 		}
+ 
+@@ -1571,6 +1556,9 @@ static int intel_mid_ssp_spi_probe(struct pci_dev *pdev,
+ 	INIT_WORK(&sspc->pump_messages, pump_messages);
+ 	sspc->workqueue = create_singlethread_workqueue(dev_name(&pdev->dev));
+ 
++	INIT_WORK(&sspc->poll_write, poll_writer);
++	sspc->wq_poll_write = create_singlethread_workqueue("spi_poll_wr");
++
+ 	/* Register with the SPI framework */
+ 	dev_info(dev, "register with SPI framework (bus spi%d)\n",
+ 			master->bus_num);
+diff --git a/include/linux/spi/intel_mid_ssp_spi.h b/include/linux/spi/intel_mid_ssp_spi.h
+index 2eed919ffb9d..b212eee324d0 100644
+--- a/include/linux/spi/intel_mid_ssp_spi.h
++++ b/include/linux/spi/intel_mid_ssp_spi.h
+@@ -257,7 +257,9 @@ struct ssp_drv_context {
+ 
+ 	spinlock_t lock;
+ 	struct workqueue_struct *workqueue;
++	struct workqueue_struct *wq_poll_write;
+ 	struct work_struct pump_messages;
++	struct work_struct poll_write;
+ 	struct list_head queue;
+ 	struct completion msg_done;
+ 
+-- 
+2.37.3
+

@@ -1,0 +1,121 @@
+From 7993b439c105d9584ce45cba4acb31c76d6bf72a Mon Sep 17 00:00:00 2001
+From: Wang Yiyang <yiyang.wang@intel.com>
+Date: Tue, 27 Aug 2013 14:31:09 +0800
+Subject: [PATCH 189/429] iio: port K3.4 iio APIs to K3.10
+
+port K3.4 iio APIs to K3.10
+
+Signed-off-by: Wang Yiyang <yiyang.wang@intel.com>
+---
+ drivers/iio/inkern.c         | 60 ++++++++++++++++++++++++++++++++++++
+ include/linux/iio/consumer.h |  3 ++
+ include/linux/iio/iio.h      |  3 ++
+ 3 files changed, 66 insertions(+)
+
+diff --git a/drivers/iio/inkern.c b/drivers/iio/inkern.c
+index 4fc88e617acf..55841888679c 100644
+--- a/drivers/iio/inkern.c
++++ b/drivers/iio/inkern.c
+@@ -415,6 +415,48 @@ void iio_channel_release_all(struct iio_channel *channels)
+ }
+ EXPORT_SYMBOL_GPL(iio_channel_release_all);
+ 
++int iio_channel_get_num(const struct iio_channel *chan)
++{
++	int num = 0;
++
++	if (chan == NULL)
++		return -ENODEV;
++
++	while (chan[num].indio_dev)
++		num++;
++
++	return num;
++}
++EXPORT_SYMBOL_GPL(iio_channel_get_num);
++
++int iio_channel_get_name(const struct iio_channel *chan, char **chan_name)
++{
++	int i = 0;
++	struct iio_map_internal *c = NULL;
++
++	if (chan == NULL)
++		return -ENODEV;
++
++	if (chan_name == NULL)
++		return -EINVAL;
++
++	while (chan[i].indio_dev) {
++		mutex_lock(&iio_map_list_lock);
++		list_for_each_entry(c, &iio_map_list, l) {
++			if (strcmp(chan[i].channel->datasheet_name,
++				c->map->adc_channel_label) != 0)
++				continue;
++			strcpy(chan_name[i], c->map->consumer_channel);
++			break;
++		}
++		mutex_unlock(&iio_map_list_lock);
++		i++;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(iio_channel_get_name);
++
+ static int iio_channel_read(struct iio_channel *chan, int *val, int *val2,
+ 	enum iio_chan_info_enum info)
+ {
+@@ -445,6 +487,24 @@ err_unlock:
+ }
+ EXPORT_SYMBOL_GPL(iio_read_channel_raw);
+ 
++int iio_read_channel_all_raw(struct iio_channel *chan, int *val)
++{
++	int ret;
++
++	mutex_lock(&chan->indio_dev->info_exist_lock);
++	if (chan->indio_dev->info == NULL) {
++		ret = -ENODEV;
++		goto err_unlock;
++	}
++
++	ret = chan->indio_dev->info->read_all_raw(chan, val);
++err_unlock:
++	mutex_unlock(&chan->indio_dev->info_exist_lock);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(iio_read_channel_all_raw);
++
+ static int iio_convert_raw_to_processed_unlocked(struct iio_channel *chan,
+ 	int raw, int *processed, unsigned int scale)
+ {
+diff --git a/include/linux/iio/consumer.h b/include/linux/iio/consumer.h
+index 833926c91aa8..14f8aacd3f05 100644
+--- a/include/linux/iio/consumer.h
++++ b/include/linux/iio/consumer.h
+@@ -183,4 +183,7 @@ int iio_read_channel_scale(struct iio_channel *chan, int *val,
+ int iio_convert_raw_to_processed(struct iio_channel *chan, int raw,
+ 	int *processed, unsigned int scale);
+ 
++int iio_read_channel_all_raw(struct iio_channel *chan, int *val);
++int iio_channel_get_name(const struct iio_channel *chan, char **chan_name);
++int iio_channel_get_num(const struct iio_channel *chan);
+ #endif
+diff --git a/include/linux/iio/iio.h b/include/linux/iio/iio.h
+index 683911167953..cc343e44644e 100644
+--- a/include/linux/iio/iio.h
++++ b/include/linux/iio/iio.h
+@@ -287,6 +287,9 @@ struct iio_info {
+ 			int *val2,
+ 			long mask);
+ 
++	int (*read_all_raw)(struct iio_channel *chan,
++			int *val);
++
+ 	int (*write_raw)(struct iio_dev *indio_dev,
+ 			 struct iio_chan_spec const *chan,
+ 			 int val,
+-- 
+2.37.3
+

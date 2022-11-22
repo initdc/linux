@@ -1,0 +1,134 @@
+From 629d2d5600195664702cf4d025617b96740dd9eb Mon Sep 17 00:00:00 2001
+From: Ning Feiyi <feiyix.ning@intel.com>
+Date: Tue, 16 Jul 2013 11:40:47 +0800
+Subject: [PATCH 266/429] Panic: mmc: core: implement mmc panic ops
+
+Ops for panic driver to write kernel logs or user space logs into
+eMMC card when panic happened.
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/core/Makefile |  2 +-
+ drivers/mmc/core/core.c   |  8 +++++++-
+ drivers/mmc/host/sdhci.c  |  2 +-
+ include/linux/mmc/core.h  |  1 +
+ include/linux/mmc/host.h  | 36 ++++++++++++++++++++++++++++++++++++
+ 5 files changed, 46 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/mmc/core/Makefile b/drivers/mmc/core/Makefile
+index 38ed210ce2f3..d55cc5d0c884 100644
+--- a/drivers/mmc/core/Makefile
++++ b/drivers/mmc/core/Makefile
+@@ -7,6 +7,6 @@ mmc_core-y			:= core.o bus.o host.o \
+ 				   mmc.o mmc_ops.o sd.o sd_ops.o \
+ 				   sdio.o sdio_ops.o sdio_bus.o \
+ 				   sdio_cis.o sdio_io.o sdio_irq.o \
+-				   quirks.o slot-gpio.o
++				   quirks.o slot-gpio.o mmc_panic_ops.o
+ 
+ mmc_core-$(CONFIG_DEBUG_FS)	+= debugfs.o
+diff --git a/drivers/mmc/core/core.c b/drivers/mmc/core/core.c
+index 25a3e856f9b7..95f67e4be41b 100644
+--- a/drivers/mmc/core/core.c
++++ b/drivers/mmc/core/core.c
+@@ -2419,7 +2419,13 @@ void mmc_rescan(struct work_struct *work)
+ 	mmc_release_host(host);
+ 
+  out:
+-	if (host->caps & MMC_CAP_NEEDS_POLL)
++	mmc_emergency_setup(host);
++	if (extend_wakelock)
++		wake_lock_timeout(&host->detect_wake_lock, HZ / 2);
++	else
++		wake_unlock(&host->detect_wake_lock);
++	if (host->caps & MMC_CAP_NEEDS_POLL) {
++		wake_lock(&host->detect_wake_lock);
+ 		mmc_schedule_delayed_work(&host->detect, HZ);
+ }
+ 
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 18c638bf8807..da79a9d49f26 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -3111,7 +3111,7 @@ static void sdhci_panic_cmd_irq(struct sdhci_host *host, u32 intmask)
+ 
+ 	if (host->cmd->flags & MMC_RSP_BUSY) {
+ 		if (host->cmd->data)
+-			pr_dbg("Cannot wait for busy signal when also doing a data transfer\n");
++			pr_debug("Cannot wait for busy signal when also doing a data transfer\n");
+ 		else if (!(host->quirks & SDHCI_QUIRK_NO_BUSY_IRQ))
+ 			if (!host->r1b_busy_end) {
+ 				host->r1b_busy_end = 1;
+diff --git a/include/linux/mmc/core.h b/include/linux/mmc/core.h
+index 39613b9a6fc5..3e3b95e651d6 100644
+--- a/include/linux/mmc/core.h
++++ b/include/linux/mmc/core.h
+@@ -121,6 +121,7 @@ struct mmc_data {
+ 	unsigned int		sg_len;		/* size of scatter list */
+ 	struct scatterlist	*sg;		/* I/O scatter list */
+ 	s32			host_cookie;	/* host private data */
++	dma_addr_t		dmabuf;		/* used in panic mode */
+ };
+ 
+ struct mmc_host;
+diff --git a/include/linux/mmc/host.h b/include/linux/mmc/host.h
+index d52a5551843a..141621079132 100644
+--- a/include/linux/mmc/host.h
++++ b/include/linux/mmc/host.h
+@@ -212,6 +212,27 @@ struct mmc_supply {
+ 	struct regulator *vqmmc;	/* Optional Vccq supply */
+ };
+ 
++struct mmc_panic_host {
++	/*
++	 * DMA buffer for the log
++	 */
++	dma_addr_t      dmabuf;
++	void            *logbuf;
++	const struct mmc_host_panic_ops *panic_ops;
++	unsigned int            panic_ready;
++	unsigned int            totalsecs;
++	unsigned int            max_blk_size;
++	unsigned int            max_blk_count;
++	unsigned int            max_req_size;
++	unsigned int            blkaddr;
++	unsigned int            caps;
++	u32                     ocr;            /* the current OCR setting */
++	struct mmc_ios          ios;            /* current io bus settings */
++	struct mmc_card         *card;
++	struct mmc_host         *mmc;
++	void                    *priv;
++};
++
+ struct mmc_host {
+ 	struct device		*parent;
+ 	struct device		class_dev;
+@@ -390,9 +411,24 @@ struct mmc_host {
+ 
+ 	unsigned int		slotno;	/* used for sdio acpi binding */
+ 
++#ifdef CONFIG_MMC_EMBEDDED_SDIO
++	struct {
++		struct sdio_cis			*cis;
++		struct sdio_cccr		*cccr;
++		struct sdio_embedded_func	*funcs;
++		int				num_funcs;
++	} embedded_sdio_data;
++#endif
++	struct mmc_panic_host *phost;
+ 	unsigned long		private[0] ____cacheline_aligned;
+ };
+ 
++#define SECTOR_SIZE    512
++int mmc_emergency_init(void);
++int mmc_emergency_write(char *, unsigned int);
++void mmc_alloc_panic_host(struct mmc_host *, const struct mmc_host_panic_ops *);
++void mmc_emergency_setup(struct mmc_host *host);
++
+ struct mmc_host *mmc_alloc_host(int extra, struct device *);
+ int mmc_add_host(struct mmc_host *);
+ void mmc_remove_host(struct mmc_host *);
+-- 
+2.37.3
+

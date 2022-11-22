@@ -1,0 +1,213 @@
+From 8361f6705ad7344716c80ae71418bf071feed7e4 Mon Sep 17 00:00:00 2001
+From: Quentin Casasnovas <quentinx.casasnovas@intel.com>
+Date: Tue, 27 Aug 2013 10:23:33 +0200
+Subject: [PATCH 071/429] platform_wifi: Add support for Fast IRQ
+
+In case where the Fast IRQ mode is enabled in the SFI table, we make use of it
+and change the default IRQ flags associated with the OOB interrupt. This is
+because we are using level interrupts when in fast IRQ mode.
+---
+ arch/x86/platform/intel-mid/board.c           |  2 +
+ .../device_libs/pci/platform_sdhci_pci.c      |  2 +-
+ .../device_libs/pci/platform_sdhci_pci.h      |  2 +-
+ .../intel-mid/device_libs/platform_wifi.c     | 80 ++++++++++++++-----
+ .../intel-mid/device_libs/platform_wifi.h     |  2 +
+ include/linux/wlan_plat.h                     |  1 +
+ 6 files changed, 65 insertions(+), 24 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 7d3c9290231a..129f4338732c 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -93,6 +93,8 @@ struct devs_id __initconst device_ids[] = {
+ 	{"bcm43xx_clk_vmmc", SFI_DEV_TYPE_SD, 0, &wifi_platform_data, NULL},
+ 	{"bcm43xx_vmmc", SFI_DEV_TYPE_SD, 0, &wifi_platform_data, NULL},
+ 	{"iwlwifi_clk_vmmc", SFI_DEV_TYPE_SD, 0, &wifi_platform_data, NULL},
++	{"WLAN_FAST_IRQ", SFI_DEV_TYPE_SD, 0, &no_platform_data,
++	 &wifi_platform_data_fastirq},
+ 
+ 	/* SPI devices */
+ 	{"bma023", SFI_DEV_TYPE_I2C, 1, &no_platform_data, NULL},
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+index df07139cb32f..882944121b27 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -65,7 +65,7 @@ static int panic_mode_emmc0_power_up(void *data)
+ static unsigned int sdhci_pdata_quirks = SDHCI_QUIRK2_ADVERTISE_2V0_FORCE_1V8
+ 		| SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY;
+ 
+-int sdhci_pdata_set_quirks(unsigned int quirks)
++int sdhci_pdata_set_quirks(const unsigned int quirks)
+ {
+ 	sdhci_pdata_quirks = quirks;
+ 	return 0;
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+index bfd212bb6417..9f14952bda84 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.h
+@@ -22,7 +22,7 @@
+ #define MRFLD_PMIC_VLDOCNT		0xaf
+ #define MRFLD_PMIC_VLDOCNT_VSWITCH_BIT	0x02
+ 
+-int sdhci_pdata_set_quirks(unsigned int quirks);
++int sdhci_pdata_set_quirks(const unsigned int quirks);
+ int sdhci_pdata_set_embedded_control(void (*fnp)
+ 			(void *dev_id, void (*virtual_cd)
+ 			(void *dev_id, int card_present)));
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wifi.c b/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
+index 4ac714475272..ad0b6b47cb22 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
+@@ -24,59 +24,95 @@
+ static struct resource wifi_res[] = {
+ 	{
+ 	.name = "wlan_irq",
+-	.start = 1,
+-	.end = 1,
++	.start = -1,
++	.end = -1,
+ 	.flags = IORESOURCE_IRQ | IRQF_TRIGGER_FALLING ,
+ 	},
+ };
+ 
++static struct wifi_platform_data pdata;
++
+ static struct platform_device wifi_device = {
+ 	.name = "wlan",
+ 	.dev = {
+-		.platform_data = NULL,
++		.platform_data = &pdata,
+ 		},
+ 	.num_resources = ARRAY_SIZE(wifi_res),
+ 	.resource = wifi_res,
+ };
+ 
+-void __init wifi_platform_data_init_sfi(void)
++static const unsigned int sdhci_quirk = SDHCI_QUIRK2_ADVERTISE_2V0_FORCE_1V8
++		| SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY
++		| SDHCI_QUIRK2_ADVERTISE_3V0_FORCE_1V8
++		| SDHCI_QUIRK2_NON_STD_CIS;
++
++static void __init wifi_platform_data_init_sfi_fastirq(struct sfi_device_table_entry *pentry,
++						       bool should_register)
+ {
+-	int err;
+ 	int wifi_irq_gpio = -1;
+ 
+-	pr_err("wifi_platform_data_init_sfi\n");
++	/* If the GPIO mode was previously called, this code overloads
++	   the IRQ anyway */
++	wifi_res[0].start = wifi_res[0].end = pentry->irq;
++	wifi_res[0].flags = IORESOURCE_IRQ | IRQF_TRIGGER_HIGH;
++
++	pr_info("wifi_platform_data: IRQ == %d\n", pentry->irq);
++
++	if (should_register && platform_device_register(&wifi_device) < 0)
++		pr_err("platform_device_register failed for wifi_device\n");
++}
++
++/* Called if SFI device WLAN is present */
++void __init wifi_platform_data_fastirq(struct sfi_device_table_entry *pe,
++				       struct devs_id *dev)
++{
++	/* This is used in the driver to know if it is GPIO/FastIRQ */
++	pdata.use_fast_irq = true;
++
++	if (wifi_res[0].start == -1) {
++		pr_info("Using WiFi platform data (Fast IRQ)\n");
++
++		/* Set vendor specific SDIO quirks */
++		sdhci_pdata_set_quirks(sdhci_quirk);
++		wifi_platform_data_init_sfi_fastirq(pe, true);
++	} else {
++		pr_info("Using WiFi platform data (Fast IRQ, overloading GPIO mode set previously)\n");
++		/* We do not register platform device, as it's already been
++		   done by wifi_platform_data */
++		wifi_platform_data_init_sfi_fastirq(pe, false);
++	}
++
++}
++
++/* GPIO legacy code path */
++static void __init wifi_platform_data_init_sfi_gpio(void)
++{
++	int wifi_irq_gpio = -1;
+ 
+ 	/*Get GPIO numbers from the SFI table*/
+ 	wifi_irq_gpio = get_gpio_by_name(WIFI_SFI_GPIO_IRQ_NAME);
+ 	if (wifi_irq_gpio < 0) {
+-		pr_err("%s: Unable to find" WIFI_SFI_GPIO_IRQ_NAME
+-		       "WLAN-interrupt GPIO in the SFI table\n",
++		pr_err("%s: Unable to find " WIFI_SFI_GPIO_IRQ_NAME
++		       " WLAN-interrupt GPIO in the SFI table\n",
+ 		       __func__);
+ 		return;
+ 	}
+ 
+ 	wifi_res[0].start = wifi_res[0].end = wifi_irq_gpio;
++	pr_info("wifi_platform_data: GPIO == %d\n", wifi_irq_gpio);
+ 
+-	/* For SFI compliant platforms, we need to manually register
+-	a platform device */
+-
+-	err = platform_device_register(&wifi_device);
+-	if (err < 0)
++	if (platform_device_register(&wifi_device) < 0)
+ 		pr_err("platform_device_register failed for wifi_device\n");
+ }
+ 
+-
+ /* Called from board.c */
+ void __init *wifi_platform_data(void *info)
+ {
+-	struct sd_board_info *sd_info = info;
+-
+-	unsigned int sdhci_quirk = SDHCI_QUIRK2_ADVERTISE_2V0_FORCE_1V8
+-		| SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY
+-		| SDHCI_QUIRK2_ADVERTISE_3V0_FORCE_1V8
+-		| SDHCI_QUIRK2_NON_STD_CIS;
++	/* When fast IRQ platform data has been called first, don't pursue */
++	if (wifi_res[0].start != -1)
++		return NULL;
+ 
+-	pr_err("Using generic wifi platform data\n");
++	pr_info("Using generic wifi platform data\n");
+ 
+ 	/* Set vendor specific SDIO quirks */
+ #ifdef CONFIG_MMC_SDHCI_PCI
+@@ -85,7 +121,7 @@ void __init *wifi_platform_data(void *info)
+ 
+ #ifndef CONFIG_ACPI
+ 	/* We are SFI here, register platform device */
+-	wifi_platform_data_init_sfi();
++	wifi_platform_data_init_sfi_gpio();
+ #endif
+ 
+ 	return &wifi_device;
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wifi.h b/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
+index 1cbb015ba5fe..29920a781fbb 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
+@@ -16,5 +16,7 @@
+ #define WIFI_SFI_GPIO_ENABLE_NAME "WLAN-enable"
+ 
+ extern void __init *wifi_platform_data(void *info) __attribute__((weak));
++extern void wifi_platform_data_fastirq(struct sfi_device_table_entry *pe,
++				       struct devs_id *dev) __attribute__((weak));
+ 
+ #endif
+diff --git a/include/linux/wlan_plat.h b/include/linux/wlan_plat.h
+index 0792a536c1ca..98bbea0e189b 100644
+--- a/include/linux/wlan_plat.h
++++ b/include/linux/wlan_plat.h
+@@ -23,6 +23,7 @@ struct wifi_platform_data {
+ 	int (*get_mac_addr)(unsigned char *buf);
+ 	void *(*get_country_code)(char *ccode);
+ 	char *nvram_id;
++	bool use_fast_irq;
+ };
+ 
+ #endif
+-- 
+2.37.3
+

@@ -1,0 +1,35 @@
+From c8bb53df6ff1b03a4b637cb93e2a60731d6975e2 Mon Sep 17 00:00:00 2001
+From: Yann Fouassier <yann.fouassier@intel.com>
+Date: Wed, 11 Sep 2013 11:47:13 +0200
+Subject: [PATCH 347/429] printk: port log_buf_clear API on kernel-next (for
+ emmc_ipanic support)
+
+Need to port log_buf_clear API on kernel-next in printk.c
+This is required to support emmc_ipanic
+
+Signed-off-by: Yann Fouassier <yann.fouassier@intel.com>
+---
+ kernel/printk.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/kernel/printk.c b/kernel/printk.c
+index 63cba627a47a..d93732adcf14 100644
+--- a/kernel/printk.c
++++ b/kernel/printk.c
+@@ -363,6 +363,13 @@ static void log_store(int facility, int level,
+ 	log_next_seq++;
+ }
+ 
++/* Clears the ring-buffer */
++void log_buf_clear(void)
++{
++	clear_seq = log_next_seq;
++	clear_idx = log_next_idx;
++}
++
+ #ifdef CONFIG_SECURITY_DMESG_RESTRICT
+ int dmesg_restrict = 1;
+ #else
+-- 
+2.37.3
+

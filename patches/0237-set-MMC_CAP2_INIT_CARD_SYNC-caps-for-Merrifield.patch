@@ -1,0 +1,33 @@
+From 6c0c2aa1aab09bfacf46df1134aa446498d1e366 Mon Sep 17 00:00:00 2001
+From: Yunpeng Gao <yunpeng.gao@intel.com>
+Date: Fri, 9 Aug 2013 17:49:56 +0800
+Subject: [PATCH 237/429] set MMC_CAP2_INIT_CARD_SYNC caps for Merrifield
+
+In currently mainline kernel-next branch, the Merrifield
+eMMC driver still initialized asynchronouslly. This may
+cause some problem since some other driver assume eMMC
+driver initilized in early stage. This patch will force
+the eMMC driver initilized synchronouslly to avoid that
+kind of problems.
+
+Signed-off-by: Yunpeng Gao <yunpeng.gao@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 1b7bbbad78cc..ea00b996c2e4 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -671,6 +671,8 @@ static int intel_mrfl_mmc_probe_slot(struct sdhci_pci_slot *slot)
+ 		break;
+ 	}
+ 
++	slot->host->mmc->caps2 |= MMC_CAP2_INIT_CARD_SYNC;
++
+ 	if (slot->data->platform_quirks & PLFM_QUIRK_NO_HIGH_SPEED) {
+ 		slot->host->quirks2 |= SDHCI_QUIRK2_DISABLE_HIGH_SPEED;
+ 		slot->host->mmc->caps &= ~MMC_CAP_1_8V_DDR;
+-- 
+2.37.3
+

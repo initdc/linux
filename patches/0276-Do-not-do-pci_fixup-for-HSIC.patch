@@ -1,0 +1,40 @@
+From 32407e27c255821f1bba016dc0a35b9fbbb01c12 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Wed, 12 Mar 2014 19:27:51 +0100
+Subject: [PATCH 276/429] Do not do pci_fixup for HSIC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The HSIC device is declared in the PCI tables by IAFW, but we do not
+have the corresponding driver in our kernel (ehci-tangier-hsic-pci.c)
+This leads the USB core to bind another driver on the enumeration of this
+device, causing a hang during pci_fixup phase.
+
+As a temporary hack, skip the pci_fixup for this device.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ drivers/pci/quirks.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
+index 390e4094e4d5..b821265e44ad 100644
+--- a/drivers/pci/quirks.c
++++ b/drivers/pci/quirks.c
+@@ -3067,7 +3067,11 @@ static int __init pci_apply_final_quirks(void)
+ 
+ 	pci_apply_fixup_final_quirks = true;
+ 	for_each_pci_dev(dev) {
+-		pci_fixup_device(pci_fixup_final, dev);
++		if (dev->device==0x119d)
++			printk("Ignore USB EHCI Tanhier (HSIC) since we do not have the driver in the kernel\n");
++		else
++			pci_fixup_device(pci_fixup_final, dev);
++
+ 		/*
+ 		 * If arch hasn't set it explicitly yet, use the CLS
+ 		 * value shared by all PCI devices.  If there's a
+-- 
+2.37.3
+

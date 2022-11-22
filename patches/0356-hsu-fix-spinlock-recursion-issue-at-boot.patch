@@ -1,0 +1,57 @@
+From a02b529ae27092a91bb599c541a5b0c60fc58951 Mon Sep 17 00:00:00 2001
+From: Jack Ren <jack.ren@intel.com>
+Date: Thu, 7 Aug 2014 16:01:30 +0200
+Subject: [PATCH 356/429] hsu: fix spinlock recursion issue at boot
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+It occured that during the serial port setup, we had some
+kernel panics due to a spinlock being unlocked twice.
+
+This fixe makes sure that the spinlock is correctly
+initialized before being used.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+Signed-off-by: Bob Zhu <bob.zhu@intel.com>
+---
+ drivers/tty/serial/mfd_core.c | 16 +++++++++-------
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/tty/serial/mfd_core.c b/drivers/tty/serial/mfd_core.c
+index 11958fbe8700..bbb318d31589 100644
+--- a/drivers/tty/serial/mfd_core.c
++++ b/drivers/tty/serial/mfd_core.c
+@@ -2274,6 +2274,15 @@ static int serial_port_setup(struct uart_hsu_port *up,
+ 	spin_lock_init(&up->cl_lock);
+ 	set_bit(flag_cmd_off, &up->flags);
+ 
++	if (cfg->type == debug_port) {
++		serial_hsu_reg.cons = SERIAL_HSU_CONSOLE;
++		if (serial_hsu_reg.cons)
++			serial_hsu_reg.cons->index = index;
++	} else
++		serial_hsu_reg.cons = NULL;
++
++	uart_add_one_port(&serial_hsu_reg, &up->port);
++
+ 	if (phsu->irq_port_and_dma) {
+ 		up->dma_irq = up->port.irq;
+ 		ret = request_irq(up->dma_irq, hsu_dma_irq, IRQF_SHARED,
+@@ -2298,13 +2307,6 @@ static int serial_port_setup(struct uart_hsu_port *up,
+ 		}
+ 	}
+ 
+-	if (cfg->type == debug_port) {
+-		serial_hsu_reg.cons = SERIAL_HSU_CONSOLE;
+-		if (serial_hsu_reg.cons)
+-			serial_hsu_reg.cons->index = index;
+-	} else
+-		serial_hsu_reg.cons = NULL;
+-	uart_add_one_port(&serial_hsu_reg, &up->port);
+ 	return 0;
+ }
+ 
+-- 
+2.37.3
+

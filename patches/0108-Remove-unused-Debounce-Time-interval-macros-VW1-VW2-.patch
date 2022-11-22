@@ -1,0 +1,61 @@
+From 9dc1ed4552a89714c10a395d0456c84b8a3e3aa1 Mon Sep 17 00:00:00 2001
+From: Albin B <albin.bala.krishnan@intel.com>
+Date: Thu, 31 Oct 2013 13:06:44 +0530
+Subject: [PATCH 108/429] Remove unused Debounce Time interval macros (VW1, VW2
+ and VCRIT)
+
+Issue Description:
+The macros for the BCU exit debounce Time interval Register bits are not
+required as the debounce time interval is not determined by the driver instead
+configured by the SMIP. So debounce time interval register bit macros have to
+be removed.
+
+Solution:
+The BCU exit debounce time interval register bit macros for VWARN1, VWARN2 and
+VCRIT are removed as the driver is not using, since the debounce time interval
+values are configured via SMIP and driver uses the value directly to set.
+
+Category: device enablement
+Domain: EM.BCU-MERR
+Origin: internal
+Upstream-Candidate: no, proprietary
+
+Signed-off-by: Albin B <albin.bala.krishnan@intel.com>
+---
+ arch/x86/include/asm/intel_basincove_ocd.h | 20 --------------------
+ 1 file changed, 20 deletions(-)
+
+diff --git a/arch/x86/include/asm/intel_basincove_ocd.h b/arch/x86/include/asm/intel_basincove_ocd.h
+index 0186bf7ed659..43d8c8109a54 100644
+--- a/arch/x86/include/asm/intel_basincove_ocd.h
++++ b/arch/x86/include/asm/intel_basincove_ocd.h
+@@ -33,26 +33,6 @@
+ #define NUM_VOLT_LEVELS         3
+ #define NUM_CURR_LEVELS         2
+ 
+-/* Macros for the Exit Debounce Time for VW1, VW2 and VCRIT trip points */
+-#define VW_EXIT_DB_CLK0		~(B6 | B5 | B4)
+-#define VW_EXIT_DB_CLK1		B4
+-#define VW_EXIT_DB_CLK2		B5
+-#define VW_EXIT_DB_CLK5		(B5 | B4)
+-#define VW_EXIT_DB_CLK10	B6
+-#define VW_EXIT_DB_CLK20	(B6 | B4)
+-#define VW_EXIT_DB_CLK40	(B6 | B5)
+-#define VW_EXIT_DB_CLK160	(B6 | B5 | B4)
+-
+-/* Macros for the Exit Debounce Time for VCRIT trip point */
+-#define VCRIT_EXIT_DB_CLK0	~(B6 | B5)
+-#define VCRIT_EXIT_DB_CLK5	B5
+-#define VCRIT_EXIT_DB_CLK40	B6
+-#define VCRIT_EXIT_DB_CLK160	(B6 | B5)
+-
+-/* Macros for the Exit Debounce Time for VW1, VW2 and VCRIT trip points Mask */
+-#define VW_EXIT_DB_MASK		(B6 | B5 | B4)
+-#define VCRIT_EXIT_DB_MASK	(B6 | B5)
+-
+ #define VWARN_EN_MASK		B3
+ #define ICCMAXVCC_EN_MASK	B6
+ 
+-- 
+2.37.3
+

@@ -1,0 +1,61 @@
+From cdfc2888f1393b19bfa6205c996adafd4ff8b306 Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Thu, 17 Oct 2013 12:00:19 +0530
+Subject: [PATCH 141/429] Thermal: Create sysfs entries for slope/intercept
+
+[Description of issue]
+Slope and intercept sysfs entries not available for thermal zones in K3.10
+
+[Implemented Solution]
+Created sysfs entries for slope and intercept values for thermal zones
+in K3.10
+
+Category: feature differentiation
+Domain: EM.ThermalManagement-commmon
+Origin: internal
+Upstream-Candidate: yes
+
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ drivers/thermal/thermal_core.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
+index d8ffd5dd5e87..39d042646a72 100644
+--- a/drivers/thermal/thermal_core.c
++++ b/drivers/thermal/thermal_core.c
+@@ -1760,6 +1760,19 @@ struct thermal_zone_device *thermal_zone_device_register(const char *type,
+ 			goto unregister;
+ 	}
+ 
++	/* Create Sysfs for slope/intercept values */
++	if (tz->ops->get_slope) {
++		result = device_create_file(&tz->device, &dev_attr_slope);
++		if (result)
++			goto unregister;
++	}
++
++	if (tz->ops->get_intercept) {
++		result = device_create_file(&tz->device, &dev_attr_intercept);
++		if (result)
++			goto unregister;
++	}
++
+ #ifdef CONFIG_THERMAL_EMULATION
+ 	result = device_create_file(&tz->device, &dev_attr_emul_temp);
+ 	if (result)
+@@ -1859,6 +1872,11 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
+ 	device_remove_file(&tz->device, &dev_attr_temp);
+ 	if (tz->ops->get_mode)
+ 		device_remove_file(&tz->device, &dev_attr_mode);
++	if (tz->ops->get_slope)
++		device_remove_file(&tz->device, &dev_attr_slope);
++	if (tz->ops->get_intercept)
++		device_remove_file(&tz->device, &dev_attr_intercept);
++
+ 	device_remove_file(&tz->device, &dev_attr_policy);
+ 	remove_trip_attrs(tz);
+ 	tz->governor = NULL;
+-- 
+2.37.3
+

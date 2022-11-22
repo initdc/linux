@@ -1,0 +1,39 @@
+From 047036ab71f175f2052f333fa2bc1e4cac5ed904 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Tue, 20 May 2014 15:18:55 +0200
+Subject: [PATCH 320/429] intel_soc_mrfld: set LSS06 default state to d0i3
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+LSS06 is not being used on Edison. This patch make changes so that
+PMU driver sets LSS06 as in d0i3 state by default.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_mrfld.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.c b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+index af79953ebd1d..0683935f3879 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+@@ -51,6 +51,7 @@ static int mrfld_pmu_init(void)
+ 	/* Put all unused LSS in D0i3 */
+ 	mid_pmu_cxt->os_sss[0] = (SSMSK(D0I3_MASK, PMU_RESERVED_LSS_03)	|
+ 				SSMSK(D0I3_MASK, PMU_HSI_LSS_05)	|
++				SSMSK(D0I3_MASK, PMU_SECURITY_LSS_06)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_07)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_11)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_12)	|
+@@ -233,6 +234,7 @@ void platform_update_all_lss_states(struct pmu_ss_states *pmu_config,
+ 	pmu_config->pmu2_states[0] =
+ 				(SSMSK(D0I3_MASK, PMU_RESERVED_LSS_03)	|
+ 				SSMSK(D0I3_MASK, PMU_HSI_LSS_05)	|
++				SSMSK(D0I3_MASK, PMU_SECURITY_LSS_06)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_07)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_11)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_12)	|
+-- 
+2.37.3
+

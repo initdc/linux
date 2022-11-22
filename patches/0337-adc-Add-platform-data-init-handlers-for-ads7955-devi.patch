@@ -1,0 +1,124 @@
+From ce8b6f905fe82108594cd5325d7869c953dab507 Mon Sep 17 00:00:00 2001
+From: Dan O'Donovan <danielx.o'donovan@intel.com>
+Date: Wed, 4 Jun 2014 18:33:36 +0200
+Subject: [PATCH 337/429] adc: Add platform data init handlers for ads7955
+ device registration
+
+The Edison platform requires 1 instance of the ads7955 driver to be created
+for SPI channel 5.0. This patch adds the platform data init handler required
+to register this device correctly.
+
+Signed-off-by: Dan O'Donovan <danielx.o'donovan@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c           |  2 +
+ .../platform/intel-mid/device_libs/Makefile   |  1 +
+ .../intel-mid/device_libs/platform_ads7955.c  | 37 +++++++++++++++++++
+ .../intel-mid/device_libs/platform_ads7955.h  | 20 ++++++++++
+ 4 files changed, 60 insertions(+)
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_ads7955.c
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_ads7955.h
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 7fd6714a3536..a0c7de17f36b 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -80,6 +80,7 @@
+  */
+ #include "device_libs/platform_max3111.h"
+ #include "device_libs/platform_spidev.h"
++#include "device_libs/platform_ads7955.h"
+ 
+ /* WIFI devices */
+ #include "device_libs/platform_wl12xx.h"
+@@ -108,6 +109,7 @@ struct devs_id __initconst device_ids[] = {
+ 
+ 	/* SPI devices */
+ 	{"spidev", SFI_DEV_TYPE_SPI, 0, &spidev_platform_data, NULL},
++	{"ads7955", SFI_DEV_TYPE_SPI, 0, &ads7955_platform_data, NULL},
+ 	{"bma023", SFI_DEV_TYPE_I2C, 1, &no_platform_data, NULL},
+ 	{"pmic_gpio", SFI_DEV_TYPE_SPI, 1, &pmic_gpio_platform_data, NULL},
+ 	{"pmic_gpio", SFI_DEV_TYPE_IPC, 1, &pmic_gpio_platform_data,
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index 4c0f02b8d9d7..750ac8f27ef8 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -39,6 +39,7 @@ obj-$(subst m,y,$(CONFIG_GPIO_PCA953X)) += platform_pcal9555a.o
+ # SPI Devices
+ obj-$(subst m,y,$(CONFIG_SERIAL_MRST_MAX3110)) += platform_max3111.o
+ obj-$(subst m,y,$(CONFIG_SPI_SPIDEV)) += platform_spidev.o
++obj-$(subst m,y,$(CONFIG_TI_ADS7955_ADC)) += platform_ads7955.o
+ # MISC Devices
+ obj-$(subst m,y,$(CONFIG_KEYBOARD_GPIO)) += platform_gpio_keys.o
+ # ADC
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_ads7955.c b/arch/x86/platform/intel-mid/device_libs/platform_ads7955.c
+new file mode 100644
+index 000000000000..c0d07aadfe10
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_ads7955.c
+@@ -0,0 +1,37 @@
++/*
++ * platform_ads7955.c: ads7955 platform data initialization file
++ *
++ * (C) Copyright 2014 Intel Corporation
++ * Author: Dan O'Donovan <dan@emutex.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/gpio.h>
++#include <linux/spi/spi.h>
++#include <linux/lnw_gpio.h>
++#include <linux/spi/intel_mid_ssp_spi.h>
++#include <asm/intel-mid.h>
++#include "platform_ads7955.h"
++
++static struct intel_mid_ssp_spi_chip chip = {
++	.burst_size = DFLT_FIFO_BURST_SIZE,
++	.timeout = DFLT_TIMEOUT_VAL,
++	/* SPI DMA is current not usable on Tangier */
++	.dma_enabled = false,
++};
++
++void __init *ads7955_platform_data(void *info)
++{
++	struct spi_board_info *spi_info = info;
++
++	spi_info->mode = SPI_MODE_0;
++
++	spi_info->controller_data = &chip;
++	spi_info->bus_num = FORCE_SPI_BUS_NUM;
++
++	return NULL;
++}
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_ads7955.h b/arch/x86/platform/intel-mid/device_libs/platform_ads7955.h
+new file mode 100644
+index 000000000000..114958fa73ac
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_ads7955.h
+@@ -0,0 +1,20 @@
++/*
++ * platform_ads7955.h: ads7955 platform data header file
++ *
++ * (C) Copyright 2014 Intel Corporation
++ * Author: Dan O'Donovan <dan@emutex.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++#ifndef _PLATFORM_ADS7955_H_
++#define _PLATFORM_ADS7955_H_
++
++/* REVERT ME workaround[MRFL] for invalid bus number in IAFW .25 */
++#define FORCE_SPI_BUS_NUM	5
++#define FORCE_CHIP_SELECT	0
++
++extern void *ads7955_platform_data(void *info) __attribute__((weak));
++#endif
+-- 
+2.37.3
+

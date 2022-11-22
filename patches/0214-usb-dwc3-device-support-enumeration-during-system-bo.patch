@@ -1,0 +1,63 @@
+From aa106a2ac468221259654b6dff15f0ffef162e10 Mon Sep 17 00:00:00 2001
+From: Jiebing Li <jiebing.li@intel.com>
+Date: Fri, 23 Aug 2013 17:43:00 +0800
+Subject: [PATCH 214/429] usb/dwc3-device: support enumeration during system
+ boot with cable connected
+
+This patch provides a fix for enumeration issue if system boots up
+with USB cable connected.
+Signed-off-by: Jiebing Li <jiebing.li@intel.com>
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/core.h              | 1 +
+ drivers/usb/dwc3/dwc3-device-intel.c | 5 ++---
+ drivers/usb/dwc3/gadget.c            | 5 +++++
+ 3 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/usb/dwc3/core.h b/drivers/usb/dwc3/core.h
+index f0c2ef10b36c..2610417a89bb 100644
+--- a/drivers/usb/dwc3/core.h
++++ b/drivers/usb/dwc3/core.h
+@@ -790,6 +790,7 @@ struct dwc3 {
+ 	struct debugfs_regset32	*regset;
+ 	enum dwc3_pm_state	pm_state;
+ 	u8			is_otg;
++	u8			soft_connected;
+ 
+ 	u8			test_mode;
+ 	u8			test_mode_nr;
+diff --git a/drivers/usb/dwc3/dwc3-device-intel.c b/drivers/usb/dwc3/dwc3-device-intel.c
+index e7af05990987..21987490a54e 100644
+--- a/drivers/usb/dwc3/dwc3-device-intel.c
++++ b/drivers/usb/dwc3/dwc3-device-intel.c
+@@ -264,9 +264,8 @@ int dwc3_start_peripheral(struct usb_gadget *g)
+ 		if (ret)
+ 			goto err1;
+ 
+-		dwc3_gadget_run_stop(dwc, 1);
+-		if (dwc->hiber_enabled)
+-			dwc3_gadget_keep_conn(dwc, 1);
++		if (dwc->soft_connected)
++			dwc3_gadget_run_stop(dwc, 1);
+ 	}
+ 
+ 	dwc->pm_state = PM_ACTIVE;
+diff --git a/drivers/usb/dwc3/gadget.c b/drivers/usb/dwc3/gadget.c
+index cc7f92096442..d6e1e648f9a8 100644
+--- a/drivers/usb/dwc3/gadget.c
++++ b/drivers/usb/dwc3/gadget.c
+@@ -1806,6 +1806,11 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
+ 
+ 	is_on = !!is_on;
+ 
++	if (dwc->soft_connected == is_on)
++		return 0;
++
++	dwc->soft_connected = is_on;
++
+ 	spin_lock_irqsave(&dwc->lock, flags);
+ 	ret = dwc3_gadget_run_stop(dwc, is_on);
+ 	spin_unlock_irqrestore(&dwc->lock, flags);
+-- 
+2.37.3
+

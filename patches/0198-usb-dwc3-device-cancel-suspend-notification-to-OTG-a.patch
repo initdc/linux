@@ -1,0 +1,31 @@
+From e1962ec12e5f94e4826df0e98e56a0c9f8f761e6 Mon Sep 17 00:00:00 2001
+From: Jiebing Li <jiebing.li@intel.com>
+Date: Tue, 12 Nov 2013 17:02:16 +0800
+Subject: [PATCH 198/429] usb/dwc3-device: cancel suspend notification to OTG
+ after disconnected
+
+Normally when the link state changes to U3, device driver will send
+OTG a notification. However, it's not necessary to send it if the
+cable has been disconnected.
+
+Signed-off-by: Jiebing Li <jiebing.li@intel.com>
+---
+ drivers/usb/dwc3/dwc3-device-intel.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/usb/dwc3/dwc3-device-intel.c b/drivers/usb/dwc3/dwc3-device-intel.c
+index d46edcdb53ff..a66188952e46 100644
+--- a/drivers/usb/dwc3/dwc3-device-intel.c
++++ b/drivers/usb/dwc3/dwc3-device-intel.c
+@@ -265,6 +265,8 @@ int dwc3_stop_peripheral(struct usb_gadget *g)
+ 
+ 	mutex_unlock(&_dev_data->mutex);
+ 
++	cancel_delayed_work_sync(&dwc->link_work);
++
+ 	pm_runtime_put(dwc->dev);
+ 	wake_unlock(&_dev_data->wake_lock);
+ 
+-- 
+2.37.3
+

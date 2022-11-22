@@ -1,0 +1,49 @@
+From fb3437073763b6e3992acfbf60060dabf709744b Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Fri, 3 Oct 2014 15:37:26 +0200
+Subject: [PATCH 375/429] spi: allow runtime suspend after 25ms delay
+
+When the spi driver is sleeping (D0i3), the framework takes 10-20ms to wake it
+up at each new message (ioctl). This behavior prevents the user issuing ioctls
+on spi device at a rate higher than 50Hz.
+
+This patch adds a delay between the end of the transfer and the runtime
+suspend, so the device does not suspend after each transfer.
+
+The ioctl issuing rate raises up to 2KHz.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/spi/intel_mid_ssp_spi.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index 938180e49e08..86f58a3d912f 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -1207,7 +1207,8 @@ static void pump_messages(struct work_struct *work)
+ 		sspc->cur_msg = NULL;
+ 	}
+ 	spin_unlock_irqrestore(&sspc->lock, flags);
+-	pm_runtime_put(dev);
++	pm_runtime_mark_last_busy(dev);
++	pm_runtime_put_autosuspend(dev);
+ }
+ 
+ /**
+@@ -1558,6 +1559,12 @@ static int intel_mid_ssp_spi_probe(struct pci_dev *pdev,
+ 		pm_qos_add_request(&sspc->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
+ 				PM_QOS_DEFAULT_VALUE);
+ 
++	pm_runtime_set_autosuspend_delay(&pdev->dev, 25);
++	pm_runtime_use_autosuspend(&pdev->dev);
++	pm_runtime_set_active(&pdev->dev);
++	pm_runtime_enable(&pdev->dev);
++	if (!pm_runtime_enabled(&pdev->dev))
++		dev_err(&pdev->dev, "spi runtime pm not enabled!\n");
+ 	pm_runtime_put_noidle(&pdev->dev);
+ 	pm_runtime_allow(&pdev->dev);
+ 
+-- 
+2.37.3
+

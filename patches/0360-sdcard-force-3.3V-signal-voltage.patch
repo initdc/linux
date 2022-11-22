@@ -1,0 +1,29 @@
+From bdb144e8d9d458c0024a08a855676eb7c0ca0641 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Wed, 20 Aug 2014 11:11:52 +0200
+Subject: [PATCH 360/429] sdcard: force 3.3V signal voltage
+
+Edison Arduino baseboard is not compatible with 1.8V signal voltage, force it
+to 3.3V.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 5bbad05c374b..39696af950ad 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -652,6 +652,8 @@ static int intel_mrfl_mmc_probe_slot(struct sdhci_pci_slot *slot)
+ 		break;
+ 	case INTEL_MRFL_SD:
+ 		slot->host->quirks2 |= SDHCI_QUIRK2_WAIT_FOR_IDLE;
++		/* Force 3.3V signal voltage */
++		slot->host->quirks2 |= SDHCI_QUIRK2_NO_1_8_V;
+ 		slot->host->mmc->caps2 |= MMC_CAP2_FIXED_NCRC;
+ 		break;
+ 	case INTEL_MRFL_SDIO:
+-- 
+2.37.3
+

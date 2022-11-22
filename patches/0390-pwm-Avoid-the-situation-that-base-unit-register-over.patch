@@ -1,0 +1,35 @@
+From 867b0dc883c39339533f353851b235d1555972a4 Mon Sep 17 00:00:00 2001
+From: zhaozhex <zhenmingx.zhao@intel.com>
+Date: Fri, 21 Nov 2014 11:58:56 +0100
+Subject: [PATCH 390/429] pwm: Avoid the situation that "base unit" register
+ overflows to 0
+
+When setting the period to maximum value, it causes the "base unit"
+register to overflow which means writing a 0 to it, which causes
+pwm output to shut off. If it happens, try to write the
+base_unit_fraction reg to 1 at least to solve this problem.
+
+Signed-off-by: zhaozhex <zhenmingx.zhao@intel.com>
+---
+ drivers/pwm/pwm-intel-mid.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/pwm/pwm-intel-mid.c b/drivers/pwm/pwm-intel-mid.c
+index 83c39f7a296b..7897607240b5 100644
+--- a/drivers/pwm/pwm-intel-mid.c
++++ b/drivers/pwm/pwm-intel-mid.c
+@@ -161,6 +161,11 @@ intel_mid_pwm_base_unit(void __iomem *reg, union pwmctrl_reg *pwmctrl,
+ 			fraction -= numerator;
+ 		}
+ 	}
++	/* If both the values are 0, the output will be somehow not correct.
++	 * So if it happens, change the fraction to 1.
++	 */
++	if ((0 == base_unit_fraction) && (0 == base_unit_integer))
++		base_unit_fraction = 1UL;
+ 
+ 	pwmctrl->full = readl(reg);
+ 	pwmctrl->part.base_unit_int = (u32)base_unit_integer;
+-- 
+2.37.3
+

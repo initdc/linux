@@ -1,0 +1,30 @@
+From 9dbdfd40d7f86c30e5e0ba8ff297ab295a65f145 Mon Sep 17 00:00:00 2001
+From: Leon Ma <xindong.ma@intel.com>
+Date: Tue, 22 Oct 2013 15:34:31 +0800
+Subject: [PATCH 105/429] Add IRQCHIP_SKIP_SET_WAKE flag to ioapic_chip.
+
+ioapic_chip structure does not have irq_set_wake inited. -ENXIO will
+be returned by set_irq_wake_real() and unbalanced IRQ warnings will
+be printed. Adding IRQCHIP_SKIP_SET_WAKE flag so set_irq_wake_real
+returns 0 and no warning is printed.
+
+Signed-off-by: Leon Ma <xindong.ma@intel.com>
+---
+ arch/x86/kernel/apic/io_apic.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/x86/kernel/apic/io_apic.c b/arch/x86/kernel/apic/io_apic.c
+index a5a072c47e0b..d80c6d22b063 100644
+--- a/arch/x86/kernel/apic/io_apic.c
++++ b/arch/x86/kernel/apic/io_apic.c
+@@ -2543,6 +2543,7 @@ static struct irq_chip ioapic_chip __read_mostly = {
+ 	.irq_set_affinity	= native_ioapic_set_affinity,
+ 	.irq_set_wake		= ioapic_set_wake,
+ 	.irq_retrigger		= ioapic_retrigger_irq,
++	.flags			= IRQCHIP_SKIP_SET_WAKE,
+ };
+ 
+ static inline void init_IO_APIC_traps(void)
+-- 
+2.37.3
+

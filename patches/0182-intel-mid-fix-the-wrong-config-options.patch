@@ -1,0 +1,105 @@
+From cb8b4ef9050b7e63d9ca3540f8b64408abcc76d4 Mon Sep 17 00:00:00 2001
+From: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+Date: Tue, 30 Jul 2013 14:53:29 +0530
+Subject: [PATCH 182/429] intel-mid: fix the wrong config options
+
+This fixes the various wrong Kconfig options used across
+the code without which it does not even build mrfld platform
+with ATOM_SOC_POWER enabled.
+
+This also defines NUM_CSTATES for ATOM.
+
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ arch/x86/include/asm/mwait.h                     | 6 ++++++
+ arch/x86/platform/intel-mid/intel_soc_mrfld.h    | 2 +-
+ arch/x86/platform/intel-mid/intel_soc_pm_debug.c | 4 ++--
+ arch/x86/platform/intel-mid/intel_soc_pm_debug.h | 2 +-
+ include/linux/intel_mid_pm.h                     | 4 ++--
+ 5 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/arch/x86/include/asm/mwait.h b/arch/x86/include/asm/mwait.h
+index 2f366d0ac6b4..2d34917da01f 100644
+--- a/arch/x86/include/asm/mwait.h
++++ b/arch/x86/include/asm/mwait.h
+@@ -13,4 +13,10 @@
+ 
+ #define MWAIT_ECX_INTERRUPT_BREAK	0x1
+ 
++#ifdef CONFIG_ATOM_SOC_POWER
++#define MWAIT_MAX_NUM_CSTATES		10
++#else
++#define MWAIT_MAX_NUM_CSTATES		8
++#endif
++
+ #endif /* _ASM_X86_MWAIT_H */
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.h b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+index f3e69797044e..dd14cba6ac03 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.h
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+@@ -17,7 +17,7 @@
+  *
+  */
+ 
+-#ifdef CONFIG_REMOVEME_INTEL_REMOVEME_ATOM_MRFLD_POWER
++#ifdef CONFIG_REMOVEME_INTEL_ATOM_MRFLD_POWER
+ 
+ #define PM_SUPPORT		0x21
+ 
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+index 95c3445bde32..8ce4c81de4ea 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+@@ -350,7 +350,7 @@ static char *dstates[] = {"D0", "D0i1", "D0i2", "D0i3"};
+ /* This can be used to report NC power transitions */
+ void (*nc_report_power_state) (u32, int);
+ 
+-#if defined(CONFIG_INTEL_REMOVEME_ATOM_MDFLD_POWER)			\
++#if defined(CONFIG_REMOVEME_INTEL_ATOM_MDFLD_POWER)			\
+ 			|| defined(CONFIG_REMOVEME_INTEL_ATOM_CLV_POWER)
+ 
+ #define PMU_DEBUG_PRINT_STATS	(1U << 0)
+@@ -2515,4 +2515,4 @@ void pmu_stats_init(void)
+ #endif
+ }
+ 
+-#endif /*if CONFIG_INTEL_REMOVEME_ATOM_MRFLD_POWER*/
++#endif /*if CONFIG_REMOVEME_INTEL_ATOM_MRFLD_POWER*/
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pm_debug.h b/arch/x86/platform/intel-mid/intel_soc_pm_debug.h
+index 99700a757ed4..51e087149826 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pm_debug.h
++++ b/arch/x86/platform/intel-mid/intel_soc_pm_debug.h
+@@ -68,7 +68,7 @@ struct lss_definition {
+ 	char *subsystem;
+ };
+ 
+-#ifdef CONFIG_INTEL_REMOVEME_ATOM_MRFLD_POWER
++#ifdef CONFIG_REMOVEME_INTEL_ATOM_MRFLD_POWER
+ #define PUNIT_CR_CORE_C1_RES_MSR	0x660
+ #define PUNIT_CR_CORE_C4_RES_MSR	0x3fc
+ #define PUNIT_CR_CORE_C6_RES_MSR	0x3fd
+diff --git a/include/linux/intel_mid_pm.h b/include/linux/intel_mid_pm.h
+index 5f4df1489d2f..4dfaa819f0d4 100644
+--- a/include/linux/intel_mid_pm.h
++++ b/include/linux/intel_mid_pm.h
+@@ -83,7 +83,7 @@ static inline int platform_is(u8 model)
+ /* Since entry latency is substantial
+  * put exit_latency = entry+exit latency
+  */
+-#ifdef CONFIG_X86_MRFLD
++#ifdef CONFIG_REMOVEME_INTEL_ATOM_MRFLD_POWER
+ #define CSTATE_EXIT_LATENCY_S0i1 1200
+ #define CSTATE_EXIT_LATENCY_S0i2 2000
+ #define CSTATE_EXIT_LATENCY_S0i3 10000
+@@ -121,7 +121,7 @@ enum s3_parts {
+ #define	SET_LPAUDIO			4
+ #define	SET_AOAC_S0i2			7
+ 
+-#ifdef CONFIG_X86_MRFLD
++#ifdef CONFIG_REMOVEME_INTEL_ATOM_MRFLD_POWER
+ #define MID_S0I1_STATE         0x60
+ #define MID_S0I2_STATE         0x62
+ #define MID_LPMP3_STATE        0x62
+-- 
+2.37.3
+

@@ -1,0 +1,409 @@
+From 67137be3155beebcaa4cec45a3682dd4043376e3 Mon Sep 17 00:00:00 2001
+From: David Hunt <davidx.hunt@intel.com>
+Date: Wed, 4 Jun 2014 15:23:20 +0200
+Subject: [PATCH 338/429] adc: enabling Texas Instruments ADS7955 8-channel ADC
+
+Added new files to support TI ADS7955 ADC. Does not yet support buffered mode.
+
+Signed-off-by: David Hunt <davidx.hunt@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig   |  13 +-
+ drivers/iio/adc/Kconfig                  |  12 +
+ drivers/iio/adc/Makefile                 |   1 +
+ drivers/iio/adc/ti-ads7955.c             | 275 +++++++++++++++++++++++
+ include/linux/platform_data/ti-ads7955.h |  21 ++
+ 5 files changed, 320 insertions(+), 2 deletions(-)
+ create mode 100644 drivers/iio/adc/ti-ads7955.c
+ create mode 100644 include/linux/platform_data/ti-ads7955.h
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 1a69c25aea28..32f1b8bce645 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -2896,6 +2896,7 @@ CONFIG_STAGING=y
+ # CONFIG_ADIS16220 is not set
+ # CONFIG_ADIS16240 is not set
+ # CONFIG_LIS3L02DQ is not set
++# CONFIG_SCA3000 is not set
+ 
+ #
+ # Analog to digital converters
+@@ -2975,6 +2976,9 @@ CONFIG_STAGING=y
+ #
+ # Triggers - standalone
+ #
++# CONFIG_IIO_PERIODIC_RTC_TRIGGER is not set
++# CONFIG_IIO_GPIO_TRIGGER is not set
++# CONFIG_IIO_SYSFS_TRIGGER is not set
+ # CONFIG_IIO_SIMPLE_DUMMY is not set
+ # CONFIG_ZSMALLOC is not set
+ # CONFIG_FB_SM7XX is not set
+@@ -3061,8 +3065,12 @@ CONFIG_EXTCON=y
+ # CONFIG_EXTCON_ADC_JACK is not set
+ # CONFIG_MEMORY is not set
+ CONFIG_IIO=y
+-# CONFIG_IIO_BUFFER is not set
+-# CONFIG_IIO_TRIGGER is not set
++CONFIG_IIO_BUFFER=y
++# CONFIG_IIO_BUFFER_CB is not set
++CONFIG_IIO_KFIFO_BUF=y
++CONFIG_IIO_TRIGGERED_BUFFER=y
++CONFIG_IIO_TRIGGER=y
++CONFIG_IIO_CONSUMERS_PER_TRIGGER=2
+ 
+ #
+ # Accelerometers
+@@ -3082,6 +3090,7 @@ CONFIG_IIO=y
+ # CONFIG_AD7887 is not set
+ # CONFIG_MAX1363 is not set
+ # CONFIG_TI_ADC081C is not set
++CONFIG_TI_ADS7955_ADC=y
+ CONFIG_IIO_BASINCOVE_GPADC=y
+ 
+ #
+diff --git a/drivers/iio/adc/Kconfig b/drivers/iio/adc/Kconfig
+index 797ab0f25943..a6e03418d357 100644
+--- a/drivers/iio/adc/Kconfig
++++ b/drivers/iio/adc/Kconfig
+@@ -143,6 +143,18 @@ config TI_ADC081C
+ 	  This driver can also be built as a module. If so, the module will be
+ 	  called ti-adc081c.
+ 
++config TI_ADS7955_ADC
++	tristate "Texas Instruments ADS7955 ADC driver"
++	depends on SPI
++	select IIO_BUFFER
++	select IIO_TRIGGERED_BUFFER
++	help
++	  Say yes here to build support for Texas Instruments ADS7955
++	  8 Channel ADC.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called ti-ads7955.
++
+ config TI_AM335X_ADC
+ 	tristate "TI's ADC driver"
+ 	depends on MFD_TI_AM335X_TSCADC
+diff --git a/drivers/iio/adc/Makefile b/drivers/iio/adc/Makefile
+index 46ad884817a8..48f8fef0853a 100644
+--- a/drivers/iio/adc/Makefile
++++ b/drivers/iio/adc/Makefile
+@@ -15,6 +15,7 @@ obj-$(CONFIG_EXYNOS_ADC) += exynos_adc.o
+ obj-$(CONFIG_LP8788_ADC) += lp8788_adc.o
+ obj-$(CONFIG_MAX1363) += max1363.o
+ obj-$(CONFIG_TI_ADC081C) += ti-adc081c.o
++obj-$(CONFIG_TI_ADS7955_ADC) += ti-ads7955.o
+ obj-$(CONFIG_TI_AM335X_ADC) += ti_am335x_adc.o
+ obj-$(CONFIG_VIPERBOARD_ADC) += viperboard_adc.o
+ obj-$(CONFIG_IIO_BASINCOVE_GPADC) += iio_basincove_gpadc.o
+diff --git a/drivers/iio/adc/ti-ads7955.c b/drivers/iio/adc/ti-ads7955.c
+new file mode 100644
+index 000000000000..10791165ee61
+--- /dev/null
++++ b/drivers/iio/adc/ti-ads7955.c
+@@ -0,0 +1,275 @@
++/*
++ * ADS7955 SPI ADC driver
++ *
++ * (C) Copyright 2014 Intel Corporation
++ * Author: Dave Hunt <dave.hunt@emutex.com>
++ *
++ * Licensed under the GPL-2.
++ */
++
++#include <linux/device.h>
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/sysfs.h>
++#include <linux/spi/spi.h>
++#include <linux/regulator/consumer.h>
++#include <linux/err.h>
++#include <linux/delay.h>
++#include <linux/module.h>
++#include <linux/interrupt.h>
++
++#include <linux/iio/iio.h>
++#include <linux/iio/sysfs.h>
++#include <linux/iio/buffer.h>
++#include <linux/iio/trigger_consumer.h>
++#include <linux/iio/triggered_buffer.h>
++
++#include <linux/platform_data/ti-ads7955.h>
++
++#define ADS7955_EXTREF	2.5
++
++#define ADS7955_MANUAL_MODE	(1 << 12)  /* Selects Manual Mode */
++#define ADS7955_CONFIG		(1 << 11)  /* Enable programming bits DI06-00*/
++#define ADS7955_CHANNEL(x)	((x) << 7) /* Channel select (DI10-07) */
++
++#define ADS7955_RANGE_1		0	/* Selects 2.5V input range (Range 1)*/
++#define ADS7955_RANGE_2		(1 << 6)/* Selects 5.0V input range (Range 2)*/
++
++#define ADS7955_POWER_NORMAL	0	/* No Powerdown */
++#define ADS7955_POWER_DOWN (1 << 5)	/* Powerdown on 16th fall-edge of SCLK*/
++
++#define ADS7955_GET_CONVERSION	0	/* Powerdown on 16th fall-edge of SCLK*/
++#define ADS7955_GET_GPIO	(1 << 4)/* Powerdown on 16th fall-edge of SCLK*/
++
++#define ADS7955_SET_READ	(ADS7955_MANUAL_MODE | ADS7955_CONFIG | \
++				ADS7955_RANGE_2 | ADS7955_POWER_NORMAL | \
++				ADS7955_GET_CONVERSION)
++
++#define ADS7955_MAX_CHAN	8
++#define ADS7955_BITS		10
++#define ADS7955_STORAGE_BITS	12
++#define ADS7955_INTREF_mV	3300
++
++
++#define RES_MASK(bits)	((1 << (bits)) - 1)
++
++struct ads7955_state {
++	struct spi_device		*spi;
++	struct regulator		*reg;
++	unsigned			ext_ref;
++	struct spi_transfer		scan_single_xfer[3];
++	struct spi_message		scan_single_msg;
++	/*
++	 * DMA (thus cache coherency maintenance) requires the
++	 * transfer buffers to live in their own cache lines.
++	 */
++	__be16				rx_buf[1] ____cacheline_aligned;
++	__be16				tx_buf[1];
++};
++
++#define ADS7955_V_CHAN(index)						\
++	{								\
++		.type = IIO_VOLTAGE,					\
++		.indexed = 1,						\
++		.channel = index,					\
++		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),		\
++		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE),	\
++		.address = index,					\
++		.scan_index = index,					\
++		.scan_type = {						\
++			.sign = 'u',					\
++			.realbits = 10,					\
++			.storagebits = 16,				\
++			.endianness = IIO_BE,				\
++		},							\
++	}
++
++static const struct iio_chan_spec ads7955_channels[] = {
++	ADS7955_V_CHAN(0),
++	ADS7955_V_CHAN(1),
++	ADS7955_V_CHAN(2),
++	ADS7955_V_CHAN(3),
++	ADS7955_V_CHAN(4),
++	ADS7955_V_CHAN(5),
++	ADS7955_V_CHAN(6),
++	ADS7955_V_CHAN(7),
++	IIO_CHAN_SOFT_TIMESTAMP(8),
++};
++
++static int ads7955_scan_direct(struct ads7955_state *st, unsigned ch)
++{
++	int ret, count = 3;
++
++	st->tx_buf[0] = (ADS7955_SET_READ | ADS7955_CHANNEL(ch));
++	while (count--) {
++		ret = spi_sync(st->spi, &st->scan_single_msg);
++		if (ret)
++			return ret;
++	}
++
++	return st->rx_buf[0];
++}
++
++
++static int ads7955_get_ref_voltage(struct ads7955_state *st)
++{
++	int vref;
++
++	if (st->ext_ref) {
++		vref = regulator_get_voltage(st->reg);
++		if (vref < 0)
++			return vref;
++
++		return vref / 1000;
++	} else {
++		return ADS7955_INTREF_mV;
++	}
++}
++
++static int ads7955_read_raw(struct iio_dev *indio_dev,
++			   struct iio_chan_spec const *chan,
++			   int *val,
++			   int *val2,
++			   long m)
++{
++	int ret;
++	struct ads7955_state *st = iio_priv(indio_dev);
++
++	switch (m) {
++	case IIO_CHAN_INFO_RAW:
++		mutex_lock(&indio_dev->mlock);
++		if (indio_dev->currentmode == INDIO_BUFFER_TRIGGERED)
++			ret = -EBUSY;
++		else
++			ret = ads7955_scan_direct(st, chan->address);
++		mutex_unlock(&indio_dev->mlock);
++
++		if (ret < 0)
++			return ret;
++
++		*val = ret & RES_MASK(ADS7955_BITS);
++
++		return IIO_VAL_INT;
++	case IIO_CHAN_INFO_SCALE:
++		switch (chan->type) {
++		case IIO_VOLTAGE:
++			*val = ads7955_get_ref_voltage(st);
++			*val2 = chan->scan_type.realbits;
++			return IIO_VAL_FRACTIONAL_LOG2;
++		default:
++			return -EINVAL;
++		}
++	case IIO_CHAN_INFO_OFFSET:
++		*val = 1093 - 2732500 / ads7955_get_ref_voltage(st);
++		return IIO_VAL_INT;
++	}
++	return -EINVAL;
++}
++
++static const struct iio_info ads7955_info = {
++	.read_raw = &ads7955_read_raw,
++	.driver_module = THIS_MODULE,
++};
++
++static int ads7955_probe(struct spi_device *spi)
++{
++	struct ads7955_platform_data *pdata = spi->dev.platform_data;
++	struct ads7955_state *st;
++	struct iio_dev *indio_dev = iio_device_alloc(sizeof(*st));
++	int ret;
++
++	if (indio_dev == NULL)
++		return -ENOMEM;
++
++	st = iio_priv(indio_dev);
++
++	if (pdata && pdata->ext_ref)
++		st->ext_ref = ADS7955_EXTREF;
++
++	if (st->ext_ref) {
++		st->reg = regulator_get(&spi->dev, "vref");
++		if (IS_ERR(st->reg)) {
++			ret = PTR_ERR(st->reg);
++			goto error_free;
++		}
++		ret = regulator_enable(st->reg);
++		if (ret)
++			goto error_put_reg;
++	}
++
++	spi_set_drvdata(spi, indio_dev);
++
++	st->spi = spi;
++
++	indio_dev->name = spi_get_device_id(spi)->name;
++	indio_dev->dev.parent = &spi->dev;
++	indio_dev->modes = INDIO_DIRECT_MODE;
++	indio_dev->channels = ads7955_channels;
++	indio_dev->num_channels = ARRAY_SIZE(ads7955_channels);
++	indio_dev->info = &ads7955_info;
++
++	/* Setup default SPI comms parameters */
++	spi->bits_per_word = 16;
++	spi->max_speed_hz = 20000000;
++	spi_setup(spi);
++
++	st->scan_single_xfer[0].tx_buf = &st->tx_buf[0];
++	st->scan_single_xfer[0].rx_buf = &st->rx_buf[0];
++	st->scan_single_xfer[0].len = 2;
++
++	spi_message_init(&st->scan_single_msg);
++	spi_message_add_tail(&st->scan_single_xfer[0], &st->scan_single_msg);
++
++	ret = iio_device_register(indio_dev);
++	if (ret)
++		goto error_disable_reg;
++
++	return 0;
++
++error_disable_reg:
++	if (st->ext_ref)
++		regulator_disable(st->reg);
++error_put_reg:
++	if (st->ext_ref)
++		regulator_put(st->reg);
++error_free:
++	iio_device_free(indio_dev);
++
++	return ret;
++}
++
++static int ads7955_remove(struct spi_device *spi)
++{
++	struct iio_dev *indio_dev = spi_get_drvdata(spi);
++	struct ads7955_state *st = iio_priv(indio_dev);
++
++	iio_device_unregister(indio_dev);
++	if (st->ext_ref) {
++		regulator_disable(st->reg);
++		regulator_put(st->reg);
++	}
++	iio_device_free(indio_dev);
++
++	return 0;
++}
++
++static const struct spi_device_id ads7955_id[] = {
++	{"ads7955", 0},
++	{}
++};
++MODULE_DEVICE_TABLE(spi, ads7955_id);
++
++static struct spi_driver ads7955_driver = {
++	.driver = {
++		.name	= "ads7955",
++		.owner	= THIS_MODULE,
++	},
++	.probe		= ads7955_probe,
++	.remove		= ads7955_remove,
++	.id_table	= ads7955_id,
++};
++module_spi_driver(ads7955_driver);
++
++MODULE_AUTHOR("Dave Hunt <dave.hunt@emutex.com>");
++MODULE_DESCRIPTION("Texas Instruments ADS7955 ADC");
++MODULE_LICENSE("GPL v2");
+diff --git a/include/linux/platform_data/ti-ads7955.h b/include/linux/platform_data/ti-ads7955.h
+new file mode 100644
+index 000000000000..da1451e82c41
+--- /dev/null
++++ b/include/linux/platform_data/ti-ads7955.h
+@@ -0,0 +1,21 @@
++/*
++ * ADS7955 SPI ADC driver
++ *
++ * (C) Copyright 2014 Intel Corporation
++ * Author: Dave Hunt <dave.hunt@emutex.com>
++ *
++ * Licensed under the GPL-2.
++ */
++
++#ifndef __LINUX_PLATFORM_DATA_TI_ADS7955_H__
++#define __LINUX_PLATFORM_DATA_TI_ADS7955_H__
++
++/**
++ * struct ads7955_platform_data - Platform data for the ads7955 ADC driver
++ * @ext_ref: Whether to use an external reference voltage.
++ **/
++struct ads7955_platform_data {
++	bool ext_ref;
++};
++
++#endif /* __LINUX_PLATFORM_DATA_TI_ADS7955_H__ */
+-- 
+2.37.3
+

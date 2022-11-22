@@ -1,0 +1,67 @@
+From d4735cfa1ada28b50cb8d47020da09b54c36d5fd Mon Sep 17 00:00:00 2001
+From: Jan Mennekens <janx.mennekens@intel.com>
+Date: Wed, 2 Jul 2014 11:52:18 +0200
+Subject: [PATCH 352/429] gpio: enable UART1 TX/RX as both GPIO and UART pins
+
+Signed-off-by: Jan Mennekens <janx.mennekens@intel.com>
+---
+ .../intel-mid/device_libs/platform_hsu.c      | 24 ++++++++++++++-----
+ 1 file changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index 6ca406970e1c..293793e6ff8e 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -55,6 +55,8 @@ hsu_port_pin_cfg hsu_port_pin_cfgs[][hsu_pid_max][hsu_port_max] = {
+ 				.wake_gpio = 130,
+ 				.rx_gpio = 130,
+ 				.rx_alt = 1,
++				.tx_gpio = 131,
++				.tx_alt = 1,
+ 				.cts_gpio = 128,
+ 				.cts_alt = 1,
+ 				.rts_gpio = 129,
+@@ -194,7 +196,8 @@ static void hsu_port_disable(int port)
+ 	}
+ }
+ 
+-void intel_mid_hsu_suspend(int port, struct device *dev, irq_handler_t wake_isr)
++void intel_mid_hsu_suspend(int port, struct device *dev,
++							irq_handler_t wake_isr)
+ {
+ 	int ret;
+ 	struct hsu_port_pin_cfg *info = hsu_port_gpio_mux + port;
+@@ -337,16 +340,25 @@ int intel_mid_hsu_init(struct device *dev, int port)
+ 	port_cfg->dev = dev;
+ 
+ 	info = hsu_port_gpio_mux + port;
+-	if (info->wake_gpio)
++	if (info->wake_gpio) {
+ 		gpio_request(info->wake_gpio, "hsu");
+-	if (info->rx_gpio)
++    }
++	if (info->rx_gpio) {
+ 		gpio_request(info->rx_gpio, "hsu");
+-	if (info->tx_gpio)
++		gpio_export(info->rx_gpio, 1);
++    }
++	if (info->tx_gpio) {
+ 		gpio_request(info->tx_gpio, "hsu");
+-	if (info->cts_gpio)
++		gpio_export(info->tx_gpio, 1);
++    }
++	if (info->cts_gpio) {
+ 		gpio_request(info->cts_gpio, "hsu");
+-	if (info->rts_gpio)
++		gpio_export(info->cts_gpio, 1);
++    }
++	if (info->rts_gpio) {
+ 		gpio_request(info->rts_gpio, "hsu");
++		gpio_export(info->rts_gpio, 1);
++    }
+ 
+ 	return 1;
+ }
+-- 
+2.37.3
+

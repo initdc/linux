@@ -1,0 +1,26 @@
+From e26e413496eaaf2c092ec1ee307e1659c02df4a4 Mon Sep 17 00:00:00 2001
+From: Zhang Yanmin <yanmin.zhang@intel.com>
+Date: Tue, 18 Jun 2013 06:33:07 +0800
+Subject: [PATCH 090/429] init: enable X86_FEATURE_NONSTOP_TSC_S3 on Merrifield
+ platform
+
+Signed-off-by: Zhang Yanmin <yanmin.zhang@intel.com>
+---
+ arch/x86/kernel/cpu/intel.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/x86/kernel/cpu/intel.c b/arch/x86/kernel/cpu/intel.c
+index 8533e69d2b89..78537fcf5b8c 100644
+--- a/arch/x86/kernel/cpu/intel.c
++++ b/arch/x86/kernel/cpu/intel.c
+@@ -101,6 +101,7 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
+ 		switch (c->x86_model) {
+ 		case 0x27:	/* Penwell */
+ 		case 0x35:	/* Cloverview */
++		case 0x4A:	/* Merrifield */
+ 			set_cpu_cap(c, X86_FEATURE_NONSTOP_TSC_S3);
+ 			break;
+ 		default:
+-- 
+2.37.3
+

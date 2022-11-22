@@ -1,0 +1,37 @@
+From bdbc84d11be45290a25d16586a2c1789a2761e16 Mon Sep 17 00:00:00 2001
+From: Sudarshan Ramachandra <sudarshan.n.ramachandra@intel.com>
+Date: Sat, 5 Oct 2013 14:25:01 +0530
+Subject: [PATCH 081/429] Force high lapic timer values for non boot CPUs
+
+In K 3.10, S3 attempt by OS will be aborted by SCU because of
+ACK C6 Timeout. This is root caused to lower lapic timer
+values programmed to non boot CPUs before they are offlined
+when compared to values programmed in K 3.4. This patch
+programs a high value to lapic timers before offlineing them
+
+Signed-off-by: Ramachandra Sudarshan N <sudarshan.n.ramachandra@intel.com>
+---
+ arch/x86/kernel/smpboot.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/arch/x86/kernel/smpboot.c b/arch/x86/kernel/smpboot.c
+index 87084ab90d19..36af8bd0befb 100644
+--- a/arch/x86/kernel/smpboot.c
++++ b/arch/x86/kernel/smpboot.c
+@@ -1416,6 +1416,13 @@ static inline void mwait_play_dead(void)
+ 
+ 	wbinvd();
+ 
++	/*
++	 * FIXME: SCU will abort S3 entry with ACK C6 timeout
++	 * if the lapic timer value programmed is low.
++	 * Hence program a high value before offlineing the CPU
++	 */
++	apic_write(APIC_TMICT, ~0);
++
+ 	while (1) {
+ 		/*
+ 		 * The CLFLUSH is a workaround for erratum AAI65 for
+-- 
+2.37.3
+

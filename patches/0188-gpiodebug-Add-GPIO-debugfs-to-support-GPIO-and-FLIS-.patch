@@ -1,0 +1,1168 @@
+From 82f19e06ccd4c12fad0812e6a929ac068bbd9b40 Mon Sep 17 00:00:00 2001
+From: Huiquan Zhong <huiquan.zhong@intel.com>
+Date: Tue, 8 Oct 2013 02:25:52 +0800
+Subject: [PATCH 188/429] gpiodebug: Add GPIO debugfs to support GPIO and FLIS
+ Setting
+
+it can dump and set GPIO configuration, such as pinmux, pullmode,
+pullstrength, etc. create debugfs in
+	/sys/kernel/debug/gpio_debug/
+now it support TNG, VLV2 soc platform.
+
+Signed-off-by: Huiquan Zhong <huiquan.zhong@intel.com>
+---
+ drivers/gpio/Kconfig         |  11 +
+ drivers/gpio/Makefile        |   1 +
+ drivers/gpio/gpio-langwell.c | 316 +++++++++++++++++---
+ drivers/gpio/gpiodebug.c     | 540 +++++++++++++++++++++++++++++++++++
+ drivers/gpio/gpiodebug.h     | 108 +++++++
+ 5 files changed, 940 insertions(+), 36 deletions(-)
+ create mode 100644 drivers/gpio/gpiodebug.c
+ create mode 100644 drivers/gpio/gpiodebug.h
+
+diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
+index 573c449c49b9..9d527a7ad72b 100644
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -81,6 +81,17 @@ config GPIO_SYSFS
+ 	  Kernel drivers may also request that a particular GPIO be
+ 	  exported to userspace; this can be useful when debugging.
+ 
++config GPIODEBUG
++	tristate "GPIO Setting DEBUG"
++	depends on DEBUG_FS
++	help
++	  Say yes here to support GPIO/FLIS Setting Debug.
++
++	  This is mostly useful to dump and set gpio/flis conguration.
++
++	  Kernel drivers may also request that a particular GPIO be
++	  exported to userspace; this can be useful when debugging.
++
+ config GPIO_GENERIC
+ 	tristate
+ 
+diff --git a/drivers/gpio/Makefile b/drivers/gpio/Makefile
+index 0cb2d656ad16..2ecb79666e55 100644
+--- a/drivers/gpio/Makefile
++++ b/drivers/gpio/Makefile
+@@ -6,6 +6,7 @@ obj-$(CONFIG_GPIO_DEVRES)	+= devres.o
+ obj-$(CONFIG_GPIOLIB)		+= gpiolib.o
+ obj-$(CONFIG_OF_GPIO)		+= gpiolib-of.o
+ obj-$(CONFIG_GPIO_ACPI)		+= gpiolib-acpi.o
++obj-$(CONFIG_GPIODEBUG)		+= gpiodebug.o
+ 
+ # Device drivers. Generally keep list sorted alphabetically
+ obj-$(CONFIG_GPIO_GENERIC)	+= gpio-generic.o
+diff --git a/drivers/gpio/gpio-langwell.c b/drivers/gpio/gpio-langwell.c
+index e0295fa0da59..573b014bed8d 100644
+--- a/drivers/gpio/gpio-langwell.c
++++ b/drivers/gpio/gpio-langwell.c
+@@ -1,7 +1,5 @@
+-/*
+- * Moorestown platform Langwell chip GPIO driver
+- *
+- * Copyright (c) 2008 - 2009,  Intel Corporation.
++/* gpio-langwell.c Moorestown platform Langwell chip GPIO driver
++ * Copyright (c) 2008 - 2013,  Intel Corporation.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License version 2 as
+@@ -37,6 +35,7 @@
+ #include <linux/slab.h>
+ #include <linux/lnw_gpio.h>
+ #include <linux/pm_runtime.h>
++#include <asm/intel-mid.h>
+ #include <linux/irqdomain.h>
+ #include <asm/intel_scu_flis.h>
+ #include "gpiodebug.h"
+@@ -224,6 +223,7 @@ static void __iomem *gpio_reg(struct gpio_chip *chip, unsigned offset,
+ 	unsigned nreg = chip->ngpio / 32;
+ 	u8 reg = offset / 32;
+ 	void __iomem *ptr;
++	void *base;
+ 
+ 	/**
+ 	 * On TNG B0, GITR[0]'s address is 0xFF008300, while GPLR[0]'s address
+@@ -522,8 +522,10 @@ static int lnw_irq_type(struct irq_data *d, unsigned type)
+ 	u32 gpio = irqd_to_hwirq(d);
+ 	unsigned long flags;
+ 	u32 value;
++	int ret = 0;
+ 	void __iomem *grer = gpio_reg(&lnw->chip, gpio, GRER);
+ 	void __iomem *gfer = gpio_reg(&lnw->chip, gpio, GFER);
++	void __iomem *gpit, *gpip;
+ 
+ 	if (gpio >= lnw->chip.ngpio)
+ 		return -EINVAL;
+@@ -531,47 +533,217 @@ static int lnw_irq_type(struct irq_data *d, unsigned type)
+ 	if (lnw->pdev)
+ 		pm_runtime_get(&lnw->pdev->dev);
+ 
+-	spin_lock_irqsave(&lnw->lock, flags);
+-	if (type & IRQ_TYPE_EDGE_RISING)
+-		value = readl(grer) | BIT(gpio % 32);
+-	else
+-		value = readl(grer) & (~BIT(gpio % 32));
+-	writel(value, grer);
++	/* Chip that supports level interrupt has extra GPIT registers */
++	if (lnw->chip_irq_type & IRQ_TYPE_LEVEL) {
++		switch (lnw->type) {
++		case CLOVERVIEW_GPIO_AON:
++			gpit = gpio_reg(&lnw->chip, gpio, GPIT);
++			gpip = gpio_reg(&lnw->chip, gpio, GPIP);
++			break;
++		case TANGIER_GPIO:
++			gpit = gpio_reg(&lnw->chip, gpio, GITR);
++			gpip = gpio_reg(&lnw->chip, gpio, GLPR);
++			break;
++		default:
++			ret = -EINVAL;
++			goto out;
++		}
+ 
+-	if (type & IRQ_TYPE_EDGE_FALLING)
+-		value = readl(gfer) | BIT(gpio % 32);
+-	else
+-		value = readl(gfer) & (~BIT(gpio % 32));
+-	writel(value, gfer);
+-	spin_unlock_irqrestore(&lnw->lock, flags);
++		spin_lock_irqsave(&lnw->lock, flags);
++		if (type & IRQ_TYPE_LEVEL_MASK) {
++			/* To prevent glitches from triggering an unintended
++			 * level interrupt, configure GLPR register first
++			 * and then configure GITR.
++			 */
++			if (type & IRQ_TYPE_LEVEL_LOW)
++				value = readl(gpip) | BIT(gpio % 32);
++			else
++				value = readl(gpip) & (~BIT(gpio % 32));
++			writel(value, gpip);
+ 
++			value = readl(gpit) | BIT(gpio % 32);
++			writel(value, gpit);
++
++			__irq_set_handler_locked(d->irq, handle_level_irq);
++		} else if (type & IRQ_TYPE_EDGE_BOTH) {
++			value = readl(gpit) & (~BIT(gpio % 32));
++			writel(value, gpit);
++
++			if (type & IRQ_TYPE_EDGE_RISING)
++				value = readl(grer) | BIT(gpio % 32);
++			else
++				value = readl(grer) & (~BIT(gpio % 32));
++			writel(value, grer);
++
++			if (type & IRQ_TYPE_EDGE_FALLING)
++				value = readl(gfer) | BIT(gpio % 32);
++			else
++				value = readl(gfer) & (~BIT(gpio % 32));
++			writel(value, gfer);
++
++			__irq_set_handler_locked(d->irq, handle_edge_irq);
++		}
++		spin_unlock_irqrestore(&lnw->lock, flags);
++	} else {
++		if (type & IRQ_TYPE_LEVEL_MASK) {
++			ret = -EINVAL;
++		} else if (type & IRQ_TYPE_EDGE_BOTH) {
++			spin_lock_irqsave(&lnw->lock, flags);
++
++			if (type & IRQ_TYPE_EDGE_RISING)
++				value = readl(grer) | BIT(gpio % 32);
++			else
++				value = readl(grer) & (~BIT(gpio % 32));
++			writel(value, grer);
++
++			if (type & IRQ_TYPE_EDGE_FALLING)
++				value = readl(gfer) | BIT(gpio % 32);
++			else
++				value = readl(gfer) & (~BIT(gpio % 32));
++			writel(value, gfer);
++
++			spin_unlock_irqrestore(&lnw->lock, flags);
++		}
++	}
++
++out:
+ 	if (lnw->pdev)
+ 		pm_runtime_put(&lnw->pdev->dev);
+ 
++	return ret;
++}
++
++static int lnw_set_maskunmask(struct irq_data *d, enum GPIO_REG reg_type,
++				unsigned unmask)
++{
++	struct lnw_gpio *lnw = irq_data_get_irq_chip_data(d);
++	u32 gpio = irqd_to_hwirq(d);
++	unsigned long flags;
++	u32 value;
++	void __iomem *gp_reg;
++
++	gp_reg = gpio_reg(&lnw->chip, gpio, reg_type);
++
++	spin_lock_irqsave(&lnw->lock, flags);
++
++	if (unmask) {
++		/* enable interrupt from GPIO input pin */
++		value = readl(gp_reg) | BIT(gpio % 32);
++	} else {
++		/* disable interrupt from GPIO input pin */
++		value = readl(gp_reg) & (~BIT(gpio % 32));
++	}
++
++	writel(value, gp_reg);
++
++	spin_unlock_irqrestore(&lnw->lock, flags);
++
+ 	return 0;
+ }
+ 
+ static void lnw_irq_unmask(struct irq_data *d)
+ {
++	struct lnw_gpio *lnw = irq_data_get_irq_chip_data(d);
++	u32 gpio = irqd_to_hwirq(d);
++	void __iomem *gpit;
++
++	if (gpio >= lnw->chip.ngpio)
++		return;
++
++	switch (lnw->type) {
++	case CLOVERVIEW_GPIO_AON:
++		gpit = gpio_reg(&lnw->chip, gpio, GPIT);
++
++		/* if it's level trigger, unmask GPIM */
++		if (readl(gpit) & BIT(gpio % 32))
++			lnw_set_maskunmask(d, GPIM, 1);
++
++		break;
++	case TANGIER_GPIO:
++		lnw_set_maskunmask(d, GIMR, 1);
++		break;
++	default:
++		break;
++	}
+ }
+ 
+ static void lnw_irq_mask(struct irq_data *d)
+ {
++	struct lnw_gpio *lnw = irq_data_get_irq_chip_data(d);
++	u32 gpio = irqd_to_hwirq(d);
++	void __iomem *gpit;
++
++	if (gpio >= lnw->chip.ngpio)
++		return;
++
++	switch (lnw->type) {
++	case CLOVERVIEW_GPIO_AON:
++		gpit = gpio_reg(&lnw->chip, gpio, GPIT);
++
++		/* if it's level trigger, mask GPIM */
++		if (readl(gpit) & BIT(gpio % 32))
++			lnw_set_maskunmask(d, GPIM, 0);
++
++		break;
++	case TANGIER_GPIO:
++		lnw_set_maskunmask(d, GIMR, 0);
++		break;
++	default:
++		break;
++	}
+ }
+ 
++static int lwn_irq_set_wake(struct irq_data *d, unsigned on)
++{
++	return 0;
++}
++
++static void lnw_irq_ack(struct irq_data *d)
++{
++}
++
++static void lnw_irq_shutdown(struct irq_data *d)
++{
++	struct lnw_gpio *lnw = irq_data_get_irq_chip_data(d);
++	u32 gpio = irqd_to_hwirq(d);
++	unsigned long flags;
++	u32 value;
++	void __iomem *grer = gpio_reg(&lnw->chip, gpio, GRER);
++	void __iomem *gfer = gpio_reg(&lnw->chip, gpio, GFER);
++
++	spin_lock_irqsave(&lnw->lock, flags);
++	value = readl(grer) & (~BIT(gpio % 32));
++	writel(value, grer);
++	value = readl(gfer) & (~BIT(gpio % 32));
++	writel(value, gfer);
++	spin_unlock_irqrestore(&lnw->lock, flags);
++};
++
++
+ static struct irq_chip lnw_irqchip = {
+ 	.name		= "LNW-GPIO",
++	.flags		= IRQCHIP_SET_TYPE_MASKED,
+ 	.irq_mask	= lnw_irq_mask,
+ 	.irq_unmask	= lnw_irq_unmask,
+ 	.irq_set_type	= lnw_irq_type,
++	.irq_set_wake	= lwn_irq_set_wake,
++	.irq_ack	= lnw_irq_ack,
++	.irq_shutdown	= lnw_irq_shutdown,
+ };
+ 
+ static DEFINE_PCI_DEVICE_TABLE(lnw_gpio_ids) = {   /* pin number */
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x080f), .driver_data = 64 },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x081f), .driver_data = 96 },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x081a), .driver_data = 96 },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x08eb), .driver_data = 96 },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x08f7), .driver_data = 96 },
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x080f),
++		.driver_data = LINCROFT_GPIO },
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x081f),
++		.driver_data = PENWELL_GPIO_AON },
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x081a),
++		.driver_data = PENWELL_GPIO_CORE },
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x08eb),
++		.driver_data = CLOVERVIEW_GPIO_AON },
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x08f7),
++		.driver_data = CLOVERVIEW_GPIO_CORE },
++	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x1199),
++		.driver_data = TANGIER_GPIO },
+ 	{ 0, }
+ };
+ MODULE_DEVICE_TABLE(pci, lnw_gpio_ids);
+@@ -579,22 +751,43 @@ MODULE_DEVICE_TABLE(pci, lnw_gpio_ids);
+ static void lnw_irq_handler(unsigned irq, struct irq_desc *desc)
+ {
+ 	struct irq_data *data = irq_desc_get_irq_data(desc);
+-	struct lnw_gpio *lnw = irq_data_get_irq_handler_data(data);
+ 	struct irq_chip *chip = irq_data_get_irq_chip(data);
++	struct lnw_gpio *lnw;
++	struct gpio_debug *debug;
+ 	u32 base, gpio, mask;
+ 	unsigned long pending;
+-	void __iomem *gedr;
++	void __iomem *gp_reg;
++	enum GPIO_REG reg_type;
++	struct irq_desc *lnw_irq_desc;
++	unsigned int lnw_irq;
++	lnw = irq_data_get_irq_handler_data(data);
++
++	debug = lnw->debug;
++
++	reg_type = (lnw->type == TANGIER_GPIO) ? GISR : GEDR;
+ 
+ 	/* check GPIO controller to check which pin triggered the interrupt */
+ 	for (base = 0; base < lnw->chip.ngpio; base += 32) {
+-		gedr = gpio_reg(&lnw->chip, base, GEDR);
+-		while ((pending = readl(gedr))) {
++		gp_reg = gpio_reg(&lnw->chip, base, reg_type);
++		while ((pending = (lnw->type != TANGIER_GPIO) ?
++			readl(gp_reg) :
++			(readl(gp_reg) &
++			readl(gpio_reg(&lnw->chip, base, GIMR))))) {
+ 			gpio = __ffs(pending);
++			DEFINE_DEBUG_IRQ_CONUNT_INCREASE(lnw->chip.base +
++				base + gpio);
++			/* Mask irq if not requested in kernel */
++			lnw_irq = irq_find_mapping(lnw->domain, base + gpio);
++			lnw_irq_desc = irq_to_desc(lnw_irq);
++			if (lnw_irq_desc && unlikely(!lnw_irq_desc->action)) {
++				lnw_irq_mask(&lnw_irq_desc->irq_data);
++				continue;
++			}
++
+ 			mask = BIT(gpio);
+ 			/* Clear before handling so we can't lose an edge */
+-			writel(mask, gedr);
+-			generic_handle_irq(irq_find_mapping(lnw->domain,
+-							    base + gpio));
++			writel(mask, gp_reg);
++			generic_handle_irq(lnw_irq);
+ 		}
+ 	}
+ 
+@@ -1033,6 +1226,16 @@ static const struct irq_domain_ops lnw_gpio_irq_ops = {
+ 	.xlate = irq_domain_xlate_twocell,
+ };
+ 
++static int lnw_gpio_runtime_resume(struct device *dev)
++{
++	return 0;
++}
++
++static int lnw_gpio_runtime_suspend(struct device *dev)
++{
++	return 0;
++}
++
+ static int lnw_gpio_runtime_idle(struct device *dev)
+ {
+ 	int err = pm_schedule_suspend(dev, 500);
+@@ -1044,7 +1247,9 @@ static int lnw_gpio_runtime_idle(struct device *dev)
+ }
+ 
+ static const struct dev_pm_ops lnw_gpio_pm_ops = {
+-	SET_RUNTIME_PM_OPS(NULL, NULL, lnw_gpio_runtime_idle)
++	SET_RUNTIME_PM_OPS(lnw_gpio_runtime_suspend,
++			   lnw_gpio_runtime_resume,
++			   lnw_gpio_runtime_idle)
+ };
+ 
+ static int lnw_gpio_probe(struct pci_dev *pdev,
+@@ -1053,10 +1258,15 @@ static int lnw_gpio_probe(struct pci_dev *pdev,
+ 	void *base;
+ 	resource_size_t start, len;
+ 	struct lnw_gpio *lnw;
++	struct gpio_debug *debug;
+ 	u32 gpio_base;
+ 	u32 irq_base;
+ 	int retval;
+-	int ngpio = id->driver_data;
++	struct lnw_gpio_ddata_t *ddata;
++	int pid;
++
++	pid = id->driver_data;
++	ddata = &lnw_gpio_ddata[pid];
+ 
+ 	retval = pci_enable_device(pdev);
+ 	if (retval)
+@@ -1097,20 +1307,29 @@ static int lnw_gpio_probe(struct pci_dev *pdev,
+ 		goto err_ioremap;
+ 	}
+ 
++	lnw->type = pid;
+ 	lnw->reg_base = base;
++	lnw->reg_gplr = lnw->reg_base + ddata->gplr_offset;
++	lnw->get_flis_offset = ddata->get_flis_offset;
++	lnw->chip_irq_type = ddata->chip_irq_type;
+ 	lnw->chip.label = dev_name(&pdev->dev);
+ 	lnw->chip.request = lnw_gpio_request;
+ 	lnw->chip.direction_input = lnw_gpio_direction_input;
+ 	lnw->chip.direction_output = lnw_gpio_direction_output;
++	lnw->chip.set_pinmux = lnw_gpio_set_alt;
++	lnw->chip.get_pinmux = gpio_get_alt;
+ 	lnw->chip.get = lnw_gpio_get;
+ 	lnw->chip.set = lnw_gpio_set;
+ 	lnw->chip.to_irq = lnw_gpio_to_irq;
+ 	lnw->chip.base = gpio_base;
+-	lnw->chip.ngpio = ngpio;
++	lnw->chip.ngpio = ddata->ngpio;
+ 	lnw->chip.can_sleep = 0;
++	lnw->chip.set_debounce = lnw_gpio_set_debounce;
++	lnw->chip.dev = &pdev->dev;
+ 	lnw->pdev = pdev;
+-
+-	lnw->domain = irq_domain_add_simple(pdev->dev.of_node, ngpio, irq_base,
++	spin_lock_init(&lnw->lock);
++	lnw->domain = irq_domain_add_simple(pdev->dev.of_node,
++					    lnw->chip.ngpio, irq_base,
+ 					    &lnw_gpio_irq_ops, lnw);
+ 	if (!lnw->domain) {
+ 		retval = -ENOMEM;
+@@ -1125,15 +1344,40 @@ static int lnw_gpio_probe(struct pci_dev *pdev,
+ 	}
+ 
+ 	lnw_irq_init_hw(lnw);
+-
+ 	irq_set_handler_data(pdev->irq, lnw);
+ 	irq_set_chained_handler(pdev->irq, lnw_irq_handler);
+ 
+-	spin_lock_init(&lnw->lock);
+-
+ 	pm_runtime_put_noidle(&pdev->dev);
+ 	pm_runtime_allow(&pdev->dev);
+ 
++	/* add for gpiodebug */
++	debug = gpio_debug_alloc();
++	if (debug) {
++		__set_bit(TYPE_OVERRIDE_OUTDIR, debug->typebit);
++		__set_bit(TYPE_OVERRIDE_OUTVAL, debug->typebit);
++		__set_bit(TYPE_OVERRIDE_INDIR, debug->typebit);
++		__set_bit(TYPE_OVERRIDE_INVAL, debug->typebit);
++		__set_bit(TYPE_SBY_OVR_IO, debug->typebit);
++		__set_bit(TYPE_SBY_OVR_OUTVAL, debug->typebit);
++		__set_bit(TYPE_SBY_OVR_INVAL, debug->typebit);
++		__set_bit(TYPE_SBY_OVR_OUTDIR, debug->typebit);
++		__set_bit(TYPE_SBY_OVR_INDIR, debug->typebit);
++		__set_bit(TYPE_SBY_PUPD_STATE, debug->typebit);
++		__set_bit(TYPE_SBY_OD_DIS, debug->typebit);
++
++		debug->chip = &lnw->chip;
++		debug->ops = &lnw_gpio_debug_ops;
++		debug->private_data = lnw;
++		lnw->debug = debug;
++
++		retval = gpio_debug_register(debug);
++		if (retval) {
++			dev_err(&pdev->dev, "langwell gpio_debug_register failed %d\n",
++				retval);
++			gpio_debug_remove(debug);
++		}
++	}
++
+ 	return 0;
+ 
+ err_ioremap:
+diff --git a/drivers/gpio/gpiodebug.c b/drivers/gpio/gpiodebug.c
+new file mode 100644
+index 000000000000..cc5159b50bbd
+--- /dev/null
++++ b/drivers/gpio/gpiodebug.c
+@@ -0,0 +1,540 @@
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include<linux/slab.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++#include <linux/ctype.h>
++#include "gpiodebug.h"
++
++struct gpiodebug_data {
++	struct gpio_debug *debug;
++	int gpio;
++	unsigned int type;
++};
++
++enum {
++	REGISTER_FOPS = 0,
++	NORMAL_FOPS,
++	COUNT_FOPS,
++};
++
++static struct {
++	unsigned	fops_type;
++	unsigned	type;
++	char		*available_name;
++	char		*current_name;
++} global_array[] = {
++	{REGISTER_FOPS, TYPE_CONF_REG, "conf_reg", "conf_reg"},
++	{NORMAL_FOPS, TYPE_PIN_VALUE, "available_value",
++		"current_value"},
++	{NORMAL_FOPS, TYPE_DIRECTION, "available_direction",
++		"current_direction"},
++	{NORMAL_FOPS, TYPE_IRQ_TYPE, "available_irqtype",
++		"current_irqtype"},
++	{NORMAL_FOPS, TYPE_PINMUX, "available_pinmux",
++		"current_pinmux"},
++	{NORMAL_FOPS, TYPE_PULLMODE, "available_pullmode",
++		"current_pullmode"},
++	{NORMAL_FOPS, TYPE_PULLSTRENGTH, "available_pullstrength",
++		"current_pullstrength"},
++	{NORMAL_FOPS, TYPE_OPEN_DRAIN, "available_opendrain",
++		"current_opendrain"},
++	{COUNT_FOPS, TYPE_IRQ_COUNT, "irq_count", "irq_count"},
++	{NORMAL_FOPS, TYPE_WAKEUP, "available_wakeup", "current_wakeup"},
++	{COUNT_FOPS, TYPE_WAKEUP_COUNT, "wakeup_count", "wakeup_count"},
++	{NORMAL_FOPS, TYPE_DEBOUNCE, "available_debounce",
++		"current_debounce"},
++	{NORMAL_FOPS, TYPE_OVERRIDE_OUTDIR, "available_override_outdir",
++		"current_override_outdir"},
++	{NORMAL_FOPS, TYPE_OVERRIDE_OUTVAL, "available_override_outval",
++		"current_override_outval"},
++	{NORMAL_FOPS, TYPE_OVERRIDE_INDIR, "available_override_indir",
++		"current_override_indir"},
++	{NORMAL_FOPS, TYPE_OVERRIDE_INVAL, "available_override_inval",
++		"current_override_inval"},
++	{NORMAL_FOPS, TYPE_SBY_OVR_IO, "available_standby_trigger",
++		"current_standby_trigger"},
++	{NORMAL_FOPS, TYPE_SBY_OVR_OUTVAL, "available_standby_outval",
++		"current_standby_outval"},
++	{NORMAL_FOPS, TYPE_SBY_OVR_INVAL, "available_standby_inval",
++		"current_standby_inval"},
++	{NORMAL_FOPS, TYPE_SBY_OVR_OUTDIR, "available_standby_outdir",
++		"current_standby_outdir"},
++	{NORMAL_FOPS, TYPE_SBY_OVR_INDIR, "available_standby_indir",
++		"current_standby_indir"},
++	{NORMAL_FOPS, TYPE_SBY_PUPD_STATE, "available_standby_pullmode",
++		"current_standby_pullmode"},
++	{NORMAL_FOPS, TYPE_SBY_OD_DIS, "available_standby_opendrain",
++		"current_standby_opendrain"},
++
++};
++
++static struct dentry *gpio_root[ARCH_NR_GPIOS];
++static struct gpiodebug_data global_data[ARCH_NR_GPIOS][TYPE_MAX];
++
++static struct dentry *gpiodebug_debugfs_root;
++
++struct gpio_control *find_gpio_control(struct gpio_control *control, int num,
++			unsigned type)
++{
++	int i;
++
++	for (i = 0; i < num; i++) {
++		if ((control+i)->type == type)
++			break;
++	}
++
++	if (i < num)
++		return control+i;
++
++	return NULL;
++}
++
++int find_pininfo_num(struct gpio_control *control, const char *info)
++{
++	int num = 0;
++
++	while (num < control->num) {
++		if (!strcmp(*(control->pininfo+num), info))
++			break;
++		num++;
++	}
++
++	if (num < control->num)
++		return num;
++
++	return -1;
++}
++
++static struct dentry *gpiodebug_create_file(const char *name,
++			umode_t mode, struct dentry *parent,
++			void *data, const struct file_operations *fops)
++{
++	struct dentry *ret;
++
++	ret = debugfs_create_file(name, mode, parent, data, fops);
++	if (!ret)
++		pr_warn("Could not create debugfs '%s' entry\n", name);
++
++	return ret;
++}
++
++static int gpiodebug_open_file(struct inode *inode, struct file *filp)
++{
++	filp->private_data = inode->i_private;
++	return 0;
++}
++
++static const char readme_msg[] =
++	"\n GPIO Debug Tool-HOWTO (Example):\n\n"
++	"# mount -t debugfs nodev /sys/kernel/debug\n\n"
++	"# cat /sys/kernel/debug/gpio_debug/gpio0/available_pullmode\n"
++	"nopull	pullup	pulldown\n\n"
++	"# cat /sys/kernel/debug/gpio_debug/gpio0/current_pullmode\n"
++	"nopull\n"
++	"# echo pullup > /sys/kernel/debug/gpio_debug/gpio0/current_pullmode\n"
++	"# cat /sys/kernel/debug/gpio_debug/gpio0/current_pullmode\n"
++	"pullup\n\n"
++	"# cat conf_reg\n"
++	"0x00003120\n"
++	"# echo 0x00003121 > conf_reg\n"
++	"0x00003121\n\n"
++	"# cat irq_count\n"
++	"1\n";
++
++/* gpio_readme_fops */
++static ssize_t show_gpio_readme(struct file *filp, char __user *ubuf,
++		size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	ret = simple_read_from_buffer(ubuf, cnt, ppos, readme_msg,
++		strlen(readme_msg));
++
++	return ret;
++}
++
++static const struct file_operations gpio_readme_fops = {
++	.open		= gpiodebug_open_file,
++	.read		= show_gpio_readme,
++	.llseek		= generic_file_llseek,
++};
++
++/* gpio_reginfo_fops */
++static ssize_t show_gpio_reginfo(struct file *filp, char __user *ubuf,
++		size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++	struct gpio_debug *debug = filp->private_data;
++	unsigned long size;
++	char *buf;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	if (debug->ops->get_register_msg) {
++		debug->ops->get_register_msg(&buf, &size);
++		ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, size);
++	}
++
++	return ret;
++}
++
++static const struct file_operations gpio_reginfo_fops = {
++	.open		= gpiodebug_open_file,
++	.read		= show_gpio_reginfo,
++	.llseek		= generic_file_llseek,
++};
++
++
++/* gpio_conf_fops */
++static ssize_t gpio_conf_read(struct file *filp, char __user *ubuf,
++		size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++	struct gpiodebug_data *data = filp->private_data;
++	struct gpio_debug *debug = data->debug;
++	int gpio = data->gpio;
++	char *buf;
++	unsigned int value = 0;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	buf = kzalloc(cnt, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	if (debug->ops->get_conf_reg)
++		value = debug->ops->get_conf_reg(debug, gpio);
++
++	if (value == -EINVAL)
++		ret = sprintf(buf, "Invalid pin\n");
++	else
++		ret = sprintf(buf, "0x%08x\n", value);
++
++	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, ret);
++
++	kfree(buf);
++	return ret;
++}
++
++static ssize_t gpio_conf_write(struct file *filp, const char __user *ubuf,
++		size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++	struct gpiodebug_data *data = filp->private_data;
++	struct gpio_debug *debug = data->debug;
++	int i, gpio = data->gpio;
++	char *buf, *start;
++	unsigned int value;
++
++	ret = cnt;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	buf = kzalloc(cnt, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	if (copy_from_user(buf, ubuf, cnt))
++		return -EFAULT;
++
++	start = buf;
++
++	while (*start == ' ')
++		start++;
++
++	/* strip ending whitespace. */
++	for (i = cnt - 1; i > 0 && isspace(buf[i]); i--)
++		buf[i] = 0;
++
++	kstrtoul(start, 16, &value);
++
++	if (debug->ops->set_conf_reg)
++		debug->ops->set_conf_reg(debug, gpio, value);
++
++	*ppos += ret;
++
++	return ret;
++}
++
++static const struct file_operations gpio_conf_fops = {
++	.open		= gpiodebug_open_file,
++	.read		= gpio_conf_read,
++	.write		= gpio_conf_write,
++	.llseek		= generic_file_llseek,
++};
++
++/* show_gpiodebug_fops */
++static ssize_t gpiodebug_show_read(struct file *filp, char __user *ubuf,
++		size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++	struct gpiodebug_data *data = filp->private_data;
++	struct gpio_debug *debug = data->debug;
++	unsigned int type = data->type;
++	int i, num = 0;
++	int gpio = data->gpio;
++	char *buf, **avl_buf = NULL;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	buf = kzalloc(cnt, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	/* debug->ops->get_avl_info */
++	if (debug->ops->get_avl_pininfo) {
++		avl_buf = debug->ops->get_avl_pininfo(debug, gpio, type, &num);
++
++		for (i = 0; i < num; i++)
++			sprintf(buf, "%s%s\t", buf, *(avl_buf+i));
++	}
++
++	ret = sprintf(buf, "%s\n", buf);
++
++	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, ret);
++
++	kfree(buf);
++
++	return ret;
++}
++
++static const struct file_operations show_gpiodebug_fops = {
++	.open		= gpiodebug_open_file,
++	.read		= gpiodebug_show_read,
++	.llseek		= generic_file_llseek,
++};
++
++/* set_gpiodebug_fops */
++static ssize_t gpiodebug_set_gpio_read(struct file *filp, char __user *ubuf,
++		size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++	struct gpiodebug_data *data = filp->private_data;
++	struct gpio_debug *debug = data->debug;
++	unsigned int type = data->type;
++	int gpio = data->gpio;
++	char *buf, *cur_info = NULL;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	buf = kzalloc(cnt, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	if (debug->ops->get_cul_pininfo)
++		cur_info = debug->ops->get_cul_pininfo(debug, gpio, type);
++
++	if (cur_info)
++		ret = sprintf(buf, "%s\n", cur_info);
++	else
++		ret = sprintf(buf, "\n");
++
++	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, ret);
++
++	kfree(buf);
++
++	return ret;
++}
++
++static ssize_t gpiodebug_set_gpio_write(struct file *filp,
++		const char __user *ubuf, size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++	struct gpiodebug_data *data = filp->private_data;
++	struct gpio_debug *debug = data->debug;
++	unsigned int type = data->type;
++	int i, gpio = data->gpio;
++	char *buf;
++
++	ret = cnt;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	buf = kzalloc(cnt, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	if (copy_from_user(buf, ubuf, cnt))
++		return -EFAULT;
++
++	/* strip ending whitespace. */
++	for (i = cnt - 1; i > 0 && isspace(buf[i]); i--)
++		buf[i] = 0;
++
++	if (debug->ops->set_pininfo)
++		debug->ops->set_pininfo(debug, gpio, type, buf);
++
++	*ppos += ret;
++
++	return ret;
++}
++
++static const struct file_operations set_gpiodebug_fops = {
++	.open		= gpiodebug_open_file,
++	.read		= gpiodebug_set_gpio_read,
++	.write		= gpiodebug_set_gpio_write,
++	.llseek		= generic_file_llseek,
++};
++
++/* show_count_fops */
++static ssize_t show_count_read(struct file *filp, char __user *ubuf,
++		size_t cnt, loff_t *ppos)
++{
++	ssize_t ret = 0;
++	struct gpiodebug_data *data = filp->private_data;
++	struct gpio_debug *debug = data->debug;
++	unsigned int type = data->type;
++	unsigned long count = 0;
++	int gpio = data->gpio;
++	char *buf;
++
++	if (*ppos < 0 || !cnt)
++		return -EINVAL;
++
++	buf = kzalloc(cnt, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	if (type == TYPE_IRQ_COUNT)
++		count = debug->irq_count[gpio];
++	else if (type == TYPE_WAKEUP_COUNT)
++		count = debug->wakeup_count[gpio];
++
++	ret = sprintf(buf, "%ld\n", count);
++
++	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, ret);
++
++	kfree(buf);
++
++	return ret;
++}
++
++static const struct file_operations show_count_fops = {
++	.open		= gpiodebug_open_file,
++	.read		= show_count_read,
++	.llseek		= generic_file_llseek,
++};
++
++/******************************************************************************/
++struct gpio_debug *gpio_debug_alloc(void)
++{
++	struct gpio_debug *debug;
++
++	debug = kzalloc(sizeof(struct gpio_debug), GFP_KERNEL);
++	if (debug) {
++		__set_bit(TYPE_CONF_REG, debug->typebit);
++		__set_bit(TYPE_PIN_VALUE, debug->typebit);
++		__set_bit(TYPE_DIRECTION, debug->typebit);
++		__set_bit(TYPE_IRQ_TYPE, debug->typebit);
++		__set_bit(TYPE_PINMUX, debug->typebit);
++		__set_bit(TYPE_PULLMODE, debug->typebit);
++		__set_bit(TYPE_PULLSTRENGTH, debug->typebit);
++		__set_bit(TYPE_OPEN_DRAIN, debug->typebit);
++		__set_bit(TYPE_IRQ_COUNT, debug->typebit);
++		__set_bit(TYPE_DEBOUNCE, debug->typebit);
++	}
++
++	return debug;
++}
++
++void gpio_debug_remove(struct gpio_debug *debug)
++{
++	struct gpio_chip *chip = debug->chip;
++	int base = chip->base;
++	unsigned ngpio = chip->ngpio;
++	int i;
++
++	for (i = base; i < base+ngpio; i++)
++		debugfs_remove_recursive(gpio_root[i]);
++
++	kfree(debug);
++}
++
++int gpio_debug_register(struct gpio_debug *debug)
++{
++	struct gpio_chip *chip = debug->chip;
++	int base = chip->base;
++	unsigned ngpio = chip->ngpio;
++	int i, j;
++	char gpioname[32];
++
++	for (i = base; i < base+ngpio; i++) {
++		sprintf(gpioname, "gpio%d", i);
++		gpio_root[i] = debugfs_create_dir(gpioname,
++				gpiodebug_debugfs_root);
++		if (!gpio_root[i]) {
++			pr_warn("gpiodebug: Failed to create debugfs directory\n");
++			return -ENOMEM;
++		}
++
++		/* register info */
++		gpiodebug_create_file("register_info", 0444, gpio_root[i],
++			debug, &gpio_reginfo_fops);
++
++		for (j = 0; j < ARRAY_SIZE(global_array); j++) {
++			if (test_bit(global_array[j].type, debug->typebit)) {
++				global_data[i][j].gpio = i;
++				global_data[i][j].debug = debug;
++				global_data[i][j].type = global_array[j].type;
++
++				switch (global_array[j].fops_type) {
++				case REGISTER_FOPS:
++					gpiodebug_create_file(
++					  global_array[j].current_name, 0644,
++					  gpio_root[i], &global_data[i][j],
++					  &gpio_conf_fops);
++					break;
++				case NORMAL_FOPS:
++					gpiodebug_create_file(
++					  global_array[j].available_name, 0444,
++					  gpio_root[i], &global_data[i][j],
++					  &show_gpiodebug_fops);
++
++					gpiodebug_create_file(
++					  global_array[j].current_name, 0644,
++					  gpio_root[i], &global_data[i][j],
++					  &set_gpiodebug_fops);
++					break;
++				case COUNT_FOPS:
++					gpiodebug_create_file(
++					  global_array[j].current_name, 0444,
++					  gpio_root[i], &global_data[i][j],
++					  &show_count_fops);
++					break;
++				default:
++					break;
++				}
++			}
++		}
++	}
++
++	return 0;
++}
++
++static int __init gpio_debug_init(void)
++{
++	gpiodebug_debugfs_root = debugfs_create_dir("gpio_debug", NULL);
++	if (IS_ERR(gpiodebug_debugfs_root) || !gpiodebug_debugfs_root) {
++		pr_warn("gpiodebug: Failed to create debugfs directory\n");
++		gpiodebug_debugfs_root = NULL;
++	}
++
++	/* readme */
++	gpiodebug_create_file("readme", 0444, gpiodebug_debugfs_root,
++		NULL, &gpio_readme_fops);
++
++	return 0;
++}
++
++subsys_initcall(gpio_debug_init);
+diff --git a/drivers/gpio/gpiodebug.h b/drivers/gpio/gpiodebug.h
+new file mode 100644
+index 000000000000..f1d58a5d4877
+--- /dev/null
++++ b/drivers/gpio/gpiodebug.h
+@@ -0,0 +1,108 @@
++#ifndef __GPIO_DEBUG_H_
++#define __GPIO_DEBUG_H_
++
++#include <linux/gpio.h>
++
++struct gpio_debug;
++
++#define TYPE_CONF_REG			0x00
++#define TYPE_PIN_VALUE			0x01
++#define TYPE_DIRECTION			0x02
++#define TYPE_IRQ_TYPE			0x03
++#define TYPE_PINMUX			0x04
++#define TYPE_PULLMODE			0x05
++#define TYPE_PULLSTRENGTH		0x06
++#define TYPE_OPEN_DRAIN			0x07
++
++#define TYPE_IRQ_COUNT			0x08
++#define TYPE_WAKEUP			0x09
++#define TYPE_WAKEUP_COUNT		0x0A
++#define TYPE_OVERRIDE_OUTDIR		0x0B
++#define TYPE_OVERRIDE_OUTVAL		0x0C
++#define TYPE_OVERRIDE_INDIR		0x0D
++#define TYPE_OVERRIDE_INVAL		0x0E
++#define TYPE_DEBOUNCE			0x0F
++
++#define TYPE_SBY_OVR_IO			0x10
++#define TYPE_SBY_OVR_OUTVAL		0x11
++#define TYPE_SBY_OVR_INVAL		0x12
++#define TYPE_SBY_OVR_OUTDIR		0x13
++#define TYPE_SBY_OVR_INDIR		0x14
++#define TYPE_SBY_PUPD_STATE		0x15
++#define TYPE_SBY_OD_DIS			0x16
++#define TYPE_MAX			0x17
++
++struct gpio_control {
++	unsigned type, num;
++	char	 **pininfo;
++	u32	reg, invert;
++	u32 shift, rshift;
++	u32	mask;
++	int (*get)(struct gpio_control *control, void *private_data,
++		unsigned gpio);
++	int (*set)(struct gpio_control *control, void *private_data,
++		unsigned gpio, unsigned int num);
++};
++
++struct gpio_debug_ops {
++	unsigned int (*get_conf_reg)(struct gpio_debug *debug, unsigned gpio);
++	void	(*set_conf_reg)(struct gpio_debug *debug, unsigned gpio,
++			unsigned int value);
++	char	**(*get_avl_pininfo)(struct gpio_debug *debug, unsigned gpio,
++			unsigned int type, unsigned *num);
++	char	*(*get_cul_pininfo)(struct gpio_debug *debug, unsigned gpio,
++			unsigned int type);
++	void	(*set_pininfo)(struct gpio_debug *debug, unsigned gpio,
++			unsigned int type, const char *info);
++	int	(*get_register_msg)(char **buf, unsigned long *size);
++};
++
++struct gpio_debug {
++	unsigned long		typebit[BITS_TO_LONGS(TYPE_MAX)];
++	struct gpio_chip	*chip;
++	struct gpio_debug_ops	*ops;
++	unsigned long		irq_count[ARCH_NR_GPIOS];
++	unsigned long		wakeup_count[ARCH_NR_GPIOS];
++	void			*private_data;
++};
++
++#ifdef CONFIG_GPIODEBUG
++
++#define DEFINE_DEBUG_IRQ_CONUNT_INCREASE(gpio) (debug->irq_count[gpio]++)
++
++struct gpio_control *find_gpio_control(struct gpio_control *control, int num,
++			unsigned type);
++int find_pininfo_num(struct gpio_control *control, const char *info);
++
++struct gpio_debug *gpio_debug_alloc(void);
++void gpio_debug_remove(struct gpio_debug *debug);
++int gpio_debug_register(struct gpio_debug *debug);
++#else
++
++#define DEFINE_DEBUG_IRQ_CONUNT_INCREASE(gpio)
++
++static inline struct gpio_control *find_gpio_control(
++			struct gpio_control *control, int num, unsigned type)
++{
++	return NULL;
++}
++static inline int find_pininfo_num(struct gpio_control *control,
++			const char *info)
++{
++	return 0;
++}
++static inline struct gpio_debug *gpio_debug_alloc(void)
++{
++	return NULL;
++}
++
++static inline void gpio_debug_remove(struct gpio_debug *debug)
++{
++	return NULL;
++}
++static inline int gpio_debug_register(struct gpio_debug *debug)
++{
++	return 0;
++}
++#endif
++#endif
+-- 
+2.37.3
+

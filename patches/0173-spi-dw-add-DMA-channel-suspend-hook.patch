@@ -1,0 +1,113 @@
+From c2864e63e8bf1feecbd80e329e43c71f4c62f3c8 Mon Sep 17 00:00:00 2001
+From: "Li, Ning" <ning.li@intel.com>
+Date: Thu, 1 Aug 2013 02:19:39 +0800
+Subject: [PATCH 173/429] spi-dw: add DMA channel suspend hook
+
+When SPI DMA mode is enabled and system trying to enter S3,
+DMA suspend will fail.
+
+This patch adds DMA channel suspend hooks in SPI DMA driver.
+When SPI controller suspends, put dma channel suspend.
+
+Signed-off-by: Li, Ning <ning.li@intel.com>
+---
+ drivers/spi/spi-dw-mid.c | 31 +++++++++++++++++++++++++++++++
+ drivers/spi/spi-dw.c     |  9 +++++++++
+ drivers/spi/spi-dw.h     |  2 ++
+ 3 files changed, 42 insertions(+)
+
+diff --git a/drivers/spi/spi-dw-mid.c b/drivers/spi/spi-dw-mid.c
+index 32a38b70b4df..8ca9bbd8156c 100644
+--- a/drivers/spi/spi-dw-mid.c
++++ b/drivers/spi/spi-dw-mid.c
+@@ -206,10 +206,41 @@ static int mid_spi_dma_transfer(struct dw_spi *dws, int cs_change)
+ 	return 0;
+ }
+ 
++static int mid_spi_dma_suspend(struct dw_spi *dws)
++{
++	struct dma_chan *txchan, *rxchan;
++
++	txchan = dws->txchan;
++	rxchan = dws->rxchan;
++
++	txchan->device->device_control(txchan, DMA_TERMINATE_ALL, 0);
++	rxchan->device->device_control(rxchan, DMA_TERMINATE_ALL, 0);
++
++	txchan->device->device_control(txchan, DMA_PAUSE, 0);
++	rxchan->device->device_control(rxchan, DMA_PAUSE, 0);
++
++	return 0;
++}
++
++static int mid_spi_dma_resume(struct dw_spi *dws)
++{
++	struct dma_chan *txchan, *rxchan;
++
++	txchan = dws->txchan;
++	rxchan = dws->rxchan;
++
++	txchan->device->device_control(txchan, DMA_RESUME, 0);
++	rxchan->device->device_control(rxchan, DMA_RESUME, 0);
++
++	return 0;
++}
++
+ static struct dw_spi_dma_ops mid_dma_ops = {
+ 	.dma_init	= mid_spi_dma_init,
+ 	.dma_exit	= mid_spi_dma_exit,
+ 	.dma_transfer	= mid_spi_dma_transfer,
++	.dma_suspend	= mid_spi_dma_suspend,
++	.dma_resume	= mid_spi_dma_resume,
+ };
+ #endif
+ 
+diff --git a/drivers/spi/spi-dw.c b/drivers/spi/spi-dw.c
+index 5d2c4b8db661..1851f3b17af5 100644
+--- a/drivers/spi/spi-dw.c
++++ b/drivers/spi/spi-dw.c
+@@ -930,8 +930,13 @@ int dw_spi_suspend_host(struct dw_spi *dws)
+ 	ret = dw_spi_stop_queue(dws);
+ 	if (ret)
+ 		return ret;
++
+ 	spi_enable_chip(dws, 0);
+ 	spi_set_clk(dws, 0);
++
++	if (dws->dma_inited)
++		dws->dma_ops->dma_suspend(dws);
++
+ 	return ret;
+ }
+ EXPORT_SYMBOL_GPL(dw_spi_suspend_host);
+@@ -940,10 +945,14 @@ int dw_spi_resume_host(struct dw_spi *dws)
+ {
+ 	int ret;
+ 
++	if (dws->dma_inited)
++		dws->dma_ops->dma_resume(dws);
++
+ 	dw_spi_hw_init(dws);
+ 	ret = dw_spi_start_queue(dws);
+ 	if (ret)
+ 		dev_err(&dws->master->dev, "fail to start queue (%d)\n", ret);
++
+ 	return ret;
+ }
+ EXPORT_SYMBOL_GPL(dw_spi_resume_host);
+diff --git a/drivers/spi/spi-dw.h b/drivers/spi/spi-dw.h
+index e1e93ebfff5b..2aaccb71fafa 100644
+--- a/drivers/spi/spi-dw.h
++++ b/drivers/spi/spi-dw.h
+@@ -87,6 +87,8 @@ struct dw_spi_dma_ops {
+ 	int (*dma_init)(struct dw_spi *dws);
+ 	void (*dma_exit)(struct dw_spi *dws);
+ 	int (*dma_transfer)(struct dw_spi *dws, int cs_change);
++	int (*dma_suspend)(struct dw_spi *dws);
++	int (*dma_resume)(struct dw_spi *dws);
+ };
+ 
+ struct dw_spi {
+-- 
+2.37.3
+

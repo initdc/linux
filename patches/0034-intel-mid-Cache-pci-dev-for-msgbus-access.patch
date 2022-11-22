@@ -1,0 +1,89 @@
+From 58c204adbb192ec96eb02570d05189b0dd305168 Mon Sep 17 00:00:00 2001
+From: Dale Stimson <dale.b.stimson@intel.com>
+Date: Wed, 31 Oct 2012 16:29:36 -0700
+Subject: [PATCH 034/429] intel-mid: Cache pci dev for msgbus access
+
+Pre-determine and cache the pci_dev handle required for msgbus access.
+This improves efficiency and allows access from an atomic context,
+avoiding the issues described below.
+
+In intel_mid.c, functions intel_mid_msgbus_read32_raw,
+intel_mid_msgbus_write32_raw, intel_mid_msgbus_read32, and
+intel_mid_msgbus_write32 presently call function pci_get_bus_and_slot.
+
+This is problematic, because the resulting search through the pci
+data structures for each access is slow and because the call to
+pci_get_bus_and_slot might sleep (as it does memory allocation with
+GFP_KERNEL) and is therefore not suitable for being called from an
+atomic context.
+
+Signed-off-by: Dale Stimson <dale.b.stimson@intel.com>
+---
+ arch/x86/platform/intel-mid/intel-mid.c | 28 +++++++++++++++----------
+ 1 file changed, 17 insertions(+), 11 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel-mid.c b/arch/x86/platform/intel-mid/intel-mid.c
+index c8b0c56af753..dcadefe622a8 100644
+--- a/arch/x86/platform/intel-mid/intel-mid.c
++++ b/arch/x86/platform/intel-mid/intel-mid.c
+@@ -80,40 +80,46 @@ static unsigned long __init intel_mid_calibrate_tsc(void)
+ 	return 0;
+ }
+ /* Unified message bus read/write operation */
+-DEFINE_SPINLOCK(msgbus_lock);
++static DEFINE_SPINLOCK(msgbus_lock);
++
++static struct pci_dev *pci_root;
++
++static int intel_mid_msgbus_init(void)
++{
++	pci_root = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
++	if (!pci_root) {
++		printk(KERN_ALERT "%s: Error: msgbus PCI handle NULL",
++			__func__);
++		return -ENODEV;
++	}
++	return 0;
++}
++
++fs_initcall(intel_mid_msgbus_init);
++
+ 
+ u32 intel_mid_msgbus_read32_raw(u32 cmd)
+ {
+-	struct pci_dev *pci_root;
+ 	unsigned long irq_flags;
+ 	u32 data;
+ 
+-	pci_root = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
+-
+ 	spin_lock_irqsave(&msgbus_lock, irq_flags);
+ 	pci_write_config_dword(pci_root, PCI_ROOT_MSGBUS_CTRL_REG, cmd);
+ 	pci_read_config_dword(pci_root, PCI_ROOT_MSGBUS_DATA_REG, &data);
+ 	spin_unlock_irqrestore(&msgbus_lock, irq_flags);
+ 
+-	pci_dev_put(pci_root);
+-
+ 	return data;
+ }
+ EXPORT_SYMBOL(intel_mid_msgbus_read32_raw);
+ 
+ void intel_mid_msgbus_write32_raw(u32 cmd, u32 data)
+ {
+-	struct pci_dev *pci_root;
+ 	unsigned long irq_flags;
+ 
+-	pci_root = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
+-
+ 	spin_lock_irqsave(&msgbus_lock, irq_flags);
+ 	pci_write_config_dword(pci_root, PCI_ROOT_MSGBUS_DATA_REG, data);
+ 	pci_write_config_dword(pci_root, PCI_ROOT_MSGBUS_CTRL_REG, cmd);
+ 	spin_unlock_irqrestore(&msgbus_lock, irq_flags);
+-
+-	pci_dev_put(pci_root);
+ }
+ EXPORT_SYMBOL(intel_mid_msgbus_write32_raw);
+ 
+-- 
+2.37.3
+

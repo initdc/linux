@@ -1,0 +1,161 @@
+From 5843ef2cd400316cffec1f29d5c3d58d417aacca Mon Sep 17 00:00:00 2001
+From: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+Date: Thu, 22 Aug 2013 12:29:03 +0530
+Subject: [PATCH 117/429] intel-mid: Do not BUG() if TRIGGERERR
+
+Do not BUG() and keep the kernel in dark. If TRIGGERERR happens
+during early boot even before console is initialized, it is hard
+to know where the kernel has crashed.
+
+By having WARN(), some nice dumps like below helps in further
+debug the crash/panic caused.
+
+[    6.346149] Dumping out pmu logs
+[    6.346170] Timestamp: 0.890000000
+[    6.346170]
+[    6.346190] ---------------------------------------
+[    6.346190]
+[    6.346210] 5 last pmu commands:
+[    6.346227] Timestamp: 0.860000000
+[    6.346241] PM_CMD = Interactive_CMD IOC bit not set.
+[    6.346257] pmu2_states[0]: 0x00000000
+[    6.346272] pmu2_states[1]: 0x00c00ff0
+[    6.346288] pmu2_states[2]: 0x000003fc
+[    6.346303] pmu2_states[3]: 0x000033cc
+[    6.346315]
+[    6.346331] Timestamp: 0.230000000
+[    6.346344] PM_CMD = Interactive_CMD IOC bit not set.
+[    6.346361] pmu2_states[0]: 0x300f0ec0
+[    6.346377] pmu2_states[1]: 0x00c00ff0
+[    6.346392] pmu2_states[2]: 0x000003fc
+[    6.346410] HSU serial 0000:00:05.1: FUNC: 1 driver: 1 addr:ffa28100 len:80
+[    6.346426] pmu2_states[3]: 0x000033cc
+[    6.346439]
+[    6.346454] Timestamp: 0.000000000
+[    6.346466] Invalid PM_CMD
+[    6.346480] pmu2_states[0]: 0x00000000
+[    6.346496] pmu2_states[1]: 0x00000000
+[    6.346511] pmu2_states[2]: 0x00000000
+[    6.346515] Found a Intel HSU
+[    6.346537] pmu2_states[3]: 0x00000000
+[    6.346549]
+[    6.346563] Timestamp: 0.000000000
+[    6.346576] Invalid PM_CMD
+[    6.346590] pmu2_states[0]: 0x00000000
+[    6.346605] pmu2_states[1]: 0x00000000
+[    6.346619] pmu2_states[2]: 0x00000000
+[    6.346635] pmu2_states[3]: 0x00000000
+[    6.346647]
+[    6.346662] Timestamp: 0.000000000
+[    6.346676] Invalid PM_CMD
+[    6.346692] pmu2_states[0]: 0x00000000
+[    6.346707] pmu2_states[1]: 0x00000000
+[    6.346722] pmu2_states[2]: 0x00000000
+[    6.346737] pmu2_states[3]: 0x00000000
+
+...
+...
+[    6.347400] ------------[ cut here ]------------
+[    6.347443] WARNING: at arch/x86/platform/intel-mid/intel_soc_pmu.c:427 pmu_sc_irq+0x141/0x180()
+[    6.347458] pmu_sc_irq: TRIGGERERR caused, however proceeding...
+[    6.347471] Modules linked in:
+[    6.347504] CPU: 1 PID: 6 Comm: kworker/u8:0 Tainted: G        W    3.10.1-gcb5ad95-dirty #10
+[    6.347514] 0000:00:05.1: ttyMFD1 at MMIO 0xffa28100 (irq = 61) is a hsu_modem_port_p
+[    6.347539] Hardware name: Intel Corporation CloverTrail/FFRD, BIOS 372 2013.07.02:09.13.56
+[    6.347572] Workqueue: kmmcd mmc_rescan
+[    6.347592]  f3b8ff78 f3b8ff78 f3b8ff40 c184ddd6 f3b8ff68 c123caa4 c1a37c88 f3b8ff94
+[    6.347657]  000001ab c1231c91 c1231c91 f33e50c0 f33e5110 f33e6580 f3b8ff80 c123cb63
+[    6.347719]  00000009 f3b8ff78 c1a37c88 f3b8ff94 f3b8ff98 c1231c91 c1a37cb8 000001ab
+[    6.347783] Call Trace:
+[    6.347824]  [<c184ddd6>] dump_stack+0x16/0x18
+[    6.347859]  [<c123caa4>] warn_slowpath_common+0x64/0x80
+[    6.347896]  [<c1231c91>] ? pmu_sc_irq+0x141/0x180
+[    6.347928]  [<c1231c91>] ? pmu_sc_irq+0x141/0x180
+
+...
+...
+
+[    6.348559]  [<c169e6d7>] ? mmc_regulator_set_ocr+0xf7/0x110
+[    6.348594]  [<c16b6189>] ? sdhci_do_set_ios+0x99/0x410
+[    6.348628]  [<c16b65b4>] ? sdhci_set_ios+0x34/0x50
+[    6.348659]  [<c16a0a77>] ? mmc_power_up+0x97/0x220
+[    6.348691]  [<c169f54c>] ? __mmc_claim_host+0xfc/0x170
+[    6.348728]  [<c126d050>] ? try_to_wake_up+0x240/0x240
+[    6.348760]  [<c16a23bc>] ? mmc_rescan+0x20c/0x2e0
+[    6.348796]  [<c12583cd>] ? process_one_work+0x11d/0x3c0
+[    6.348826]  [<c1258a49>] ? worker_thread+0xf9/0x320
+[    6.348855]  [<c1853c47>] ? _raw_spin_unlock_irqrestore+0x47/0x50
+[    6.348887]  [<c1258950>] ? rescuer_thread+0x2b0/0x2b0
+[    6.348927]  [<c125e464>] ? kthread+0x94/0xa0
+[    6.348964]  [<c1260000>] ? posix_cpu_timer_set+0xd0/0x4b0
+[    6.349002]  [<c185a5f7>] ? ret_from_kernel_thread+0x1b/0x28
+[    6.349039]  [<c125e3d0>] ? kthread_create_on_node+0xc0/0xc0
+[    6.349068] ---[ end trace 580676111580b942 ]---
+
+...
+...
+
+[    7.748196] ------------[ cut here ]------------
+[    7.748289] WARNING: at arch/x86/platform/intel-mid/intel_soc_pmu.c:206 _pmu2_wait_not_busy+0x5d/0x70()
+[    7.748425] pmu2 busy!
+[    7.748462] Modules linked in:
+[    7.748595] CPU: 0 PID: 4 Comm: kworker/0:0 Tainted: G        W    3.10.1-gcb5ad95-dirty #10
+[    7.748693] Hardware name: Intel Corporation CloverTrail/FFRD, BIOS 372 2013.07.02:09.13.56
+[    7.748805] Workqueue: pm pm_runtime_work
+[    7.748869]  f3897d70 f3897d70 f3897d38 c184ddd6 f3897d60 c123caa4 c1a2e62b f3897d8c
+[    7.749044]  000000ce c123238d c123238d 00000000 00000001 f33df800 f3897d78 c123cb63
+[    7.749265]  00000009 f3897d70 c1a2e62b f3897d8c f3897d90 c123238d c1a37cb8 000000ce
+[    7.749435] Call Trace:
+[    7.749504]  [<c184ddd6>] dump_stack+0x16/0x18
+[    7.749582]  [<c123caa4>] warn_slowpath_common+0x64/0x80
+[    7.749720]  [<c123238d>] ? _pmu2_wait_not_busy+0x5d/0x70
+[    7.749804]  [<c123238d>] ? _pmu2_wait_not_busy+0x5d/0x70
+[    7.749891]  [<c123cb63>] warn_slowpath_fmt+0x33/0x40
+[    7.749972]  [<c123238d>] _pmu2_wait_not_busy+0x5d/0x70
+[    7.750060]  [<c183bf29>] pmu_pci_set_power_state+0x139/0x7e0
+[    7.750150]  [<c1853c24>] ? _raw_spin_unlock_irqrestore+0x24/0x50
+[    7.750295]  [<c171c105>] ? pci_mmcfg_read+0xb5/0x130
+[    7.750394]  [<c1491249>] pci_platform_power_transition+0x39/0x90
+[    7.750487]  [<c14912c1>] __pci_complete_power_transition+0x21/0x70
+[    7.750581]  [<c14917f4>] pci_set_power_state+0x84/0x120
+[    7.750667]  [<c1491c3b>] pci_finish_runtime_suspend+0x5b/0xa0
+[    7.750759]  [<c1492e08>] pci_pm_runtime_suspend+0xc8/0x120
+[    7.750898]  [<c1492d40>] ? pci_pm_runtime_resume+0xb0/0xb0
+[    7.750989]  [<c1492d40>] ? pci_pm_runtime_resume+0xb0/0xb0
+[    7.751075]  [<c152252f>] __rpm_callback+0x2f/0x80
+[    7.751153]  [<c15225a8>] rpm_callback+0x28/0x80
+[    7.751230]  [<c1522700>] rpm_suspend+0x100/0x5f0
+[    7.751315]  [<c1857295>] ? add_preempt_count+0x35/0x40
+[    7.751446]  [<c1523cf2>] pm_runtime_work+0x82/0xb0
+[    7.751529]  [<c12583cd>] process_one_work+0x11d/0x3c0
+[    7.751687]  [<c1257b35>] ? manage_workers.isra.24+0x1b5/0x270
+[    7.751784]  [<c1258a49>] worker_thread+0xf9/0x320
+[    7.751863]  [<c1853c47>] ? _raw_spin_unlock_irqrestore+0x47/0x50
+[    7.751955]  [<c1258950>] ? rescuer_thread+0x2b0/0x2b0
+[    7.752038]  [<c125e464>] kthread+0x94/0xa0
+[    7.752113]  [<c1260000>] ? posix_cpu_timer_set+0xd0/0x4b0
+[    7.752255]  [<c185a5f7>] ret_from_kernel_thread+0x1b/0x28
+[    7.752343]  [<c125e3d0>] ? kthread_create_on_node+0xc0/0xc0
+[    7.752427] ---[ end trace 580676111580b944 ]---
+
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_pmu.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 3ae8174b1325..8f3802d52289 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -468,7 +468,7 @@ static irqreturn_t pmu_sc_irq(int irq, void *ignored)
+ 		break;
+ 	case TRIGGERERR:
+ 		pmu_dump_logs();
+-		BUG();
++		WARN(1, "%s: TRIGGERERR caused, but proceeding...\n", __func__);
+ 		break;
+ 	}
+ 
+-- 
+2.37.3
+

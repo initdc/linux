@@ -1,0 +1,73 @@
+From 1c26e9ff133dc7d596663d06263efe804d14607a Mon Sep 17 00:00:00 2001
+From: Michel Jauffres <michelx.jauffres@intel.com>
+Date: Thu, 7 Nov 2013 16:26:06 +0100
+Subject: [PATCH 114/429] Update list of WAKESRC values in Intel SCU ipcutil
+ driver
+
+Two new added values:
+WAKESRC=0x13 WAKE_PLATFORM_WATCHDOG_RESET
+WAKESRC=0x14 WAKE_SC_WATCHDOG_RESET
+
+Also modified the code to display the WAKESRC value in
+hexadecimal by default if corresponding function is not
+found in the defined list.
+
+Signed-off-by: Michel Jauffres <michelx.jauffres@intel.com>
+---
+ arch/x86/include/asm/intel_scu_ipcutil.h |  4 +++-
+ drivers/platform/x86/intel_scu_ipcutil.c | 10 ++++++++--
+ 2 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/include/asm/intel_scu_ipcutil.h b/arch/x86/include/asm/intel_scu_ipcutil.h
+index ec9c963e2d82..c826aa5d3b96 100644
+--- a/arch/x86/include/asm/intel_scu_ipcutil.h
++++ b/arch/x86/include/asm/intel_scu_ipcutil.h
+@@ -44,7 +44,9 @@ enum intel_scu_ipc_wake_src {
+ 	WAKE_INVALID_CHECKSUM,
+ 	WAKE_FORCED_RESET,
+ 	WAKE_ACDC_CHRG_INSERT,
+-	WAKE_PMIC_WATCHDOG_RESET
++	WAKE_PMIC_WATCHDOG_RESET,
++	WAKE_PLATFORM_WATCHDOG_RESET,
++	WAKE_SC_WATCHDOG_RESET
+ };
+ 
+ struct scu_ipc_data {
+diff --git a/drivers/platform/x86/intel_scu_ipcutil.c b/drivers/platform/x86/intel_scu_ipcutil.c
+index 93700eeb712c..3348cb59094b 100644
+--- a/drivers/platform/x86/intel_scu_ipcutil.c
++++ b/drivers/platform/x86/intel_scu_ipcutil.c
+@@ -164,6 +164,8 @@ static struct osnib_wake_src osnib_wake_srcs[] = {
+ 	{ WAKE_FORCED_RESET, "forced reset"},
+ 	{ WAKE_ACDC_CHRG_INSERT, "ac charger inserted" },
+ 	{ WAKE_PMIC_WATCHDOG_RESET, "pmic watchdog reset" },
++	{ WAKE_PLATFORM_WATCHDOG_RESET, "HWWDT reset platform" },
++	{ WAKE_SC_WATCHDOG_RESET, "HWWDT reset SC" },
+ };
+ 
+ 
+@@ -2294,6 +2296,10 @@ static int oshob_init(void)
+ 		}
+ 	}
+ 
++	if (!rr_found)
++		pr_warn("[BOOT] RR=[UNKNOWN 0x%02x] WD=0x%02x ALARM=0x%02x (osnib)\n",
++			rr, wd, alarm);
++
+ 	for (i = 0; i < ARRAY_SIZE(osnib_wake_srcs); i++) {
+ 		if (osnib_wake_srcs[i].id == wakesrc) {
+ 			pr_warn("[BOOT] WAKESRC=[%s] (osnib)\n",
+@@ -2303,8 +2309,8 @@ static int oshob_init(void)
+ 		}
+ 	}
+ 
+-	if ((!rr_found) || (!wksrc_found))
+-		pr_err("[BOOT] Could not identify passed RR/WAKESRC\n");
++	if (!wksrc_found)
++		pr_warn("[BOOT] WAKESRC=[UNKNOWN 0x%02x] (osnib)\n", wakesrc);
+ 
+ 	for (i = 0; i < ARRAY_SIZE(chip_reset_events); i++) {
+ 		if (chip_reset_events[i].id == oshob_info->platform_type) {
+-- 
+2.37.3
+

@@ -1,0 +1,40 @@
+From ccb17b1960dc2f98fd378b7ebc2a5ebc3f8ed4ca Mon Sep 17 00:00:00 2001
+From: Aymen Zayet <aymen.zayet@intel.com>
+Date: Wed, 21 Aug 2013 14:28:21 +0200
+Subject: [PATCH 261/429] sdhci: avoid using uninitialized spin_lock.
+
+Wifi uses a fixed regulator which is actually a sw regulator used by the
+mmc stack in order to enable wlan gpio. sdhci_try_get_regulator()
+holds the spin_lock which is called before ->lock gets initialized properly.
+
+This patch moves the initialization of the lock before requesting regulators.
+
+Signed-off-by: Aymen Zayet <aymen.zayet@intel.com>
+---
+ drivers/mmc/host/sdhci.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 522d240d8754..fee99255a82e 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -4064,6 +4064,7 @@ int sdhci_add_host(struct sdhci_host *host)
+ 			     SDHCI_RETUNING_MODE_SHIFT;
+ 
+ 	ocr_avail = 0;
++	spin_lock_init(&host->lock);
+ 
+ 	sdhci_try_get_regulator(host);
+ 
+@@ -4160,8 +4161,6 @@ int sdhci_add_host(struct sdhci_host *host)
+ 		return -ENODEV;
+ 	}
+ 
+-	spin_lock_init(&host->lock);
+-
+ 	/*
+ 	 * Maximum number of segments. Depends on if the hardware
+ 	 * can do scatter/gather or not.
+-- 
+2.37.3
+

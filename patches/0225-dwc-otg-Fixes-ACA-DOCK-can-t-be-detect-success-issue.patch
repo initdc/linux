@@ -1,0 +1,60 @@
+From 078d65db08337f09133885169024122ace6d4d4b Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Thu, 15 Aug 2013 19:32:52 +0800
+Subject: [PATCH 225/429] dwc-otg: Fixes ACA-DOCK can't be detect success
+ issue.
+
+This is one random issue. When this issue reproduced, the VBus valid
+event will be ignored. Then cause OTG state machine miss the charger
+detection flow.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/otg.c | 14 +++++---------
+ 1 file changed, 5 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index ba53ceacfc63..4acdc42a5338 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -515,7 +515,7 @@ stay_b_idle:
+ 
+ 	if (events & OEVT_B_DEV_SES_VLD_DET_EVNT) {
+ 		otg_dbg(otg, "OEVT_B_DEV_SES_VLD_DET_EVNT\n");
+-		state = DWC_STATE_CHARGER_DETECTION;
++		return DWC_STATE_CHARGER_DETECTION;
+ 	}
+ 
+ 	if (events & OEVT_CONN_ID_STS_CHNG_EVNT) {
+@@ -529,24 +529,20 @@ stay_b_idle:
+ 			otg_dbg(otg, "Stay DWC_STATE_INIT\n");
+ 			goto stay_b_idle;
+ 		}
+-		state = DWC_STATE_WAIT_VBUS_RAISE;
++		return DWC_STATE_WAIT_VBUS_RAISE;
+ 	}
+ 
+ 	if (user_events & USER_ID_A_CHANGE_EVENT) {
+ 		otg_dbg(otg, "events is user id A change\n");
+-		state = DWC_STATE_A_HOST;
++		return DWC_STATE_A_HOST;
+ 	}
+ 
+ 	if (user_events & USER_ID_B_CHANGE_EVENT) {
+ 		otg_dbg(otg, "events is user id B change\n");
+-		state = DWC_STATE_B_PERIPHERAL;
++		return DWC_STATE_B_PERIPHERAL;
+ 	}
+ 
+-	/** TODO: This is a workaround for latest hibernation-enabled bitfiles
+-     ** which have problems before initializing SRP.*/
+-	mdelay(50);
+-
+-	return state;
++	return DWC_STATE_B_IDLE;
+ }
+ 
+ static enum dwc_otg_state do_a_host(struct dwc_otg2 *otg)
+-- 
+2.37.3
+

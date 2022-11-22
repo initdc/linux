@@ -1,0 +1,29 @@
+From 574cbc402f0673b3cade3420647ba8273389964c Mon Sep 17 00:00:00 2001
+From: Michel Jauffres <michelx.jauffres@intel.com>
+Date: Fri, 25 Oct 2013 11:35:16 +0200
+Subject: [PATCH 136/429] watchdog evo: fix Klockwork critical issue
+
+intel_scu_watchdog_evo.c:626 Array 'str' of size 12 may use index
+value(s) 12
+
+Signed-off-by: Michel Jauffres <michelx.jauffres@intel.com>
+---
+ drivers/watchdog/intel_scu_watchdog_evo.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/watchdog/intel_scu_watchdog_evo.c b/drivers/watchdog/intel_scu_watchdog_evo.c
+index cb21fbc0f9bf..45a46d1acd3d 100644
+--- a/drivers/watchdog/intel_scu_watchdog_evo.c
++++ b/drivers/watchdog/intel_scu_watchdog_evo.c
+@@ -608,7 +608,7 @@ static ssize_t kwd_reset_type_read(struct file *file, char __user *buff,
+ 	if (ret)
+ 		return -EINVAL;
+ 	else {
+-		for (len = 0 ; len < STRING_RESET_TYPE_MAX_LEN
++		for (len = 0; len < (STRING_RESET_TYPE_MAX_LEN - 1)
+ 			     && str[len] != '\0'; len++)
+ 			;
+ 		str[len++] = '\n';
+-- 
+2.37.3
+

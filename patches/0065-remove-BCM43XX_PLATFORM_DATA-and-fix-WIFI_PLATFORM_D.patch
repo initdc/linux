@@ -1,0 +1,62 @@
+From 9c911a07956bc208b7c6e03bf55769a572e34a18 Mon Sep 17 00:00:00 2001
+From: Frode Isaksen <frodex.isaksen@intel.com>
+Date: Thu, 12 Sep 2013 09:31:17 +0200
+Subject: [PATCH 065/429] remove BCM43XX_PLATFORM_DATA and fix
+ WIFI_PLATFORM_DATA
+
+Remove obsolete BCM43XX_PLATFORM_DATA from Kconfig and fix
+WIFI_PLATFORM_DATA by making it configurable (with propmpt)
+in the Kconfig.
+Also set 'wifi_platform_data' as weak linked, as the other
+platfrom data's to avoid compilation issues.
+
+Signed-off-by: Frode Isaksen <frodex.isaksen@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/platform_wifi.h | 2 +-
+ drivers/net/wireless/Kconfig                            | 3 +--
+ drivers/net/wireless/brcm80211/Kconfig                  | 6 ------
+ 3 files changed, 2 insertions(+), 9 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wifi.h b/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
+index 7082e08fb745..1cbb015ba5fe 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
+@@ -15,6 +15,6 @@
+ #define WIFI_SFI_GPIO_IRQ_NAME "WLAN-interrupt"
+ #define WIFI_SFI_GPIO_ENABLE_NAME "WLAN-enable"
+ 
+-extern void __init *wifi_platform_data(void *info);
++extern void __init *wifi_platform_data(void *info) __attribute__((weak));
+ 
+ #endif
+diff --git a/drivers/net/wireless/Kconfig b/drivers/net/wireless/Kconfig
+index 7c6dc04243a2..83b6a7a248bc 100644
+--- a/drivers/net/wireless/Kconfig
++++ b/drivers/net/wireless/Kconfig
+@@ -270,8 +270,7 @@ config WIFI_CONTROL_FUNC
+ 	  Enables Power/Reset/Carddetect function abstraction
+ 
+ config WIFI_PLATFORM_DATA
+-	bool
+-	default y
++	bool "Enable WiFi platform data"
+ 	---help---
+ 	 Enables platform_wifi
+ 
+diff --git a/drivers/net/wireless/brcm80211/Kconfig b/drivers/net/wireless/brcm80211/Kconfig
+index ec0639da5b38..fc8a0fa6d3b2 100644
+--- a/drivers/net/wireless/brcm80211/Kconfig
++++ b/drivers/net/wireless/brcm80211/Kconfig
+@@ -63,9 +63,3 @@ config BRCMDBG
+ 	depends on BRCMSMAC || BRCMFMAC
+ 	---help---
+ 	  Selecting this enables additional code for debug purposes.
+-
+-config BCM43XX_PLATFORM_DATA
+-	bool
+-	default y
+-	---help---
+-	 Enables platform_bcm43xx
+-- 
+2.37.3
+

@@ -1,0 +1,54 @@
+From b52e5d3506d53406aa3702ad304cdac280ecda00 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Thu, 18 Jul 2013 15:45:03 +0800
+Subject: [PATCH 258/429] mmc: host: check CLOCK_EN before sending command
+
+If SD bus clock is not enabled, no interrupts will be generated after
+sending a command. This will cause a long time wait, at least 10s. In
+some scenarios, long time waiting can cause a kernel panic. So, before
+sending command, check SD bus clock EN bit.
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index f3b7283882ba..ab2c1b29526d 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1641,12 +1641,30 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 			}
+ 		}
+ 
++		if (!(sdhci_readw(host, SDHCI_CLOCK_CONTROL) &
++					SDHCI_CLOCK_CARD_EN)) {
++			/*
++			 * SD bus clock is stopped. no interrupts will be
++			 * generate in this case.
++			 */
++			pr_warn("%s:%s: SD bus clock not enabled\n",
++					__func__, mmc_hostname(mmc));
++			pr_warn("%s:%s: host->pwr 0x%x, host->clock 0x%x\n",
++					__func__, mmc_hostname(mmc),
++					host->pwr, host->clock);
++			sdhci_dumpregs(host);
++			host->mrq->cmd->error = -EIO;
++			tasklet_schedule(&host->finish_tasklet);
++			goto out;
++		}
++
+ 		if (mrq->sbc && !(host->flags & SDHCI_AUTO_CMD23))
+ 			sdhci_send_command(host, mrq->sbc);
+ 		else
+ 			sdhci_send_command(host, mrq->cmd);
+ 	}
+ 
++out:
+ 	mmiowb();
+ 	spin_unlock_irqrestore(&host->lock, flags);
+ }
+-- 
+2.37.3
+

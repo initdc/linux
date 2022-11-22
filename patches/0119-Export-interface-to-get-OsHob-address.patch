@@ -1,0 +1,51 @@
+From 5006f59a0d429e064d52e296c4212bf091bbaaed Mon Sep 17 00:00:00 2001
+From: Philippe Skowronski <philippe.skowronski@intel.com>
+Date: Wed, 13 Nov 2013 17:17:22 +0100
+Subject: [PATCH 119/429] Export interface to get OsHob address
+
+Signed-off-by: Philippe Skowronski <philippe.skowronski@intel.com>
+---
+ arch/x86/include/asm/intel_scu_ipcutil.h |  1 +
+ drivers/platform/x86/intel_scu_ipcutil.c | 12 ++++++++++++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/arch/x86/include/asm/intel_scu_ipcutil.h b/arch/x86/include/asm/intel_scu_ipcutil.h
+index c826aa5d3b96..01538828add6 100644
+--- a/arch/x86/include/asm/intel_scu_ipcutil.h
++++ b/arch/x86/include/asm/intel_scu_ipcutil.h
+@@ -112,6 +112,7 @@ int intel_scu_ipc_msic_vprog1(int on);
+ int intel_scu_ipc_msic_vprog2(int on);
+ 
+ /* OSHOB-OS Handoff Buffer read */
++int intel_scu_ipc_get_oshob_base(void);
+ int intel_scu_ipc_get_oshob_size(void);
+ 
+ /* SCU trace buffer interface */
+diff --git a/drivers/platform/x86/intel_scu_ipcutil.c b/drivers/platform/x86/intel_scu_ipcutil.c
+index 3348cb59094b..14f1051e8cb3 100644
+--- a/drivers/platform/x86/intel_scu_ipcutil.c
++++ b/drivers/platform/x86/intel_scu_ipcutil.c
+@@ -772,8 +772,20 @@ static long scu_ipc_ioctl(struct file *fp, unsigned int cmd,
+ 	return ret;
+ }
+ 
++int intel_scu_ipc_get_oshob_base(void)
++{
++	if (oshob_info == NULL)
++		return NULL;
++
++	return oshob_info->oshob_base;
++}
++EXPORT_SYMBOL_GPL(intel_scu_ipc_get_oshob_base);
++
+ int intel_scu_ipc_get_oshob_size(void)
+ {
++	if (oshob_info == NULL)
++		return 0;
++
+ 	return oshob_info->oshob_size;
+ }
+ EXPORT_SYMBOL_GPL(intel_scu_ipc_get_oshob_size);
+-- 
+2.37.3
+

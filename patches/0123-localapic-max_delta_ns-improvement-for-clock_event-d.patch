@@ -1,0 +1,37 @@
+From 60544d9d3c00505d179ae7ba5aa9ca2e74dec4f2 Mon Sep 17 00:00:00 2001
+From: Anthony Toubeau <anthony.toubeau@intel.com>
+Date: Thu, 28 Nov 2013 17:47:48 +0100
+Subject: [PATCH 123/429] localapic: max_delta_ns improvement for clock_event
+ devices
+
+The Local APIC clock configuration is currently set is such a way that
+it causes a calculation of a low value of max_delta_ns used in clock_event
+devices (per cpu), therefore limiting the time window for hrtimers and
+therefore for dynamic ticks too. Which is especially causing many wake-ups
+in S0ix.
+
+Current calculated value of max_delta_ns on CTP PR2.0 shows that next
+hrtimer will be due to a maximum of ~1.008sec in the future.
+We change the max_delta_ns to 31bits.
+
+Signed-off-by: Anthony Toubeau <anthony.toubeau@intel.com>
+---
+ arch/x86/kernel/apic/apic.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/kernel/apic/apic.c b/arch/x86/kernel/apic/apic.c
+index 5dcd51b51553..39e216d32b00 100644
+--- a/arch/x86/kernel/apic/apic.c
++++ b/arch/x86/kernel/apic/apic.c
+@@ -708,7 +708,7 @@ static int __init calibrate_APIC_clock(void)
+ 		lapic_clockevent.mult = div_sc(lapic_timer_frequency/APIC_DIVISOR,
+ 					TICK_NSEC, lapic_clockevent.shift);
+ 		lapic_clockevent.max_delta_ns =
+-			clockevent_delta2ns(0x7FFFFF, &lapic_clockevent);
++			clockevent_delta2ns(0x7FFFFFFF, &lapic_clockevent);
+ 		lapic_clockevent.min_delta_ns =
+ 			clockevent_delta2ns(0xF, &lapic_clockevent);
+ 		lapic_clockevent.features &= ~CLOCK_EVT_FEAT_DUMMY;
+-- 
+2.37.3
+

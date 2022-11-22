@@ -1,0 +1,44 @@
+From 4f7b767d1ee94ba19174c4d7b2334508f67fdd1a Mon Sep 17 00:00:00 2001
+From: Yunpeng Gao <yunpeng.gao@intel.com>
+Date: Wed, 4 Dec 2013 12:37:24 +0800
+Subject: [PATCH 331/429] mmc: host: change eMMC tuning count to 128 seconds
+
+with current Samsung eMMC device used on Merrifield,
+sometimes HS200 tuning failure observed.
+
+Also, several bugs related 'mmc0: Timeout ...' error
+message were reported on Merrifield Salt Bay PR2.
+According to the SDHC host controller register dump,
+we suspect it was caused by the prior eMMC HS200 tuning
+failure.
+
+So, a longer tuning timer value may mitigate this issue.
+Submit this patch as a workaround.
+
+BTW, 128 seconds tuning count has already been used on
+Baytrail platform and worked well so far.
+
+Signed-off-by: Yunpeng Gao <yunpeng.gao@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 6f4297b51cda..5bbad05c374b 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -1665,8 +1665,10 @@ static int sdhci_pci_get_tuning_count(struct sdhci_host *host)
+ 	switch (slot->chip->pdev->device) {
+ 	case PCI_DEVICE_ID_INTEL_BYT_EMMC45:
+ 		tuning_count = 4; /* using 8 seconds, this can be tuning */
++		break;
+ 	case PCI_DEVICE_ID_INTEL_MRFL_MMC:
+-		tuning_count = 4; /* using 8 seconds, this can be tuning */
++		tuning_count = 8; /* using 128 seconds, this can be tuning */
++		break;
+ 	default:
+ 		break;
+ 	}
+-- 
+2.37.3
+

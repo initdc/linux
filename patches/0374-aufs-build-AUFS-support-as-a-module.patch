@@ -1,0 +1,41 @@
+From c491dcea2737d40567e1207a7e09ee7f339ffd2c Mon Sep 17 00:00:00 2001
+From: Fabien Chereau <fabien.chereau@intel.com>
+Date: Thu, 2 Oct 2014 15:50:20 +0200
+Subject: [PATCH 374/429] aufs: build AUFS support as a module
+
+Signed-off-by: Fabien Chereau <fabien.chereau@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index e79bdd1a47d8..ec43b3814317 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -3296,7 +3296,22 @@ CONFIG_PSTORE_RAM=y
+ # CONFIG_SYSV_FS is not set
+ # CONFIG_UFS_FS is not set
+ # CONFIG_F2FS_FS is not set
+-# CONFIG_AUFS_FS is not set
++CONFIG_AUFS_FS=m
++CONFIG_AUFS_BRANCH_MAX_127=y
++# CONFIG_AUFS_BRANCH_MAX_511 is not set
++# CONFIG_AUFS_BRANCH_MAX_1023 is not set
++# CONFIG_AUFS_BRANCH_MAX_32767 is not set
++CONFIG_AUFS_SBILIST=y
++# CONFIG_AUFS_HNOTIFY is not set
++# CONFIG_AUFS_EXPORT is not set
++# CONFIG_AUFS_RDU is not set
++# CONFIG_AUFS_PROC_MAP is not set
++# CONFIG_AUFS_SP_IATTR is not set
++# CONFIG_AUFS_SHWH is not set
++# CONFIG_AUFS_BR_RAMFS is not set
++# CONFIG_AUFS_BR_FUSE is not set
++CONFIG_AUFS_BDEV_LOOP=y
++# CONFIG_AUFS_DEBUG is not set
+ CONFIG_NETWORK_FILESYSTEMS=y
+ CONFIG_NFS_FS=y
+ CONFIG_NFS_V2=y
+-- 
+2.37.3
+

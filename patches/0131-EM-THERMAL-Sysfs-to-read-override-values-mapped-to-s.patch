@@ -1,0 +1,115 @@
+From a956446d3c373056bffcf409181f7e01bf082848 Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Wed, 16 Oct 2013 11:56:58 +0530
+Subject: [PATCH 131/429] EM/THERMAL: Sysfs to read,override values mapped to
+ states
+
+[Implemented Solution]
+This patch adds new sysfs interface for the cooling devices
+to enable reading the values mapped to the different states
+and to override the default mapped values during runtime
+for debug/characterization purposes.
+
+Category: feature differentiation
+Domain: EM.ThermalManagement-commmon
+Origin: internal
+Upstream-Candidate: yes
+
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ drivers/thermal/thermal_core.c | 42 +++++++++++++++++++++++++++++++++-
+ include/linux/thermal.h        |  4 ++++
+ 2 files changed, 45 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
+index d755440791b7..ff224465e648 100644
+--- a/drivers/thermal/thermal_core.c
++++ b/drivers/thermal/thermal_core.c
+@@ -794,6 +794,34 @@ thermal_cooling_device_max_state_show(struct device *dev,
+ 	return sprintf(buf, "%ld\n", state);
+ }
+ 
++/*
++ * Sysfs to read the mapped values and to override
++ * the default values mapped to each state during runtime.
++ */
++static ssize_t
++thermal_cooling_device_force_state_override_show(struct device *dev,
++			struct device_attribute *attr, char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++
++	return cdev->ops->get_force_state_override(cdev, buf);
++}
++
++static ssize_t
++thermal_cooling_device_force_state_override_store(struct device *dev,
++					struct device_attribute *attr,
++					const char *buf, size_t count)
++{
++	int ret;
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++
++	ret = cdev->ops->set_force_state_override(cdev, buf);
++	if (ret)
++		return ret;
++
++	return count;
++}
++
+ static ssize_t
+ thermal_cooling_device_cur_state_show(struct device *dev,
+ 				      struct device_attribute *attr, char *buf)
+@@ -836,6 +864,9 @@ static DEVICE_ATTR(max_state, 0444,
+ static DEVICE_ATTR(cur_state, 0644,
+ 		   thermal_cooling_device_cur_state_show,
+ 		   thermal_cooling_device_cur_state_store);
++static DEVICE_ATTR(force_state_override, 0644,
++		thermal_cooling_device_force_state_override_show,
++		thermal_cooling_device_force_state_override_store);
+ 
+ static ssize_t
+ thermal_cooling_device_trip_point_show(struct device *dev,
+@@ -1353,6 +1384,13 @@ thermal_cooling_device_register(char *type, void *devdata,
+ 	if (result)
+ 		goto unregister;
+ 
++	if (ops->get_force_state_override) {
++		result = device_create_file(&cdev->device,
++					&dev_attr_force_state_override);
++		if (result)
++			goto unregister;
++	}
++
+ 	/* Add 'this' new cdev to the global cdev list */
+ 	mutex_lock(&thermal_list_lock);
+ 	list_add(&cdev->node, &thermal_cdev_list);
+@@ -1423,7 +1461,9 @@ void thermal_cooling_device_unregister(struct thermal_cooling_device *cdev)
+ 		device_remove_file(&cdev->device, &dev_attr_cdev_type);
+ 	device_remove_file(&cdev->device, &dev_attr_max_state);
+ 	device_remove_file(&cdev->device, &dev_attr_cur_state);
+-
++	if (cdev->ops->get_force_state_override)
++		device_remove_file(&cdev->device,
++					&dev_attr_force_state_override);
+ 	release_idr(&thermal_cdev_idr, &thermal_idr_lock, cdev->id);
+ 	device_unregister(&cdev->device);
+ 	return;
+diff --git a/include/linux/thermal.h b/include/linux/thermal.h
+index a386a1cbb6e1..beeab6f9e3da 100644
+--- a/include/linux/thermal.h
++++ b/include/linux/thermal.h
+@@ -137,6 +137,10 @@ struct thermal_cooling_device_ops {
+ 	int (*get_max_state) (struct thermal_cooling_device *, unsigned long *);
+ 	int (*get_cur_state) (struct thermal_cooling_device *, unsigned long *);
+ 	int (*set_cur_state) (struct thermal_cooling_device *, unsigned long);
++	int (*get_force_state_override) (struct thermal_cooling_device *,
++								char *);
++	int (*set_force_state_override) (struct thermal_cooling_device *,
++								char *);
+ };
+ 
+ struct thermal_cooling_device {
+-- 
+2.37.3
+

@@ -1,0 +1,47 @@
+From a637cdc2058cce71d0f7a3581c1d80c5be8a8d53 Mon Sep 17 00:00:00 2001
+From: David Cohen <david.a.cohen@intel.com>
+Date: Thu, 19 Sep 2013 12:13:30 -0700
+Subject: [PATCH 211/429] usb: dwc3: fix compilation if CONFIG_USB_DWC3_OTG is
+ not selected
+
+Current DWC3 cannot be compiled if CONFIG_USB_DWC3_OTG is not selected.
+It will fail with this log:
+
+  CC      drivers/usb/dwc3/core.o
+/home/pjnozisk/main/linux/kernel-next/drivers/usb/dwc3/core.c: In
+function 'dwc3_core_init':
+/home/pjnozisk/main/linux/kernel-next/drivers/usb/dwc3/core.c:340:28:
+error: 'ULPI_VENDOR_ID_LOW' undeclared (first use in this function)
+/home/pjnozisk/main/linux/kernel-next/drivers/usb/dwc3/core.c:340:28:
+note: each undeclared identifier is reported only once for each function
+it appears in
+make[5]: *** [drivers/usb/dwc3/core.o] Error 1
+make[4]: *** [drivers/usb/dwc3] Error 2
+make[3]: *** [drivers/usb] Error 2
+make[2]: *** [drivers] Error 2
+make[1]: *** [sub-make] Error 2
+make[1]: Leaving directory `/home/pjnozisk/main/linux/kernel-next'
+make: *** [build_bzImage] Error 2
+
+This patch fixed compilation.
+
+Signed-off-by: David Cohen <david.a.cohen@intel.com>
+---
+ drivers/usb/dwc3/core.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/usb/dwc3/core.c b/drivers/usb/dwc3/core.c
+index fbb8a9dd87af..6b8a1e09f166 100644
+--- a/drivers/usb/dwc3/core.c
++++ b/drivers/usb/dwc3/core.c
+@@ -53,6 +53,7 @@
+ #include <linux/usb/otg.h>
+ #include <linux/usb/ch9.h>
+ #include <linux/usb/gadget.h>
++#include <linux/usb/ulpi.h>
+ 
+ #include "core.h"
+ #include "gadget.h"
+-- 
+2.37.3
+

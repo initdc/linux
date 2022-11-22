@@ -1,0 +1,43 @@
+From 8e4c554854ab4a5ee00f89619d0a62009a39e5dc Mon Sep 17 00:00:00 2001
+From: Frederic Despalles <frederic.fespalles@intel.com>
+Date: Fri, 27 Sep 2013 13:56:04 +0200
+Subject: [PATCH 070/429] K3.10 intelmid.c porting issues
+
+Signed-off-by: Frederic Despalles <frederic.fespalles@intel.com>
+---
+ arch/x86/platform/intel-mid/intel-mid.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/arch/x86/platform/intel-mid/intel-mid.c b/arch/x86/platform/intel-mid/intel-mid.c
+index 6678cb5780a9..8a4a70017d47 100644
+--- a/arch/x86/platform/intel-mid/intel-mid.c
++++ b/arch/x86/platform/intel-mid/intel-mid.c
+@@ -36,6 +36,7 @@
+ #include <asm/apb_timer.h>
+ #include <asm/reboot.h>
+ #include "intel_mid_weak_decls.h"
++#include "intel_soc_pmu.h"
+ 
+ /*
+  * the clockevent devices on Moorestown/Medfield can be APBT or LAPIC clock,
+@@ -67,9 +68,17 @@ module_param(force_cold_boot, int, 0644);
+ MODULE_PARM_DESC(force_cold_boot,
+ 		 "Set to Y to force a COLD BOOT instead of a COLD RESET "
+ 		 "on the next reboot system call.");
++u32 nbr_hsi_clients = 2;
++static void intel_mid_power_off(void)
++{
++	pmu_power_off();
++};
+ 
+ static void intel_mid_reboot(void)
+ {
++	if (intel_scu_ipc_fw_update()) {
++		pr_debug("intel_scu_fw_update: IFWI upgrade failed...\n");
++	}
+ 	if (force_cold_boot)
+ 		rpmsg_send_generic_simple_command(IPCMSG_COLD_BOOT, 0);
+ 	else
+-- 
+2.37.3
+

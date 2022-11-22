@@ -1,0 +1,40 @@
+From 9a3dbe92347b7f4575b2f5a4bdec8ae85a88794c Mon Sep 17 00:00:00 2001
+From: roberto crippa <roberto.crippa@intel.com>
+Date: Wed, 9 Apr 2014 14:05:56 +0200
+Subject: [PATCH 297/429] kernel config for bt: disable useless bt config
+
+WE need to remove CONFIG_BT_HCIBCM203X and CONFIG_BT_HCIBTSDIO
+to avoid the creation of a 'ghost' (not real HW is there)
+hci0 Bluetooth device that will have all zero BD address
+(it will also be listed in rfkill list).
+
+Signed-off-by: roberto crippa <roberto.crippa@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 18cad7146480..0f6daebf4687 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -900,14 +900,14 @@ CONFIG_BT_HIDP=y
+ # Bluetooth device drivers
+ #
+ # CONFIG_BT_HCIBTUSB is not set
+-CONFIG_BT_HCIBTSDIO=y
++# CONFIG_BT_HCIBTSDIO is not set
+ CONFIG_BT_HCIUART=y
+ CONFIG_BT_HCIUART_H4=y
+ # CONFIG_BT_HCIUART_BCSP is not set
+ # CONFIG_BT_HCIUART_ATH3K is not set
+ # CONFIG_BT_HCIUART_LL is not set
+-CONFIG_BT_HCIUART_3WIRE=y
+-CONFIG_BT_HCIBCM203X=y
++# CONFIG_BT_HCIUART_3WIRE is not set
++# CONFIG_BT_HCIBCM203X is not set
+ # CONFIG_BT_HCIBPA10X is not set
+ # CONFIG_BT_HCIBFUSB is not set
+ # CONFIG_BT_HCIVHCI is not set
+-- 
+2.37.3
+

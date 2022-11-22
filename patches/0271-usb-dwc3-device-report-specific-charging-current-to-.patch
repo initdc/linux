@@ -1,0 +1,35 @@
+From cbd805fccdf08e0e6bb34f715c848ef79aa5b60a Mon Sep 17 00:00:00 2001
+From: Jiebing Li <jiebing.li@intel.com>
+Date: Tue, 10 Sep 2013 13:33:12 +0800
+Subject: [PATCH 271/429] usb/dwc3-device: report specific charging current to
+ OTG.
+
+This patch is used to notify OTG with OTG driver defined
+charging current status.
+
+Signed-off-by: Jiebing Li <jiebing.li@intel.com>
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/gadget.h | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/usb/dwc3/gadget.h b/drivers/usb/dwc3/gadget.h
+index 06257d5b3443..a374653104b6 100644
+--- a/drivers/usb/dwc3/gadget.h
++++ b/drivers/usb/dwc3/gadget.h
+@@ -47,6 +47,12 @@ struct dwc3;
+ #define to_dwc3_ep(ep)		(container_of(ep, struct dwc3_ep, endpoint))
+ #define gadget_to_dwc(g)	(container_of(g, struct dwc3, gadget))
+ 
++/* max power consumption of the device from the bus */
++#define USB3_I_MAX_OTG		896
++#define USB3_I_UNIT_OTG		144
++#define USB2_I_MAX_OTG		500
++#define USB2_I_UNIT_OTG		100
++
+ /* DEPCFG parameter 1 */
+ #define DWC3_DEPCFG_INT_NUM(n)		((n) << 0)
+ #define DWC3_DEPCFG_XFER_COMPLETE_EN	(1 << 8)
+-- 
+2.37.3
+

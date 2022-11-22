@@ -1,0 +1,37 @@
+From c50f0149282ce64027357d50203f84ca266b13f3 Mon Sep 17 00:00:00 2001
+From: Albin B <albin.bala.krishnan@intel.com>
+Date: Thu, 5 Sep 2013 13:34:22 +0530
+Subject: [PATCH 155/429] Macro definitions for BCU interrupt mask bits and
+ duration of delay
+
+This patch defines the macros for the BCU Interrupt Level 2 mask register bits
+(MVCRIT, MVWARN2 and MVWARN1) and also defines macro for the VWARN1 interrupt
+enable delay time.
+
+Signed-off-by: Albin B <albin.bala.krishnan@intel.com>
+---
+ arch/x86/include/asm/intel_basincove_ocd.h | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/x86/include/asm/intel_basincove_ocd.h b/arch/x86/include/asm/intel_basincove_ocd.h
+index 43d8c8109a54..eff495e2aa66 100644
+--- a/arch/x86/include/asm/intel_basincove_ocd.h
++++ b/arch/x86/include/asm/intel_basincove_ocd.h
+@@ -36,6 +36,14 @@
+ #define VWARN_EN_MASK		B3
+ #define ICCMAXVCC_EN_MASK	B6
+ 
++#define MVWARN1_MASK		B0
++#define MVWARN2_MASK		B1
++#define MVCRIT_MASK		B2
++
++#define MVCRIT			B2
++#define MVWARN2			B1
++#define MVWARN1			B0
++
+ #define ICCMAXVCC_EN		(1 << 6)
+ #define VWARN_EN		(1 << 3)
+ #define VCRIT_SHUTDOWN		(1 << 4)
+-- 
+2.37.3
+

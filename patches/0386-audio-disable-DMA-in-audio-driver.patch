@@ -1,0 +1,49 @@
+From 2d8a06410955ca1e6a8113707f1ffc665465dc14 Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Tue, 18 Nov 2014 04:04:03 +0100
+Subject: [PATCH 386/429] audio: disable DMA in audio driver
+
+As a first implementation of the sst driver, the DMA engine
+is not used by the driver for firmware loading.
+
+This patch aims to disable the use of the DMA in the sst driver.
+The DMA driver dedicated must not use PM runtime to let the
+sst driver powered the audio DSP.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ drivers/dma/intel_mid_dma.c | 2 +-
+ sound/soc/intel/sst/sst.c   | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/dma/intel_mid_dma.c b/drivers/dma/intel_mid_dma.c
+index 2a51cf73c317..91c6f8f0159c 100644
+--- a/drivers/dma/intel_mid_dma.c
++++ b/drivers/dma/intel_mid_dma.c
+@@ -1890,7 +1890,7 @@ static int intel_mid_dma_probe(struct pci_dev *pdev,
+ 		goto err_ioremap;
+ 
+ 	pm_runtime_put_noidle(&pdev->dev);
+-	pm_runtime_allow(&pdev->dev);
++	pm_runtime_forbid(&pdev->dev);
+ 	return 0;
+ 
+ err_ioremap:
+diff --git a/sound/soc/intel/sst/sst.c b/sound/soc/intel/sst/sst.c
+index dbc4a8775ee6..0f59e47e2ab8 100644
+--- a/sound/soc/intel/sst/sst.c
++++ b/sound/soc/intel/sst/sst.c
+@@ -551,8 +551,8 @@ static int intel_sst_probe(struct pci_dev *pci,
+ 	sst_drv_ctx->vcache.size1 = 0;
+ 	sst_drv_ctx->vcache.size2 = 0;
+ 
+-	/* we use dma, so set to 1*/
+-	sst_drv_ctx->use_dma = 1;
++	/* we don't use dma, so set to 0*/
++	sst_drv_ctx->use_dma = 0; //1;
+ 	sst_drv_ctx->use_lli = 1;
+ 
+ 	INIT_LIST_HEAD(&sst_drv_ctx->memcpy_list);
+-- 
+2.37.3
+

@@ -1,0 +1,136 @@
+From 0df10c6b6ec20bc7b1585be68d42a3976aa09cc7 Mon Sep 17 00:00:00 2001
+From: Illyas Mansoor <illyas.mansoor@intel.com>
+Date: Tue, 13 Aug 2013 16:16:04 +0530
+Subject: [PATCH 074/429] intel_soc_pmu: enable PMU interrupt conditionally
+
+Current code we have PMU interrupt enabled without any checks
+in pmu_issue_interactive_command() and is never cleared.
+
+Fixed by enabling only if ioc bit is set and in s0ix legacy cmd
+sending.
+
+Signed-off-by: Illyas Mansoor <illyas.mansoor@intel.com>
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_clv.c   |  1 +
+ arch/x86/platform/intel-mid/intel_soc_mdfld.c |  1 +
+ arch/x86/platform/intel-mid/intel_soc_pmu.c   | 45 +++++++++++++++++--
+ arch/x86/platform/intel-mid/intel_soc_pmu.h   |  1 +
+ 4 files changed, 44 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_clv.c b/arch/x86/platform/intel-mid/intel_soc_clv.c
+index 0e5ce8bbde43..76303b1f89cb 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_clv.c
++++ b/arch/x86/platform/intel-mid/intel_soc_clv.c
+@@ -72,6 +72,7 @@ static bool clv_pmu_enter(int s0ix_state)
+ 		s0ix_value = get_s0ix_val_set_pm_ssc(s0ix_state);
+ 
+ 	/* issue a command to SCU */
++	pmu_set_interrupt_enable();
+ 	writel(s0ix_value, &mid_pmu_cxt->pmu_reg->pm_cmd);
+ 
+ 	do {
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mdfld.c b/arch/x86/platform/intel-mid/intel_soc_mdfld.c
+index 7ccc504a3b1b..e86d1b557230 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mdfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mdfld.c
+@@ -53,6 +53,7 @@ static bool mfld_pmu_enter(int s0ix_state)
+ 	clear_c6offload_bit();
+ 
+ 	/* issue a command to SCU */
++	pmu_set_interrupt_enable();
+ 	writel(s0ix_value, &mid_pmu_cxt->pmu_reg->pm_cmd);
+ 
+ 	pmu_log_command(s0ix_value, NULL);
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 346d0b9c3055..154e8b6cc2a3 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -296,6 +296,42 @@ static inline void pmu_clear_pending_interrupt(void)
+ 	writel(temp, &mid_pmu_cxt->pmu_reg->pm_ics);
+ }
+ 
++void pmu_set_interrupt_enable(void)
++{
++	u32 temp;
++	union pmu_pm_ics result;
++
++	/* read the pm interrupt status register */
++	temp = readl(&mid_pmu_cxt->pmu_reg->pm_ics);
++	result.pmu_pm_ics_value = temp;
++
++	/* Set the interrupt enable bit */
++	result.pmu_pm_ics_parts.int_enable = 1;
++
++	temp = result.pmu_pm_ics_value;
++
++	/* write into the PM_ICS register */
++	writel(temp, &mid_pmu_cxt->pmu_reg->pm_ics);
++}
++
++static inline void pmu_clear_interrupt_enable(void)
++{
++	u32 temp;
++	union pmu_pm_ics result;
++
++	/* read the pm interrupt status register */
++	temp = readl(&mid_pmu_cxt->pmu_reg->pm_ics);
++	result.pmu_pm_ics_value = temp;
++
++	/* Clear the interrupt enable bit */
++	result.pmu_pm_ics_parts.int_enable = 0;
++
++	temp = result.pmu_pm_ics_value;
++
++	/* write into the PM_ICS register */
++	writel(temp, &mid_pmu_cxt->pmu_reg->pm_ics);
++}
++
+ static inline int pmu_read_interrupt_status(void)
+ {
+ 	u32 temp;
+@@ -445,6 +481,9 @@ static irqreturn_t pmu_sc_irq(int irq, void *ignored)
+ 
+ 	ret = IRQ_HANDLED;
+ ret_no_clear:
++	/* clear interrupt enable bit */
++	pmu_clear_interrupt_enable();
++
+ 	return ret;
+ }
+ 
+@@ -1510,7 +1549,6 @@ pci_power_t pmu_pci_choose_state(struct pci_dev *pdev)
+ int pmu_issue_interactive_command(struct pmu_ss_states *pm_ssc, bool ioc,
+ 					bool d3_cold)
+ {
+-	u32 tmp;
+ 	u32 command;
+ 
+ 	if (_pmu2_wait_not_busy()) {
+@@ -1524,9 +1562,8 @@ int pmu_issue_interactive_command(struct pmu_ss_states *pm_ssc, bool ioc,
+ 	 * command is set
+ 	 */
+ 	/* Enable the hardware interrupt */
+-	tmp = readl(&mid_pmu_cxt->pmu_reg->pm_ics);
+-	tmp |= 0x100;/* Enable interrupts */
+-	writel(tmp, &mid_pmu_cxt->pmu_reg->pm_ics);
++	if (ioc)
++		pmu_set_interrupt_enable();
+ 
+ 	/* Configure the sub systems for pmu2 */
+ 	pmu_write_subsys_config(pm_ssc);
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.h b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+index 58ae3dff0198..bb498e2ebc6d 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.h
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+@@ -408,6 +408,7 @@ extern int set_extended_cstate_mode(const char *val, struct kernel_param *kp);
+ extern int get_extended_cstate_mode(char *buffer, struct kernel_param *kp);
+ extern int byt_pmu_nc_set_power_state(int islands, int state_type, int reg);
+ extern int byt_pmu_nc_get_power_state(int islands, int reg);
++extern void pmu_set_interrupt_enable(void);
+ 
+ #ifdef LOG_PMU_EVENTS
+ extern void pmu_log_pmu_irq(int status);
+-- 
+2.37.3
+

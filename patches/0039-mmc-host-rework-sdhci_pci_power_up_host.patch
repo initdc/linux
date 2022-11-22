@@ -1,0 +1,189 @@
+From 70a3dd7b22d95acc6e1db3c72409915beeb271cc Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Tue, 13 Aug 2013 18:18:33 +0800
+Subject: [PATCH 039/429] mmc: host: rework sdhci_pci_power_up_host
+
+To satisfy one binary working on all platforms, it is better
+not to use CONFIG_X86_MDFLD for defining sdhci_pci_power_up_host.
+
+So add a platform specific callback to do the real power up part in
+platform_xx.c to satisfy this.
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ .../device_libs/pci/platform_sdhci_pci.c      | 38 +++++++++++
+ drivers/mmc/host/sdhci-pci.c                  | 65 +++++++++++++++----
+ include/linux/mmc/sdhci-pci-data.h            |  1 +
+ 3 files changed, 92 insertions(+), 12 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+index 90f877bd29bb..cdc6f133d7e7 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -19,9 +19,44 @@
+ #include <linux/delay.h>
+ #include <asm/intel_scu_ipc.h>
+ #include <linux/hardirq.h>
++#include <linux/intel_mid_pm.h>
++#include <linux/hardirq.h>
+ 
+ #include "platform_sdhci_pci.h"
+ 
++#ifdef CONFIG_ATOM_SOC_POWER
++static int panic_mode_emmc0_power_up(void *data)
++{
++	int ret;
++	bool atomic_context;
++	/*
++	 * Since pmu_set_emmc_to_d0i0_atomic function can
++	 * only be used in atomic context, before call this
++	 * function, do a check first and make sure this function
++	 * is used in atomic context.
++	 */
++	atomic_context = (!preemptible() || in_atomic_preempt_off());
++
++	if (!atomic_context) {
++		pr_err("%s: not in atomic context!\n", __func__);
++		return -EPERM;
++	}
++
++	ret = pmu_set_emmc_to_d0i0_atomic();
++	if (ret) {
++		pr_err("%s: power up host failed with err %d\n",
++				__func__, ret);
++	}
++
++	return ret;
++}
++#else
++static int panic_mode_emmc0_power_up(void *data)
++{
++	return 0;
++}
++#endif
++
+ /* MFLD platform data */
+ static struct sdhci_pci_data mfld_sdhci_pci_data[] = {
+ 	[EMMC0_INDEX] = {
+@@ -31,6 +66,7 @@ static struct sdhci_pci_data mfld_sdhci_pci_data[] = {
+ 			.cd_gpio = -EINVAL,
+ 			.setup = 0,
+ 			.cleanup = 0,
++			.power_up = panic_mode_emmc0_power_up,
+ 	},
+ 	[EMMC1_INDEX] = {
+ 			.pdev = NULL,
+@@ -67,6 +103,7 @@ static struct sdhci_pci_data clv_sdhci_pci_data[] = {
+ 			.cd_gpio = -EINVAL,
+ 			.setup = 0,
+ 			.cleanup = 0,
++			.power_up = panic_mode_emmc0_power_up,
+ 	},
+ 	[EMMC1_INDEX] = {
+ 			.pdev = NULL,
+@@ -105,6 +142,7 @@ static struct sdhci_pci_data mrfl_sdhci_pci_data[] = {
+ 			.platform_quirks = 0,
+ 			.setup = 0,
+ 			.cleanup = 0,
++			.power_up = panic_mode_emmc0_power_up,
+ 	},
+ 	[EMMC1_INDEX] = {
+ 			.pdev = NULL,
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 7aeddf2d677b..7ef0a0aef43c 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -28,10 +28,6 @@
+ 
+ #include <asm/intel_mid_rpmsg.h>
+ 
+-#if defined(CONFIG_X86_MDFLD)
+-#include <linux/intel_mid_pm.h>
+-#endif
+-
+ #include "sdhci.h"
+ 
+ /*
+@@ -1065,14 +1061,59 @@ static void sdhci_pci_hw_reset(struct sdhci_host *host)
+ 	struct sdhci_pci_slot *slot = sdhci_priv(host);
+ 	int rst_n_gpio = slot->rst_n_gpio;
+ 
+-	if (!gpio_is_valid(rst_n_gpio))
+-		return;
+-	gpio_set_value_cansleep(rst_n_gpio, 0);
+-	/* For eMMC, minimum is 1us but give it 10us for good measure */
+-	udelay(10);
+-	gpio_set_value_cansleep(rst_n_gpio, 1);
+-	/* For eMMC, minimum is 200us but give it 300us for good measure */
+-	usleep_range(300, 1000);
++	if (gpio_is_valid(rst_n_gpio)) {
++		gpio_set_value_cansleep(rst_n_gpio, 0);
++		/* For eMMC, minimum is 1us but give it 10us for good measure */
++		udelay(10);
++		gpio_set_value_cansleep(rst_n_gpio, 1);
++		/*
++		 * For eMMC, minimum is 200us,
++		 * but give it 300us for good measure
++		 */
++		usleep_range(300, 1000);
++	} else if (slot->host->mmc->caps & MMC_CAP_HW_RESET) {
++		/* first set bit4 of power control register */
++		pwr = sdhci_readb(host, SDHCI_POWER_CONTROL);
++		pwr |= SDHCI_HW_RESET;
++		sdhci_writeb(host, pwr, SDHCI_POWER_CONTROL);
++		/* keep the same delay for safe */
++		usleep_range(300, 1000);
++		/* then clear bit4 of power control register */
++		pwr &= ~SDHCI_HW_RESET;
++		sdhci_writeb(host, pwr, SDHCI_POWER_CONTROL);
++		/* keep the same delay for safe */
++		usleep_range(300, 1000);
++	}
++}
++
++static int sdhci_pci_power_up_host(struct sdhci_host *host)
++{
++	int ret = -ENOSYS;
++	struct sdhci_pci_slot *slot = sdhci_priv(host);
++
++	if (slot->data && slot->data->power_up)
++		ret = slot->data->power_up(host);
++	/*
++	 * If there is no power_up callbacks in platform data,
++	 * return -ENOSYS;
++	 */
++	if (ret)
++		return ret;
++
++	/*
++	 * after power up host, let's have a little test
++	 */
++
++	if (sdhci_readl(host, SDHCI_HOST_VERSION) ==
++			0xffffffff) {
++		pr_err("%s: power up sdhci host failed\n",
++				__func__);
++		return -EPERM;
++	}
++
++	pr_info("%s: host controller power up is done\n", __func__);
++
++	return 0;
+ }
+ 
+ static const struct sdhci_ops sdhci_pci_ops = {
+diff --git a/include/linux/mmc/sdhci-pci-data.h b/include/linux/mmc/sdhci-pci-data.h
+index 8959604a13d3..139e6664dbc9 100644
+--- a/include/linux/mmc/sdhci-pci-data.h
++++ b/include/linux/mmc/sdhci-pci-data.h
+@@ -10,6 +10,7 @@ struct sdhci_pci_data {
+ 	int		cd_gpio;    /* Set to -EINVAL if unused */
+ 	int		(*setup)(struct sdhci_pci_data *data);
+ 	void		(*cleanup)(struct sdhci_pci_data *data);
++	int		(*power_up)(void *data);
+ };
+ 
+ extern struct sdhci_pci_data *(*sdhci_pci_get_data)(struct pci_dev *pdev,
+-- 
+2.37.3
+

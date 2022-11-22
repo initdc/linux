@@ -1,0 +1,32 @@
+From 4a2828116816341efb9835a9fcba41f615afe7a0 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Tue, 17 Sep 2013 12:11:54 +0800
+Subject: [PATCH 350/429] dwc3-host-intel: Enable host wakeup irq for MRFL
+ platform.
+
+On Intel MRFL platform, the wakeup irq be trigger as corresponding
+device IRQ. So the driver have to handle it by itself. Enable
+has_wake_irq flag for xHCI driver on MRFL platform.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/dwc3-host-intel.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/usb/dwc3/dwc3-host-intel.c b/drivers/usb/dwc3/dwc3-host-intel.c
+index 029e1cc25f77..2588c79adf54 100644
+--- a/drivers/usb/dwc3/dwc3-host-intel.c
++++ b/drivers/usb/dwc3/dwc3-host-intel.c
+@@ -470,6 +470,9 @@ static int xhci_dwc_drv_probe(struct platform_device *pdev)
+ 
+ 	usb_put_phy(usb_phy);
+ 
++	/* Enable wakeup irq */
++	hcd->has_wakeup_irq = 1;
++
+ 	platform_set_drvdata(pdev, hcd);
+ 	pm_runtime_enable(hcd->self.controller);
+ 
+-- 
+2.37.3
+

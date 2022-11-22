@@ -1,0 +1,222 @@
+From 443ccd2bff3f4fbbd1893f1da5cc170e7a9748dc Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Fri, 23 Jan 2015 10:04:25 +0100
+Subject: [PATCH 398/429] Audio: select a sound card from cmdline
+
+The audio subsystem has to allow the user to select
+an audio codec with the command line in order to avoid
+rebuilding the kernel. Currently, the dummy codec and
+the wm8958 are selectable.
+
+This patch aims to add a module param in the platform audio
+driver to install the selected sound card according to the
+codec name provided by the command line.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ arch/x86/include/asm/platform_mrfld_audio.h   |  2 +-
+ arch/x86/platform/intel-mid/board.c           |  4 +-
+ .../device_libs/platform_mrfld_audio.c        | 83 +++++++++++--------
+ sound/soc/intel/board/merr_dpcm_dummy.c       | 34 +-------
+ 4 files changed, 54 insertions(+), 69 deletions(-)
+
+diff --git a/arch/x86/include/asm/platform_mrfld_audio.h b/arch/x86/include/asm/platform_mrfld_audio.h
+index e2b1749d3cdf..2a575563beee 100644
+--- a/arch/x86/include/asm/platform_mrfld_audio.h
++++ b/arch/x86/include/asm/platform_mrfld_audio.h
+@@ -21,5 +21,5 @@ struct mrfld_audio_platform_data {
+ };
+ 
+ extern void __init *merfld_audio_platform_data(void *info) __attribute__((weak));
+-extern void __init *merfld_wm8958_audio_platform_data(void *info) __attribute__((weak));
++extern void __init *mrfld_sst_audio_platform_data(void *info) __attribute__((weak));
+ #endif
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 0f856fa250e7..b58cf48ae90e 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -157,10 +157,10 @@ struct devs_id __initconst device_ids[] = {
+ 						&ipc_device_handler},
+ 	{"i2c_pmic_adap", SFI_DEV_TYPE_IPC, 1, &mrfl_pmic_i2c_platform_data,
+ 						&ipc_device_handler},
+-	{"mrfld_wm8958", SFI_DEV_TYPE_IPC, 1, &merfld_wm8958_audio_platform_data,
++	{"mrfld_sst", SFI_DEV_TYPE_IPC, 1, &mrfld_sst_audio_platform_data,
+ 						&ipc_device_handler},
+ 	{"soc_thrm", SFI_DEV_TYPE_IPC, 1, &no_platform_data,
+ 						&soc_thrm_device_handler},
+-	{"wm8958", SFI_DEV_TYPE_I2C, 0, &wm8994_platform_data, NULL},
++	{"mrfld_codec", SFI_DEV_TYPE_I2C, 0, &wm8994_platform_data, NULL},
+ 	{},
+ };
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c b/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
+index b37818ece99f..b11a7e9f2679 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
+@@ -12,6 +12,8 @@
+  */
+ 
+ #include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/moduleparam.h>
+ #include <linux/interrupt.h>
+ #include <linux/scatterlist.h>
+ #include <linux/init.h>
+@@ -23,6 +25,10 @@
+ #include <asm/platform_mrfld_audio.h>
+ #include "platform_msic.h"
+ 
++static char* audio_codec = "dummy";
++module_param(audio_codec, charp, S_IRUSR);
++MODULE_PARM_DESC(audio_codec, "Hardware codec's name in use");
++
+ static struct mrfld_audio_platform_data mrfld_audio_pdata;
+ 
+ void *merfld_audio_platform_data(void *info)
+@@ -80,7 +86,7 @@ void *merfld_audio_platform_data(void *info)
+ 	return NULL;
+ }
+ 
+-void *merfld_wm8958_audio_platform_data(void *info)
++void *mrfld_sst_audio_platform_data(void *info)
+ {
+ 	struct platform_device *pdev;
+ 	int ret;
+@@ -91,40 +97,51 @@ void *merfld_wm8958_audio_platform_data(void *info)
+ 		return NULL;
+ 	}
+ 
+-	pdev = platform_device_alloc("hdmi-audio", -1);
+-	if (!pdev) {
+-		pr_err("failed to allocate hdmi-audio platform device\n");
+-		return NULL;
+-	}
+-
+-	ret = platform_device_add(pdev);
+-	if (ret) {
+-		pr_err("failed to add hdmi-audio platform device\n");
+-		platform_device_put(pdev);
+-		return NULL;
+-	}
+-
+-	pdev = platform_device_alloc("mrfld_wm8958", -1);
+-	if (!pdev) {
+-		pr_err("failed to allocate mrfld_wm8958 platform device\n");
+-		return NULL;
+-	}
+-
+-	ret = platform_device_add(pdev);
+-	if (ret) {
+-		pr_err("failed to add mrfld_wm8958 platform device\n");
+-		platform_device_put(pdev);
+-		return NULL;
++	if(!audio_codec || !strcmp(audio_codec, "dummy")) {
++		pdev = platform_device_register_simple("merr_dpcm_dummy",
++					0, NULL, 0);
++		if (!pdev) {
++			pr_err("failed to register merr_dpcm_dummy platform device\n");
++			return NULL;
++		}
++	} else if (!strcmp(audio_codec, "wm8958")) {
++		pdev = platform_device_alloc("mrfld_wm8958", -1);
++		if (!pdev) {
++			pr_err("failed to allocate mrfld_wm8958 platform device\n");
++			return NULL;
++		}
++
++		ret = platform_device_add(pdev);
++		if (ret) {
++			pr_err("failed to add mrfld_wm8958 platform device\n");
++			platform_device_put(pdev);
++			return NULL;
++		}
++		if (platform_device_add_data(pdev, &mrfld_audio_pdata,
++						 sizeof(mrfld_audio_pdata))) {
++			pr_err("failed to add mrfld_wm8958 platform data\n");
++			platform_device_put(pdev);
++			return NULL;
++		}
++
++		register_rpmsg_service("rpmsg_mrfld_wm8958_audio", RPROC_SCU,
++					RP_MSIC_MRFLD_AUDIO);
+ 	}
+-	if (platform_device_add_data(pdev, &mrfld_audio_pdata,
+-				     sizeof(mrfld_audio_pdata))) {
+-		pr_err("failed to add mrfld_wm8958 platform data\n");
+-		platform_device_put(pdev);
+-		return NULL;
++	/*
++	 * To add a new codec, add a "else if" statement with
++	 * its name and its specific implementation.
++	 */
++	else {
++		pr_info("Codec %s is not implemented."
++				"Dummy codec selected...\n", audio_codec);
++
++		pdev = platform_device_register_simple("merr_dpcm_dummy",
++							0, NULL, 0);
++		if (!pdev) {
++			pr_err("failed to register merr_dpcm_dummy platform device\n");
++			return NULL;
++		}
+ 	}
+ 
+-	register_rpmsg_service("rpmsg_mrfld_wm8958_audio", RPROC_SCU,
+-				RP_MSIC_MRFLD_AUDIO);
+-
+ 	return NULL;
+ }
+diff --git a/sound/soc/intel/board/merr_dpcm_dummy.c b/sound/soc/intel/board/merr_dpcm_dummy.c
+index 3cb879c73960..5603b21701b3 100644
+--- a/sound/soc/intel/board/merr_dpcm_dummy.c
++++ b/sound/soc/intel/board/merr_dpcm_dummy.c
+@@ -29,10 +29,6 @@
+ #include <sound/soc.h>
+ #include <sound/pcm_params.h>
+ 
+-static bool wm_hardware_avail = true;
+-module_param(wm_hardware_avail, bool, S_IRUSR);
+-MODULE_PARM_DESC(wm_hardware_avail, "1 in cmdline to use dummy version");
+-
+ #ifdef CONFIG_PM_SLEEP
+ static int snd_merr_dpcm_prepare(struct device *dev)
+ {
+@@ -196,35 +192,7 @@ static struct platform_driver snd_merr_dpcm_drv = {
+ 	.remove = snd_merr_dpcm_remove,
+ };
+ 
+-static int __init snd_merr_dpcm_dummy_init(void)
+-{
+-	int err;
+-	struct platform_device *device;
+-
+-	/* Check from cmdline if hardware is plugged to the board */
+-	if (wm_hardware_avail) {
+-		pr_info("dpcm dummy is not supported according to cmdline");
+-		return -EINVAL;
+-	}
+-
+-	err = platform_driver_register(&snd_merr_dpcm_drv);
+-	if (err < 0)
+-		return err;
+-
+-	device = platform_device_register_simple("merr_dpcm_dummy",
+-			0, NULL, 0);
+-	if (IS_ERR(device))
+-		return -ENODEV;
+-
+-	return 0;
+-}
+-late_initcall(snd_merr_dpcm_dummy_init);
+-
+-static void __exit snd_merr_dpcm_dummy_exit(void)
+-{
+-	return platform_driver_unregister(&snd_merr_dpcm_drv);
+-}
+-module_exit(snd_merr_dpcm_dummy_exit);
++module_platform_driver(snd_merr_dpcm_drv);
+ 
+ MODULE_DESCRIPTION("ASoC Intel(R) Edison dummy MID Machine driver");
+ MODULE_AUTHOR("Michael Soares <michaelx.soares@intel.com>");
+-- 
+2.37.3
+

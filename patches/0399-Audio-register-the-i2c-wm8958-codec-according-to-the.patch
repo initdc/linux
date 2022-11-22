@@ -1,0 +1,95 @@
+From f6db4842d0362c913f5af73b5db676a681bae242 Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Fri, 23 Jan 2015 16:21:06 +0100
+Subject: [PATCH 399/429] Audio: register the i2c wm8958 codec according to the
+ cmdline
+
+Audio codec is registered according to the SFI table.
+
+This patch aims to register the i2c wm8958 audio codec according to
+the command line instead of the SFI table.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c           |  1 -
+ .../device_libs/platform_mrfld_audio.c        |  4 ++++
+ .../intel-mid/device_libs/platform_wm8994.c   | 22 +++++++++++++++++++
+ .../intel-mid/device_libs/platform_wm8994.h   |  1 +
+ 4 files changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index b58cf48ae90e..abf7ec81f5f9 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -161,6 +161,5 @@ struct devs_id __initconst device_ids[] = {
+ 						&ipc_device_handler},
+ 	{"soc_thrm", SFI_DEV_TYPE_IPC, 1, &no_platform_data,
+ 						&soc_thrm_device_handler},
+-	{"mrfld_codec", SFI_DEV_TYPE_I2C, 0, &wm8994_platform_data, NULL},
+ 	{},
+ };
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c b/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
+index b11a7e9f2679..2efac01fd877 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfld_audio.c
+@@ -24,6 +24,7 @@
+ #include <asm/platform_sst_audio.h>
+ #include <asm/platform_mrfld_audio.h>
+ #include "platform_msic.h"
++#include "platform_wm8994.h"
+ 
+ static char* audio_codec = "dummy";
+ module_param(audio_codec, charp, S_IRUSR);
+@@ -105,6 +106,9 @@ void *mrfld_sst_audio_platform_data(void *info)
+ 			return NULL;
+ 		}
+ 	} else if (!strcmp(audio_codec, "wm8958")) {
++		/* Register i2c audio codec wm8958 */
++		wm8958_platform_data(NULL);
++
+ 		pdev = platform_device_alloc("mrfld_wm8958", -1);
+ 		if (!pdev) {
+ 			pr_err("failed to allocate mrfld_wm8958 platform device\n");
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wm8994.c b/arch/x86/platform/intel-mid/device_libs/platform_wm8994.c
+index 82ada450bd01..51a6352c81d6 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wm8994.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wm8994.c
+@@ -219,3 +219,25 @@ void __init *wm8994_platform_data(void *info)
+ 
+ 	return &wm8994_pdata;
+ }
++
++static struct i2c_board_info wm8958_info = {
++	I2C_BOARD_INFO("wm8958", 0x1a),
++};
++
++void __init *wm8958_platform_data(void *info)
++{
++	int irq = 0, bus_num = 1;
++
++	platform_add_devices(wm8958_reg_devices,
++			ARRAY_SIZE(wm8958_reg_devices));
++
++	irq = wm8994_get_irq_data(&wm8994_pdata, &wm8958_info,
++					"audiocodec_int");
++
++	if (irq)
++		wm8958_info.platform_data = &wm8994_pdata;
++
++	i2c_register_board_info(bus_num, &wm8958_info, 1);
++
++	return;
++}
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wm8994.h b/arch/x86/platform/intel-mid/device_libs/platform_wm8994.h
+index 5abead76b288..ac3b2b68d94e 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wm8994.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wm8994.h
+@@ -2,4 +2,5 @@
+ #define _PLATFORM_WM8994_H_
+ 
+ extern void *wm8994_platform_data(void *info) __attribute__((weak));
++extern void *wm8958_platform_data(void *info) __attribute__((weak));
+ #endif
+-- 
+2.37.3
+

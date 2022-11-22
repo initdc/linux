@@ -1,0 +1,28 @@
+From 1eddaf36c183143bc8fb131190bf6a31b0993af0 Mon Sep 17 00:00:00 2001
+From: jzhuan5 <jin.can.zhuang@intel.com>
+Date: Thu, 5 Dec 2013 17:40:33 +0800
+Subject: [PATCH 201/429] dwc3: Remove the faulty pm_runtime_put
+
+The pm_runtime_put was wrongly added due to rebase mistake, causing
+DUT can't be enumerated after reconnecting USB cable.
+
+Signed-off-by: jzhuan5 <jin.can.zhuang@intel.com>
+---
+ drivers/usb/dwc3/dwc3-device-intel.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-device-intel.c b/drivers/usb/dwc3/dwc3-device-intel.c
+index a66188952e46..b4e6ad9989cd 100644
+--- a/drivers/usb/dwc3/dwc3-device-intel.c
++++ b/drivers/usb/dwc3/dwc3-device-intel.c
+@@ -267,7 +267,6 @@ int dwc3_stop_peripheral(struct usb_gadget *g)
+ 
+ 	cancel_delayed_work_sync(&dwc->link_work);
+ 
+-	pm_runtime_put(dwc->dev);
+ 	wake_unlock(&_dev_data->wake_lock);
+ 
+ 	return 0;
+-- 
+2.37.3
+

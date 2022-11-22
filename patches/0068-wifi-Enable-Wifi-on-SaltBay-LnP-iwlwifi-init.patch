@@ -1,0 +1,57 @@
+From 9e0d9a2dd8c1d45c31a9494be477dad3819d8fe0 Mon Sep 17 00:00:00 2001
+From: Jonathan DE CESCO <jonathan.de.cesco@intel.com>
+Date: Wed, 10 Jul 2013 09:16:05 +0200
+Subject: [PATCH 068/429] wifi: Enable Wifi on SaltBay LnP iwlwifi init
+
+Init entrance
+Use iwlwifi SFI entry to call wifi platform init function
+Add iwlwifi quirk
+
+Category: device enablement
+Domain: CWS-Wifi
+Origin: internal
+Upstream-Candidate: no, not-aosp
+
+Signed-off-by: Jonathan DE CESCO <jonathan.de.cesco@intel.com>
+Signed-off-by: Frode Isaksen <frodex.isaksen@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c                     | 1 +
+ arch/x86/platform/intel-mid/device_libs/platform_wifi.c | 8 ++++++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index b511c4b86bec..7d3c9290231a 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -92,6 +92,7 @@ struct devs_id __initconst device_ids[] = {
+ 	{"wl12xx_clk_vmmc", SFI_DEV_TYPE_SD, 0, &wl12xx_platform_data, NULL},
+ 	{"bcm43xx_clk_vmmc", SFI_DEV_TYPE_SD, 0, &wifi_platform_data, NULL},
+ 	{"bcm43xx_vmmc", SFI_DEV_TYPE_SD, 0, &wifi_platform_data, NULL},
++	{"iwlwifi_clk_vmmc", SFI_DEV_TYPE_SD, 0, &wifi_platform_data, NULL},
+ 
+ 	/* SPI devices */
+ 	{"bma023", SFI_DEV_TYPE_I2C, 1, &no_platform_data, NULL},
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wifi.c b/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
+index 6ea011db9b01..4ac714475272 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wifi.c
+@@ -69,10 +69,14 @@ void __init wifi_platform_data_init_sfi(void)
+ /* Called from board.c */
+ void __init *wifi_platform_data(void *info)
+ {
++	struct sd_board_info *sd_info = info;
++
+ 	unsigned int sdhci_quirk = SDHCI_QUIRK2_ADVERTISE_2V0_FORCE_1V8
+-		| SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY;
++		| SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY
++		| SDHCI_QUIRK2_ADVERTISE_3V0_FORCE_1V8
++		| SDHCI_QUIRK2_NON_STD_CIS;
+ 
+-	pr_err("Using WiFi platform data\n");
++	pr_err("Using generic wifi platform data\n");
+ 
+ 	/* Set vendor specific SDIO quirks */
+ #ifdef CONFIG_MMC_SDHCI_PCI
+-- 
+2.37.3
+

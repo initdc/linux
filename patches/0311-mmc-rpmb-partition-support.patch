@@ -1,0 +1,50 @@
+From 229e5e355557defdd5313fdf118ea357c8950f5c Mon Sep 17 00:00:00 2001
+From: Chuanxiao Dong <chuanxiao.dong@intel.com>
+Date: Mon, 5 May 2014 14:14:40 +0200
+Subject: [PATCH 311/429] mmc: rpmb partition support
+
+This patch contains all bugs fixing for supporting RPMB partition
+in MMC driver side.
+
+Currently the only usage for accessing RPMB partition is through
+IOCTL by device node mmcblk0rpmb device node
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+Signed-off-by: Vincent Tinelli <vincent.tinelli@intel.com>
+---
+ drivers/mmc/card/block.c | 6 ++++++
+ drivers/mmc/card/queue.c | 1 +
+ 2 files changed, 7 insertions(+)
+
+diff --git a/drivers/mmc/card/block.c b/drivers/mmc/card/block.c
+index 885ba4a19a6c..b002da76d577 100644
+--- a/drivers/mmc/card/block.c
++++ b/drivers/mmc/card/block.c
+@@ -161,6 +161,12 @@ static struct mmc_blk_data *mmc_blk_get(struct gendisk *disk)
+ 	return md;
+ }
+ 
++int mmc_access_rpmb(struct mmc_queue *mq)
++{
++	struct mmc_blk_data *md = mq->data;
++	return md && md->part_type == EXT_CSD_PART_CONFIG_ACC_RPMB;
++}
++
+ static inline int mmc_get_devidx(struct gendisk *disk)
+ {
+ 	int devmaj = MAJOR(disk_devt(disk));
+diff --git a/drivers/mmc/card/queue.c b/drivers/mmc/card/queue.c
+index 645519fe3acd..88327f7f2498 100644
+--- a/drivers/mmc/card/queue.c
++++ b/drivers/mmc/card/queue.c
+@@ -18,6 +18,7 @@
+ 
+ #include <linux/mmc/card.h>
+ #include <linux/mmc/host.h>
++#include <linux/mmc/mmc.h>
+ #include "queue.h"
+ 
+ #define MMC_QUEUE_BOUNCESZ	65536
+-- 
+2.37.3
+

@@ -1,0 +1,102 @@
+From 98475231fa6a91f8c90c69a7dd39b22e8ad84688 Mon Sep 17 00:00:00 2001
+From: Roger Quadros <rogerq@ti.com>
+Date: Tue, 27 Aug 2013 18:43:14 +0800
+Subject: [PATCH 349/429] USB: Support wakeup IRQ for suspended controllers
+
+Some platforms e.g. ehci-omap can generate an interrupt
+(i.e. remote wakeup) even when the controller is suspended i.e.
+HW_ACCESSIBLE is cleared.
+
+Introduce a flag "has_wakeup_irq" in struct usb_hcd to indicate
+such cases.
+
+We tackle this case by disabling the IRQ, scheduling a
+hub resume and enabling back the IRQ after the controller has
+resumed. This ensures that the IRQ handler runs only after the
+controller is accessible.
+
+This patch get from below link:
+http://lkml.indiana.edu/hypermail/linux/kernel/1307.1/01392.html
+
+Haven't merged into community so far.
+
+Signed-off-by: Roger Quadros <rogerq@ti.com>
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/core/hcd.c  | 23 +++++++++++++++++++++--
+ include/linux/usb/hcd.h |  3 +++
+ 2 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/usb/core/hcd.c b/drivers/usb/core/hcd.c
+index cbfd3d14fa5a..59a217888209 100644
+--- a/drivers/usb/core/hcd.c
++++ b/drivers/usb/core/hcd.c
+@@ -2138,6 +2138,11 @@ static void hcd_resume_work(struct work_struct *work)
+ 	usb_lock_device(udev);
+ 	usb_remote_wakeup(udev);
+ 	usb_unlock_device(udev);
++	if (HCD_IRQ_DISABLED(hcd)) {
++		/* We can now process IRQs so enable IRQ */
++		clear_bit(HCD_FLAG_IRQ_DISABLED, &hcd->flags);
++		enable_irq(hcd->irq);
++	}
+ }
+ 
+ /**
+@@ -2225,9 +2230,23 @@ irqreturn_t usb_hcd_irq (int irq, void *__hcd)
+ 	 */
+ 	local_irq_save(flags);
+ 
+-	if (unlikely(HCD_DEAD(hcd) || !HCD_HW_ACCESSIBLE(hcd)))
++	if (unlikely(HCD_DEAD(hcd)))
+ 		rc = IRQ_NONE;
+-	else if (hcd->driver->irq(hcd) == IRQ_NONE)
++	else if (unlikely(!HCD_HW_ACCESSIBLE(hcd))) {
++		if (hcd->has_wakeup_irq) {
++			/*
++			 * We got a wakeup interrupt while the controller was
++			 * suspending or suspended. We can't handle it now, so
++			 * disable the IRQ and resume the root hub (and hence
++			 * the controller too).
++			 */
++			disable_irq_nosync(hcd->irq);
++			set_bit(HCD_FLAG_IRQ_DISABLED, &hcd->flags);
++			usb_hcd_resume_root_hub(hcd);
++			rc = IRQ_HANDLED;
++		} else
++			rc = IRQ_NONE;
++	} else if (hcd->driver->irq(hcd) == IRQ_NONE)
+ 		rc = IRQ_NONE;
+ 	else
+ 		rc = IRQ_HANDLED;
+diff --git a/include/linux/usb/hcd.h b/include/linux/usb/hcd.h
+index 287b906f5d59..ef35234620dd 100644
+--- a/include/linux/usb/hcd.h
++++ b/include/linux/usb/hcd.h
+@@ -110,6 +110,7 @@ struct usb_hcd {
+ #define HCD_FLAG_WAKEUP_PENDING		4	/* root hub is resuming? */
+ #define HCD_FLAG_RH_RUNNING		5	/* root hub is running? */
+ #define HCD_FLAG_DEAD			6	/* controller has died? */
++#define HCD_FLAG_IRQ_DISABLED	 7	/* Interrupt was disabled */
+ 
+ 	/* The flags can be tested using these macros; they are likely to
+ 	 * be slightly faster than test_bit().
+@@ -120,6 +121,7 @@ struct usb_hcd {
+ #define HCD_WAKEUP_PENDING(hcd)	((hcd)->flags & (1U << HCD_FLAG_WAKEUP_PENDING))
+ #define HCD_RH_RUNNING(hcd)	((hcd)->flags & (1U << HCD_FLAG_RH_RUNNING))
+ #define HCD_DEAD(hcd)		((hcd)->flags & (1U << HCD_FLAG_DEAD))
++#define HCD_IRQ_DISABLED(hcd)	((hcd)->flags & (1U << HCD_FLAG_IRQ_DISABLED))
+ 
+ 	/* Flags that get set only during HCD registration or removal. */
+ 	unsigned		rh_registered:1;/* is root hub registered? */
+@@ -132,6 +134,7 @@ struct usb_hcd {
+ 	unsigned		wireless:1;	/* Wireless USB HCD */
+ 	unsigned		authorized_default:1;
+ 	unsigned		has_tt:1;	/* Integrated TT in root hub */
++	unsigned		has_wakeup_irq:1; /* Can IRQ when suspended */
+ 
+ 	unsigned int		irq;		/* irq allocated */
+ 	void __iomem		*regs;		/* device memory/io */
+-- 
+2.37.3
+

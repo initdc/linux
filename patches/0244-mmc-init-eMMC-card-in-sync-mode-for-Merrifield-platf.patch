@@ -1,0 +1,32 @@
+From 3d3d3c6e2d554914f5d556c183bdce4152d641c4 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Wed, 21 Aug 2013 17:59:52 +0800
+Subject: [PATCH 244/429] mmc: init eMMC card in sync mode for Merrifield
+ platform
+
+Since adb device ID is depends on eMMC CID, let MMC driver init
+eMMC card in sync mode can make sure eMMC CID be got by USB driver
+correctly.
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index ae8822468752..30157e341cb7 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -670,7 +670,8 @@ static int intel_mrfl_mmc_probe_slot(struct sdhci_pci_slot *slot)
+ 	if (PCI_FUNC(slot->chip->pdev->devfn) == INTEL_MRFL_EMMC_0)
+ 		sdhci_alloc_panic_host(slot->host);
+ 
+-	slot->host->mmc->caps2 |= MMC_CAP2_INIT_CARD_SYNC;
++	slot->host->mmc->caps2 |= MMC_CAP2_INIT_CARD_SYNC |
++		MMC_CAP2_POLL_R1B_BUSY;
+ 
+ 	if (slot->data->platform_quirks & PLFM_QUIRK_NO_HIGH_SPEED) {
+ 		slot->host->quirks2 |= SDHCI_QUIRK2_DISABLE_HIGH_SPEED;
+-- 
+2.37.3
+

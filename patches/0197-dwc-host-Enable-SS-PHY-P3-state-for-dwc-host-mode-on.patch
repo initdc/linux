@@ -1,0 +1,35 @@
+From 97c07e7f214035b73ad05698eac6f1b7c6cc5ccf Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Mon, 18 Nov 2013 11:52:53 +0800
+Subject: [PATCH 197/429] dwc-host: Enable SS-PHY P3 state for dwc host mode on
+ MERR platform.
+
+The SS-PHY P3 mode is disabled by default due to some silicon BUG in TNG
+A0 pre-silicon platform. Now looks like P3 is health on TNG B0. So
+enable it by default to reduce power consume when host under d0i3hot.
+
+The default GCTL.PwrDnScale is not correct. On MERR platform, the
+suspend clock is 19.2 MHz. So correct it during host/device mode
+initialization.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/otg.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/usb/dwc3/otg.h b/drivers/usb/dwc3/otg.h
+index 9a814252d870..1723057c385d 100644
+--- a/drivers/usb/dwc3/otg.h
++++ b/drivers/usb/dwc3/otg.h
+@@ -120,6 +120,8 @@ struct dwc_device_par {
+ #define GCTL_PRT_CAP_DIR_OTG 3
+ #define GCTL_GBL_HIBERNATION_EN 0x2
+ #define GCTL_CORESOFTRESET (1 << 11)
++#define GCTL_PWRDNSCALE(x) (x << 19)
++#define GCTL_PWRDNSCALE_MASK (0x1fff << 19)
+ 
+ #define OCFG					0xcc00
+ #define OCFG_SRP_CAP				0x01
+-- 
+2.37.3
+

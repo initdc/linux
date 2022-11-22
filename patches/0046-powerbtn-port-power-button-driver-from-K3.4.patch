@@ -1,0 +1,492 @@
+From 22043befe6b9b3da188c7ba9ac600a13d241231e Mon Sep 17 00:00:00 2001
+From: Wang Yiyang <yiyang.wang@intel.com>
+Date: Tue, 27 Aug 2013 06:17:17 +0800
+Subject: [PATCH 046/429] powerbtn: port power button driver from K3.4
+
+Port cloverview and tangier power button driver from K3.4 to K3.10
+
+Signed-off-by: Wang Yiyang <yiyang.wang@intel.com>
+---
+ arch/x86/include/asm/intel_mid_powerbtn.h     |  14 +
+ arch/x86/platform/intel-mid/board.c           |   4 +
+ .../intel-mid/device_libs/platform_msic.h     |   2 +
+ .../device_libs/platform_msic_power_btn.c     |  71 ++++-
+ .../device_libs/platform_msic_power_btn.h     |   4 +-
+ drivers/platform/x86/intel_mid_powerbtn.c     | 252 +++++++++++++-----
+ 6 files changed, 282 insertions(+), 65 deletions(-)
+ create mode 100644 arch/x86/include/asm/intel_mid_powerbtn.h
+
+diff --git a/arch/x86/include/asm/intel_mid_powerbtn.h b/arch/x86/include/asm/intel_mid_powerbtn.h
+new file mode 100644
+index 000000000000..a0b4c874c9ea
+--- /dev/null
++++ b/arch/x86/include/asm/intel_mid_powerbtn.h
+@@ -0,0 +1,14 @@
++#ifndef __INTEL_MID_POWERBTN_H__
++#define __INTEL_MID_POWERBTN_H__
++
++struct intel_msic_power_btn_platform_data {
++	u32 pbstat;
++	u16 pb_level;
++	u16 irq_lvl1_mask;
++	int (*irq_ack)(struct intel_msic_power_btn_platform_data *);
++};
++
++#define MSIC_PB_LEN	1
++#define MSIC_PWRBTNM	(1 << 0)
++
++#endif
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 4c4530f2d554..682708fc861a 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -102,6 +102,10 @@ struct devs_id __initconst device_ids[] = {
+ 	{"i2c_disp_brig", SFI_DEV_TYPE_I2C, 0, &tc35876x_platform_data, NULL},
+ 
+ 	/* MSIC subdevices */
++	{"msic_adc", SFI_DEV_TYPE_IPC, 1, &msic_adc_platform_data,
++						&ipc_device_handler},
++	{"bcove_power_btn", SFI_DEV_TYPE_IPC, 1, &msic_power_btn_platform_data,
++					&ipc_device_handler},
+ 	{"msic_battery", SFI_DEV_TYPE_IPC, 1, &msic_battery_platform_data,
+ 					&ipc_device_handler},
+ 	{"msic_gpio", SFI_DEV_TYPE_IPC, 1, &msic_gpio_platform_data,
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_msic.h b/arch/x86/platform/intel-mid/device_libs/platform_msic.h
+index 6f672aa880b7..6abcfc7ad4ba 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_msic.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_msic.h
+@@ -12,6 +12,8 @@
+ #ifndef _PLATFORM_MSIC_H_
+ #define _PLATFORM_MSIC_H_
+ 
++#include <linux/mfd/intel_msic.h>
++
+ extern struct intel_msic_platform_data msic_pdata;
+ 
+ extern void *msic_generic_platform_data(void *info,
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c b/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c
+index 7f87019f785c..9e7d9fbf69a9 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c
+@@ -14,12 +14,77 @@
+ #include <linux/scatterlist.h>
+ #include <linux/sfi.h>
+ #include <linux/init.h>
+-#include <linux/mfd/intel_msic.h>
+ #include <asm/intel-mid.h>
+-#include "platform_msic.h"
++#include <asm/intel_mid_powerbtn.h>
++#include <asm/intel_scu_ipc.h>
++#include <asm/intel_scu_pmic.h>
+ #include "platform_msic_power_btn.h"
++#include <linux/platform_data/intel_mid_remoteproc.h>
++
++#define BCOVE_PBIRQ 0x02
++#define BCOVE_PBIRQMASK	0x0d
++
++static struct intel_msic_power_btn_platform_data msic_power_btn_pdata;
++
++static int mrfl_pb_irq_ack(struct intel_msic_power_btn_platform_data *pdata)
++{
++	intel_scu_ipc_update_register(BCOVE_PBIRQ, 0, MSIC_PWRBTNM);
++	intel_scu_ipc_update_register(BCOVE_PBIRQMASK, 0, MSIC_PWRBTNM);
++
++	return 0;
++}
+ 
+ void __init *msic_power_btn_platform_data(void *info)
+ {
+-	return msic_generic_platform_data(info, INTEL_MSIC_BLOCK_POWER_BTN);
++	int ret;
++	struct platform_device *pdev;
++	struct sfi_device_table_entry *entry = info;
++	struct resource res;
++
++	pdev = platform_device_alloc(INTEL_MID_POWERBTN_DEV_NAME, -1);
++	if (!pdev) {
++		pr_err("%s(): out of memory\n", __func__);
++		return NULL;
++	}
++
++	if (INTEL_MID_BOARD(1, PHONE, MRFL)) {
++		msic_power_btn_pdata.pbstat = 0xfffff61a;
++		msic_power_btn_pdata.pb_level = (1 << 4);
++		msic_power_btn_pdata.irq_lvl1_mask = 0x0c;
++		msic_power_btn_pdata.irq_ack = mrfl_pb_irq_ack;
++	} else if (INTEL_MID_BOARD(1, PHONE, CLVTP)) {
++		msic_power_btn_pdata.pbstat = 0xffffefcb;
++		msic_power_btn_pdata.pb_level = (1 << 3);
++		msic_power_btn_pdata.irq_lvl1_mask = 0x21;
++		msic_power_btn_pdata.irq_ack = NULL;
++	} else if (INTEL_MID_BOARD(1, TABLET, CLVT)) {
++		msic_power_btn_pdata.pbstat = 0xffff7fcb;
++		msic_power_btn_pdata.pb_level = (1 << 3);
++		msic_power_btn_pdata.irq_lvl1_mask = 0x21;
++		msic_power_btn_pdata.irq_ack = NULL;
++	} else {
++		msic_power_btn_pdata.pbstat = 0xffff7fd0;
++		msic_power_btn_pdata.pb_level = (1 << 3);
++		msic_power_btn_pdata.irq_lvl1_mask = 0x21;
++		msic_power_btn_pdata.irq_ack = NULL;
++	}
++
++	pdev->dev.platform_data = &msic_power_btn_pdata;
++
++	ret = platform_device_add(pdev);
++	if (ret) {
++		pr_err("%s(): platform_device_add() failed\n", __func__);
++		platform_device_put(pdev);
++		return NULL;
++	}
++
++	res.name = "IRQ",
++	res.flags = IORESOURCE_IRQ,
++	res.start = entry->irq;
++	platform_device_add_resources(pdev, &res, 1);
++
++	register_rpmsg_service("rpmsg_mid_powerbtn",
++			RPROC_SCU, RP_MSIC_POWER_BTN);
++
++	return &msic_power_btn_pdata;
+ }
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.h b/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.h
+index 2fbdf5384977..3de94ca827fe 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.h
+@@ -12,6 +12,8 @@
+ #ifndef _PLATFORM_MSIC_POWER_BTN_H_
+ #define _PLATFORM_MSIC_POWER_BTN_H_
+ 
++#define INTEL_MID_POWERBTN_DEV_NAME "mid_powerbtn"
++
+ extern void __init *msic_power_btn_platform_data(void *info)
+-				__attribute__((weak));
++		__attribute__((weak));
+ #endif
+diff --git a/drivers/platform/x86/intel_mid_powerbtn.c b/drivers/platform/x86/intel_mid_powerbtn.c
+index f59683aa13d5..669a25465bf9 100644
+--- a/drivers/platform/x86/intel_mid_powerbtn.c
++++ b/drivers/platform/x86/intel_mid_powerbtn.c
+@@ -21,56 +21,98 @@
+ #include <linux/init.h>
+ #include <linux/interrupt.h>
+ #include <linux/slab.h>
++#include <linux/device.h>
+ #include <linux/platform_device.h>
+ #include <linux/input.h>
+-#include <linux/mfd/intel_msic.h>
++#include <linux/io.h>
++#include <linux/rpmsg.h>
++#include <linux/async.h>
++#include <asm/intel_mid_powerbtn.h>
++#include <asm/intel_scu_pmic.h>
++#include <asm/intel_mid_rpmsg.h>
+ 
+ #define DRIVER_NAME "msic_power_btn"
+ 
+-#define MSIC_PB_LEVEL	(1 << 3) /* 1 - release, 0 - press */
++struct mid_pb_priv {
++	struct input_dev *input;
++	int irq;
++	void __iomem *pb_stat;
++	u16 pb_level;
++	u16 irq_lvl1_mask;
++	bool irq_ack;
++};
+ 
+-/*
+- * MSIC document ti_datasheet defines the 1st bit reg 0x21 is used to mask
+- * power button interrupt
+- */
+-#define MSIC_PWRBTNM    (1 << 0)
++static inline int pb_clear_bits(u16 addr, u8 mask)
++{
++	return intel_scu_ipc_update_register(addr, 0, mask);
++}
+ 
+-static irqreturn_t mfld_pb_isr(int irq, void *dev_id)
++static irqreturn_t mid_pb_isr(int irq, void *dev_id)
+ {
+-	struct input_dev *input = dev_id;
+-	int ret;
++	struct mid_pb_priv *priv = dev_id;
+ 	u8 pbstat;
+ 
+-	ret = intel_msic_reg_read(INTEL_MSIC_PBSTATUS, &pbstat);
+-	dev_dbg(input->dev.parent, "PB_INT status= %d\n", pbstat);
++	pbstat = readb(priv->pb_stat);
++	dev_dbg(&priv->input->dev, "pbstat: 0x%x\n", pbstat);
+ 
+-	if (ret < 0) {
+-		dev_err(input->dev.parent, "Read error %d while reading"
+-			       " MSIC_PB_STATUS\n", ret);
+-	} else {
+-		input_event(input, EV_KEY, KEY_POWER,
+-			       !(pbstat & MSIC_PB_LEVEL));
+-		input_sync(input);
+-	}
++	input_event(priv->input, EV_KEY, KEY_POWER, !(pbstat & priv->pb_level));
++	input_sync(priv->input);
++
++	if (pbstat & priv->pb_level)
++		pr_info("[%s] power button released\n", priv->input->name);
++	else
++		pr_info("[%s] power button pressed\n", priv->input->name);
++
++	return IRQ_WAKE_THREAD;
++}
++
++static irqreturn_t mid_pb_threaded_isr(int irq, void *dev_id)
++{
++	struct mid_pb_priv *priv = dev_id;
++
++	if (priv->irq_ack)
++		pb_clear_bits(priv->irq_lvl1_mask, MSIC_PWRBTNM);
+ 
+ 	return IRQ_HANDLED;
+ }
+ 
+-static int mfld_pb_probe(struct platform_device *pdev)
++static int mid_pb_probe(struct platform_device *pdev)
+ {
+ 	struct input_dev *input;
+-	int irq = platform_get_irq(pdev, 0);
+-	int error;
++	struct mid_pb_priv *priv;
++	int irq;
++	int ret;
++	struct intel_msic_power_btn_platform_data *pdata;
++
++	if (pdev == NULL)
++		return -ENODEV;
++
++	pdata = pdev->dev.platform_data;
++	if (pdata == NULL) {
++		dev_err(&pdev->dev, "No power button platform data\n");
++		return -EINVAL;
++	}
++
++	dev_info(&pdev->dev, "Probed mid powerbutton devivce\n");
+ 
++	irq = platform_get_irq(pdev, 0);
+ 	if (irq < 0)
+ 		return -EINVAL;
+ 
++	priv = kzalloc(sizeof(struct mid_pb_priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
+ 	input = input_allocate_device();
+ 	if (!input) {
+-		dev_err(&pdev->dev, "Input device allocation error\n");
++		kfree(priv);
+ 		return -ENOMEM;
+ 	}
+ 
++	priv->input = input;
++	priv->irq = irq;
++	platform_set_drvdata(pdev, priv);
++
+ 	input->name = pdev->name;
+ 	input->phys = "power-button/input0";
+ 	input->id.bustype = BUS_HOST;
+@@ -78,71 +120,159 @@ static int mfld_pb_probe(struct platform_device *pdev)
+ 
+ 	input_set_capability(input, EV_KEY, KEY_POWER);
+ 
+-	error = request_threaded_irq(irq, NULL, mfld_pb_isr, IRQF_NO_SUSPEND,
+-			DRIVER_NAME, input);
+-	if (error) {
+-		dev_err(&pdev->dev, "Unable to request irq %d for mfld power"
+-				"button\n", irq);
+-		goto err_free_input;
++	priv->pb_stat = ioremap(pdata->pbstat, MSIC_PB_LEN);
++	if (!priv->pb_stat) {
++		ret = -ENOMEM;
++		goto fail;
++	}
++
++	ret = input_register_device(input);
++	if (ret) {
++		dev_err(&pdev->dev,
++			"unable to register input dev, error %d\n", ret);
++		goto out_iounmap;
+ 	}
+ 
+-	error = input_register_device(input);
+-	if (error) {
+-		dev_err(&pdev->dev, "Unable to register input dev, error "
+-				"%d\n", error);
+-		goto err_free_irq;
++	priv->pb_level = pdata->pb_level;
++	priv->irq_lvl1_mask = pdata->irq_lvl1_mask;
++
++	/* Unmask the PBIRQ and MPBIRQ on Tangier */
++	if (pdata->irq_ack) {
++		pdata->irq_ack(pdata);
++		priv->irq_ack = true;
+ 	}
+ 
+-	platform_set_drvdata(pdev, input);
++	ret = request_threaded_irq(priv->irq, mid_pb_isr, mid_pb_threaded_isr,
++		IRQF_NO_SUSPEND, DRIVER_NAME, priv);
+ 
+-	/*
+-	 * SCU firmware might send power button interrupts to IA core before
++	if (ret) {
++		dev_err(&pdev->dev,
++			"unable to request irq %d for power button\n", irq);
++		goto out_unregister_input;
++	}
++
++	/* SCU firmware might send power button interrupts to IA core before
+ 	 * kernel boots and doesn't get EOI from IA core. The first bit of
+-	 * MSIC reg 0x21 is kept masked, and SCU firmware doesn't send new
++	 * MSIC lvl1 mask reg is kept masked, and SCU firmware doesn't send new
+ 	 * power interrupt to Android kernel. Unmask the bit when probing
+ 	 * power button in kernel.
+-	 * There is a very narrow race between irq handler and power button
+-	 * initialization. The race happens rarely. So we needn't worry
+-	 * about it.
+ 	 */
+-	error = intel_msic_reg_update(INTEL_MSIC_IRQLVL1MSK, 0, MSIC_PWRBTNM);
+-	if (error) {
+-		dev_err(&pdev->dev, "Unable to clear power button interrupt, "
+-				"error: %d\n", error);
+-		goto err_free_irq;
+-	}
++	pb_clear_bits(priv->irq_lvl1_mask, MSIC_PWRBTNM);
+ 
+ 	return 0;
+ 
+-err_free_irq:
+-	free_irq(irq, input);
+-err_free_input:
++out_unregister_input:
++	input_unregister_device(input);
++	input = NULL;
++out_iounmap:
++	iounmap(priv->pb_stat);
++fail:
++	platform_set_drvdata(pdev, NULL);
+ 	input_free_device(input);
+-	return error;
++	kfree(priv);
++	return ret;
+ }
+ 
+-static int mfld_pb_remove(struct platform_device *pdev)
++static int mid_pb_remove(struct platform_device *pdev)
+ {
+-	struct input_dev *input = platform_get_drvdata(pdev);
+-	int irq = platform_get_irq(pdev, 0);
++	struct mid_pb_priv *priv = platform_get_drvdata(pdev);
+ 
+-	free_irq(irq, input);
+-	input_unregister_device(input);
++	iounmap(priv->pb_stat);
++	free_irq(priv->irq, priv);
+ 	platform_set_drvdata(pdev, NULL);
++	input_unregister_device(priv->input);
++	kfree(priv);
+ 
+ 	return 0;
+ }
+ 
+-static struct platform_driver mfld_pb_driver = {
++static const struct platform_device_id mid_pb_table[] = {
++	{"mid_powerbtn", 1},
++};
++
++static struct platform_driver mid_pb_driver = {
+ 	.driver = {
+ 		.name = DRIVER_NAME,
+ 		.owner = THIS_MODULE,
+ 	},
+-	.probe	= mfld_pb_probe,
+-	.remove	= mfld_pb_remove,
++	.probe	= mid_pb_probe,
++	.remove	= mid_pb_remove,
++	.id_table = mid_pb_table,
+ };
+ 
+-module_platform_driver(mfld_pb_driver);
++static int __init mid_pb_module_init(void)
++{
++	return platform_driver_register(&mid_pb_driver);
++}
++
++static void  mid_pb_module_exit(void)
++{
++	platform_driver_unregister(&mid_pb_driver);
++}
++
++/* RPMSG related functionality */
++
++static int mid_pb_rpmsg_probe(struct rpmsg_channel *rpdev)
++{
++	int ret = 0;
++	if (rpdev == NULL) {
++		pr_err("rpmsg channel not created\n");
++		ret = -ENODEV;
++		goto out;
++	}
++
++	dev_info(&rpdev->dev, "Probed mid_pb rpmsg device\n");
++
++	ret = mid_pb_module_init();
++out:
++	return ret;
++}
++
++
++static void mid_pb_rpmsg_remove(struct rpmsg_channel *rpdev)
++{
++	mid_pb_module_exit();
++	dev_info(&rpdev->dev, "Removed mid_pb rpmsg device\n");
++}
++
++static void mid_pb_rpmsg_cb(struct rpmsg_channel *rpdev, void *data,
++					int len, void *priv, u32 src)
++{
++	dev_warn(&rpdev->dev, "unexpected, message\n");
++
++	print_hex_dump(KERN_DEBUG, __func__, DUMP_PREFIX_NONE, 16, 1,
++		       data, len,  true);
++}
++
++static struct rpmsg_device_id mid_pb_id_table[] = {
++	{ .name	= "rpmsg_mid_powerbtn" },
++	{ },
++};
++MODULE_DEVICE_TABLE(rpmsg, mid_pb_id_table);
++
++
++static struct rpmsg_driver mid_pb_rpmsg_driver = {
++	.drv.name	= DRIVER_NAME,
++	.drv.owner	= THIS_MODULE,
++	.probe		= mid_pb_rpmsg_probe,
++	.callback	= mid_pb_rpmsg_cb,
++	.remove		= mid_pb_rpmsg_remove,
++	.id_table	= mid_pb_id_table,
++};
++
++static int __init mid_pb_rpmsg_init(void)
++{
++	return register_rpmsg_driver(&mid_pb_rpmsg_driver);
++}
++
++static void __exit mid_pb_rpmsg_exit(void)
++{
++	return unregister_rpmsg_driver(&mid_pb_rpmsg_driver);
++}
++
++late_initcall(mid_pb_rpmsg_init);
++
++module_exit(mid_pb_rpmsg_exit);
+ 
+ MODULE_AUTHOR("Hong Liu <hong.liu@intel.com>");
+ MODULE_DESCRIPTION("Intel Medfield Power Button Driver");
+-- 
+2.37.3
+

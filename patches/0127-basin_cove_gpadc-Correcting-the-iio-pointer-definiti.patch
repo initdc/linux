@@ -1,0 +1,37 @@
+From 916f75375d264c2c9362a8de45a735f5775a1675 Mon Sep 17 00:00:00 2001
+From: yegnesh <yegnesh.s.iyer@intel.com>
+Date: Fri, 13 Dec 2013 11:46:30 +0530
+Subject: [PATCH 127/429] basin_cove_gpadc: Correcting the iio pointer
+ definitions to avoid warnings
+
+Issue description: The iio_channels pointers in the adc structure was defined
+as pointers to auto variables and it was made to point to const variables.
+ This caused compilation warnings.
+
+Solution: Corrected the iio_channels pointer variable type to const to resolve the warnings.
+
+Category: device enablement
+Domain: BatteryManagement-Common
+Origin: internal
+Upstream-Candidate: no, not aosp
+Signed-off-by: yegnesh <yegnesh.s.iyer@intel.com>
+---
+ arch/x86/include/asm/intel_basincove_gpadc.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/intel_basincove_gpadc.h b/arch/x86/include/asm/intel_basincove_gpadc.h
+index b6e189d09576..a34ec9efbcbe 100644
+--- a/arch/x86/include/asm/intel_basincove_gpadc.h
++++ b/arch/x86/include/asm/intel_basincove_gpadc.h
+@@ -46,7 +46,7 @@ struct intel_basincove_gpadc_platform_data {
+ 	struct iio_map *gpadc_iio_maps;
+ 	struct gpadc_regmap_t *gpadc_regmaps;
+ 	struct gpadc_regs_t *gpadc_regs;
+-	struct iio_chan_spec *gpadc_channels;
++	const struct iio_chan_spec *gpadc_channels;
+ };
+ 
+ struct gpadc_result {
+-- 
+2.37.3
+

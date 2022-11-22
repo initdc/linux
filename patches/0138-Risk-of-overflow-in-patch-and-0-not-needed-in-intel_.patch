@@ -1,0 +1,26 @@
+From 06ffe02455e706177ccce0b78f28f9f324df241a Mon Sep 17 00:00:00 2001
+From: Frederic Despalles <frederic.fespalles@intel.com>
+Date: Tue, 5 Nov 2013 17:01:43 +0100
+Subject: [PATCH 138/429] Risk of overflow in patch and \0 not needed in
+ intel_scu_watchdog.c
+
+Signed-off-by: Frederic Despalles <frederic.fespalles@intel.com>
+---
+ drivers/watchdog/intel_scu_watchdog_evo.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/watchdog/intel_scu_watchdog_evo.c b/drivers/watchdog/intel_scu_watchdog_evo.c
+index a4d9a98885a6..1c07da7b9f1f 100644
+--- a/drivers/watchdog/intel_scu_watchdog_evo.c
++++ b/drivers/watchdog/intel_scu_watchdog_evo.c
+@@ -612,7 +612,6 @@ static ssize_t kwd_reset_type_read(struct file *file, char __user *buff,
+ 			     && str[len] != '\0'; len++)
+ 			;
+ 		str[len++] = '\n';
+-		str[len] = '\0';
+ 		ret = copy_to_user(buff, str, len);
+ 	}
+ 
+-- 
+2.37.3
+

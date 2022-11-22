@@ -1,0 +1,48 @@
+From bcd944338274c0165924a00a817ab33c914a19e8 Mon Sep 17 00:00:00 2001
+From: "Li, Ning" <ning.li@intel.com>
+Date: Tue, 4 Mar 2014 09:55:07 +0800
+Subject: [PATCH 401/429] gpio-langwell: fix the wrong GIMR operation when
+ requesting GPIO
+
+When we request a GPIO pin, lnw_gpio_request() will be called
+to set GAFR of requested pin to 0. However, in moorefield platform,
+there is no GAFR, and the GAFR address calculated by gpio driver
+is GIMR in moorefield.
+
+We skip the wrong GAFR/GIMR operation when requesting GPIO.
+
+Signed-off-by: Li Ning <ning.li@intel.com>
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/gpio/gpio-langwell.c | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpio/gpio-langwell.c b/drivers/gpio/gpio-langwell.c
+index f8b907d692e4..2c441998a9b3 100644
+--- a/drivers/gpio/gpio-langwell.c
++++ b/drivers/gpio/gpio-langwell.c
+@@ -393,9 +393,18 @@ static void __iomem *gpio_reg_2bit(struct gpio_chip *chip, unsigned offset,
+ 
+ static int lnw_gpio_request(struct gpio_chip *chip, unsigned offset)
+ {
+-	void __iomem *gafr = gpio_reg_2bit(chip, offset, GAFR);
+-	u32 value = readl(gafr);
+-	int shift = (offset % 16) << 1, af = (value >> shift) & 3;
++	struct lnw_gpio *lnw = to_lnw_priv(chip);
++	u32 value;
++	void __iomem *gafr;
++	int shift, af;
++
++	if (lnw->type > CLOVERVIEW_GPIO_CORE)
++		return 0;
++
++	gafr = gpio_reg_2bit(chip, offset, GAFR);
++	value = readl(gafr);
++	shift = (offset % 16) << 1;
++	af = (value >> shift) & 3;
+ 
+ 	if (af) {
+ 		value &= ~(3 << shift);
+-- 
+2.37.3
+

@@ -1,0 +1,33 @@
+From d0611af6873582d9fdfb0463f294075db1340e43 Mon Sep 17 00:00:00 2001
+From: jzhuan5 <jin.can.zhuang@intel.com>
+Date: Mon, 11 Nov 2013 14:47:36 +0800
+Subject: [PATCH 196/429] dwc3-device: Draw correct current in hibernation
+ entry and exit flow
+
+When hibernation is enabled, we can't get link state change event for
+L2 or U3. So we should draw corresponding current during the hibernation
+entry and exit flows.
+
+Signed-off-by: jzhuan5 <jin.can.zhuang@intel.com>
+---
+ drivers/usb/dwc3/gadget.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/usb/dwc3/gadget.c b/drivers/usb/dwc3/gadget.c
+index cade5a56709d..8fc792249b31 100644
+--- a/drivers/usb/dwc3/gadget.c
++++ b/drivers/usb/dwc3/gadget.c
+@@ -3426,8 +3426,8 @@ int dwc3_runtime_suspend(struct device *device)
+ 
+ 	spin_unlock_irqrestore(&dwc->lock, flags);
+ 
+-	schedule_delayed_work(&dwc->link_work, msecs_to_jiffies(1000));
+-	dev_info(dwc->dev, "suspended\n");
++	__dwc3_vbus_draw(dwc, OTG_DEVICE_SUSPEND);
++	dev_dbg(dwc->dev, "%s(): suspended\n", __func__);
+ 	dev_vdbg(dwc->dev, "<--- %s()\n", __func__);
+ 
+ 	return 0;
+-- 
+2.37.3
+

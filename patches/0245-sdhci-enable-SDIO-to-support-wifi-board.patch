@@ -1,0 +1,133 @@
+From 8a3511367fc865066aa343fd62dc5c321fa2fd20 Mon Sep 17 00:00:00 2001
+From: Aymen Zayet <aymen.zayet@intel.com>
+Date: Wed, 31 Jul 2013 11:29:53 +0200
+Subject: [PATCH 245/429] sdhci: enable SDIO to support wifi board.
+
+Major changes are :
+- support of new quirks required by wifi broadcom chipset 43xx/433xx/43241.
+- support of virtual sdio card detection.
+
+Signed-off-by: Aymen Zayet <aymen.zayet@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c       | 32 ++++++++++++++++++++++++++----
+ drivers/mmc/host/sdhci.c           | 11 +++++-----
+ include/linux/mmc/sdhci-pci-data.h |  1 +
+ 3 files changed, 35 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 30157e341cb7..25c0d474e9d1 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -673,6 +673,9 @@ static int intel_mrfl_mmc_probe_slot(struct sdhci_pci_slot *slot)
+ 	slot->host->mmc->caps2 |= MMC_CAP2_INIT_CARD_SYNC |
+ 		MMC_CAP2_POLL_R1B_BUSY;
+ 
++	if (PCI_FUNC(slot->chip->pdev->devfn) == INTEL_MRFL_SDIO)
++		slot->host->mmc->caps |= MMC_CAP_NONREMOVABLE;
++
+ 	if (slot->data->platform_quirks & PLFM_QUIRK_NO_HIGH_SPEED) {
+ 		slot->host->quirks2 |= SDHCI_QUIRK2_DISABLE_HIGH_SPEED;
+ 		slot->host->mmc->caps &= ~MMC_CAP_1_8V_DDR;
+@@ -1903,6 +1906,19 @@ static const struct dev_pm_ops sdhci_pci_pm_ops = {
+ 	.runtime_idle = sdhci_pci_runtime_idle,
+ };
+ 
++static void sdhci_hsmmc_virtual_detect(void *dev_id, int carddetect)
++{
++	struct sdhci_host *host = dev_id;
++
++	if (carddetect)
++		mmc_detect_change(host->mmc,
++			msecs_to_jiffies(DELAY_CARD_INSERTED));
++	else
++		mmc_detect_change(host->mmc,
++			msecs_to_jiffies(DELAY_CARD_REMOVED));
++}
++
++
+ /*****************************************************************************\
+  *                                                                           *
+  * Device probing/removal                                                    *
+@@ -1951,6 +1967,11 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
+ 	slot->rst_n_gpio = -EINVAL;
+ 	slot->cd_gpio = -EINVAL;
+ 
++	host->hw_name = "PCI";
++	host->ops = &sdhci_pci_ops;
++	host->quirks = chip->quirks;
++	host->quirks2 = chip->quirks2;
++
+ 	/* Retrieve platform data if there is any */
+ 	if (*sdhci_pci_get_data)
+ 		slot->data = sdhci_pci_get_data(pdev, slotno);
+@@ -1969,12 +1990,12 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
+ 
+ 		if (slot->data->quirks)
+ 			host->quirks2 |= slot->data->quirks;
++
++		if (slot->data->register_embedded_control)
++			slot->data->register_embedded_control(host,
++					sdhci_hsmmc_virtual_detect);
+ 	}
+ 
+-	host->hw_name = "PCI";
+-	host->ops = &sdhci_pci_ops;
+-	host->quirks = chip->quirks;
+-	host->quirks2 = chip->quirks2;
+ 
+ 	host->irq = pdev->irq;
+ 
+@@ -2009,6 +2030,9 @@ static struct sdhci_pci_slot *sdhci_pci_probe_slot(
+ 
+ 	host->mmc->pm_caps = MMC_PM_KEEP_POWER | MMC_PM_WAKE_SDIO_IRQ;
+ 	host->mmc->slotno = slotno;
++
++	if (host->quirks2 & SDHCI_QUIRK2_DISABLE_MMC_CAP_NONREMOVABLE)
++		host->mmc->caps &= ~MMC_CAP_NONREMOVABLE;
+ 	host->mmc->caps2 |= MMC_CAP2_NO_PRESCAN_POWERUP;
+ 
+ 	if (host->quirks2 & SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY)
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index ba533ac2dee5..ef1e787d2f91 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1391,11 +1391,11 @@ static int sdhci_set_power(struct sdhci_host *host, unsigned short power)
+  * save some unused expenses.
+  * @mmc: mmc host
+  *
+-* @return return value:
+-* 0 - Acquried the ownership successfully. The last owner is IA
+-* 1 - Acquried the ownership succesffully. The last owenr is SCU
+-* -EBUSY - failed to acquire ownership within the timeout period
+-	*/
++ * @return return value:
++ * 0 - Acquried the ownership successfully. The last owner is IA
++ * 1 - Acquried the ownership successfully. The last owenr is SCU
++ * -EBUSY - failed to acquire ownership within the timeout period
++ */
+ static int sdhci_do_acquire_ownership(struct mmc_host *mmc)
+ {
+ 	struct sdhci_host *host;
+@@ -3918,6 +3918,7 @@ int sdhci_add_host(struct sdhci_host *host)
+ 	}
+ 
+ #ifdef CONFIG_REGULATOR
++	sdhci_try_get_regulator(host);
+ 	/*
+ 	 * Voltage range check makes sense only if regulator reports
+ 	 * any voltage value.
+diff --git a/include/linux/mmc/sdhci-pci-data.h b/include/linux/mmc/sdhci-pci-data.h
+index 0b9b411e011a..a4c860666712 100644
+--- a/include/linux/mmc/sdhci-pci-data.h
++++ b/include/linux/mmc/sdhci-pci-data.h
+@@ -9,6 +9,7 @@ struct sdhci_pci_data {
+ 	int		rst_n_gpio; /* Set to -EINVAL if unused */
+ 	int		cd_gpio;    /* Set to -EINVAL if unused */
+ 	int		quirks;
++	int		quirks2;
+ 	int		platform_quirks; /* Platform related quirks */
+ 	int		(*setup)(struct sdhci_pci_data *data);
+ 	void		(*cleanup)(struct sdhci_pci_data *data);
+-- 
+2.37.3
+

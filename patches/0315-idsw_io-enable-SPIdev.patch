@@ -1,0 +1,28 @@
+From fcfa9d94390b8d9d49c194e1a1648a905894fb1c Mon Sep 17 00:00:00 2001
+From: Jan Mennekens <janx.mennekens@intel.com>
+Date: Tue, 13 May 2014 17:09:14 +0200
+Subject: [PATCH 315/429] idsw_io: enable SPIdev
+
+enabled SPIdev as module
+
+Signed-off-by: Jan Mennekens <janx.mennekens@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 2b943c96ba43..a9002b702f2c 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -1583,7 +1583,7 @@ CONFIG_SPI_DW_MID_DMA=y
+ #
+ # SPI Protocol Masters
+ #
+-# CONFIG_SPI_SPIDEV is not set
++CONFIG_SPI_SPIDEV=y
+ # CONFIG_SPI_TLE62X0 is not set
+ 
+ #
+-- 
+2.37.3
+

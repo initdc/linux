@@ -1,0 +1,43 @@
+From 3942d61282a5e1e3078d707e2ffbe49556a46df2 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Thu, 15 Aug 2013 18:48:34 +0800
+Subject: [PATCH 223/429] dwc3-otg: Fixes NULL pointer issue for dwc3-otg
+ driver.
+
+This patch fixes one NULL pointer issue which caused by dwc3-otg driver.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/otg.c | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index 65ac52207b07..59aa88cb4ab3 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -131,12 +131,17 @@ static int check_event(struct dwc_otg2 *otg,
+ {
+ 	get_and_clear_events(otg, otg_mask, user_mask,
+ 			otg_events, user_events);
+-	if ((*otg_events & otg_mask) ||
+-			(*user_events & user_mask)) {
+-		otg_dbg(otg, "Event occurred:");
+-		otg_dbg(otg, "otg_events=%x, otg_mask=%x,",
++
++	otg_dbg(otg, "Event occurred:");
++
++	if (otg_events && (*otg_events & otg_mask)) {
++		otg_dbg(otg, "otg_events=0x%x, otg_mask=0x%x",
+ 				*otg_events, otg_mask);
+-		otg_dbg(otg, "user_events=%x, user_mask=%x",
++		return 1;
++	}
++
++	if (user_events && (*user_events & user_mask)) {
++		otg_dbg(otg, "user_events=0x%x, user_mask=0x%x",
+ 				*user_events, user_mask);
+ 		return 1;
+ 	}
+-- 
+2.37.3
+

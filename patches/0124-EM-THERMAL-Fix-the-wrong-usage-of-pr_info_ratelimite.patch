@@ -1,0 +1,62 @@
+From 29a70f0a3ae4e14ac3c67a03efd468e9885aee56 Mon Sep 17 00:00:00 2001
+From: "Liu, Chuansheng" <chuansheng.liu@intel.com>
+Date: Wed, 20 Nov 2013 16:21:29 +0800
+Subject: [PATCH 124/429] EM/THERMAL: Fix the wrong usage of
+ pr_info_ratelimited
+
+pr_info_ratelimited() has included the KERN_INFO, we do not need to
+pass KERN_INFO as one parameter, it will cause the bad logs as below:
+
+2CPU0: Core temperature above threshold, cpu clock throttled (total events = 151)
+2CPU1: Core temperature above threshold, cpu clock throttled (total events = 153)
+2CPU2: Core temperature above threshold, cpu clock throttled (total events = 155)
+2CPU3: Core temperature above threshold, cpu clock throttled (total events = 154)
+[ 7499.395936] crystal_cove_bcu: VWARNA_EVENT occurred
+6CPU0: Core temperature/speed normal
+6CPU1: Core temperature/speed normal
+6CPU2: Core temperature/speed normal
+6CPU3: Core temperature/speed normal
+
+Here fix it thru removing KERN_INFO and KERN_CRIT directly.
+
+Signed-off-by: Liu, Chuansheng <chuansheng.liu@intel.com>
+---
+ arch/x86/kernel/cpu/mcheck/therm_throt.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/mcheck/therm_throt.c b/arch/x86/kernel/cpu/mcheck/therm_throt.c
+index 7ae5a4bab0b3..95db10fcf99b 100644
+--- a/arch/x86/kernel/cpu/mcheck/therm_throt.c
++++ b/arch/x86/kernel/cpu/mcheck/therm_throt.c
+@@ -186,12 +186,12 @@ static int therm_throt_process(bool new_event, int event, int level)
+ 	/* if we just entered the thermal event */
+ 	if (new_event) {
+ 		if (event == THERMAL_THROTTLING_EVENT)
+-			pr_info_ratelimited(KERN_CRIT "CPU%d: %s temperature above threshold, cpu clock throttled (total events = %lu)\n",
++			pr_crit_ratelimited("CPU%d: %s temperature above threshold, cpu clock throttled (total events = %lu)\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package",
+ 				state->count);
+ 		else
+-			pr_info_ratelimited(KERN_CRIT "CPU%d: %s power limit notification (total events = %lu)\n",
++			pr_crit_ratelimited("CPU%d: %s power limit notification (total events = %lu)\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package",
+ 				state->count);
+@@ -199,11 +199,11 @@ static int therm_throt_process(bool new_event, int event, int level)
+ 	}
+ 	if (old_event) {
+ 		if (event == THERMAL_THROTTLING_EVENT)
+-			pr_info_ratelimited(KERN_INFO "CPU%d: %s temperature/speed normal\n",
++			pr_info_ratelimited("CPU%d: %s temperature/speed normal\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package");
+ 		else
+-			pr_info_ratelimited(KERN_INFO "CPU%d: %s power limit normal\n",
++			pr_info_ratelimited("CPU%d: %s power limit normal\n",
+ 				this_cpu,
+ 				level == CORE_LEVEL ? "Core" : "Package");
+ 		return 1;
+-- 
+2.37.3
+

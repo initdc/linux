@@ -1,0 +1,41 @@
+From c1be70a29fa5d56e0d2bffa43b644611645cb3bb Mon Sep 17 00:00:00 2001
+From: Vincent Tinelli <vincent.tinelli@intel.com>
+Date: Tue, 3 Jun 2014 15:59:43 +0200
+Subject: [PATCH 326/429] systemd: add missing kernel features
+
+systemd requires:
+ - CONFIG_FHANDLE (libudev, mount and bind mount handling)
+
+systemd strongly recommends:
+ - CONFIG_AUTOFS4_FS
+
+Signed-off-by: Vincent Tinelli <vincent.tinelli@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 748a9bfed065..0b99257b1ab8 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -64,7 +64,7 @@ CONFIG_SYSVIPC=y
+ CONFIG_SYSVIPC_SYSCTL=y
+ CONFIG_POSIX_MQUEUE=y
+ CONFIG_POSIX_MQUEUE_SYSCTL=y
+-# CONFIG_FHANDLE is not set
++CONFIG_FHANDLE=y
+ CONFIG_AUDIT=y
+ CONFIG_AUDITSYSCALL=y
+ CONFIG_AUDIT_WATCH=y
+@@ -3205,7 +3205,7 @@ CONFIG_FANOTIFY=y
+ # CONFIG_FANOTIFY_ACCESS_PERMISSIONS is not set
+ # CONFIG_QUOTA is not set
+ # CONFIG_QUOTACTL is not set
+-# CONFIG_AUTOFS4_FS is not set
++CONFIG_AUTOFS4_FS=y
+ CONFIG_FUSE_FS=y
+ # CONFIG_CUSE is not set
+ CONFIG_GENERIC_ACL=y
+-- 
+2.37.3
+

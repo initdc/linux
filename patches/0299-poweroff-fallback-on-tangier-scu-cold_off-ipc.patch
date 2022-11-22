@@ -1,0 +1,33 @@
+From 68cb6d58f9e67c3a70cb9a014a7efb96f3f5e28e Mon Sep 17 00:00:00 2001
+From: Vincent Tinelli <vincent.tinelli@intel.com>
+Date: Thu, 10 Apr 2014 16:20:40 +0200
+Subject: [PATCH 299/429] poweroff: fallback on tangier scu cold_off ipc
+
+fallback on ipc when PMU S5 command fails
+
+Signed-off-by: Vincent Tinelli <vincent.tinelli@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_pmu.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 8bf93b11c26f..6b1091c89f1d 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -2114,11 +2114,8 @@ void pmu_power_off(void)
+ 	if (!_pmu2_wait_not_busy())
+ 		writel(S5_VALUE, &mid_pmu_cxt->pmu_reg->pm_cmd);
+ 
+-	else {
+-		/* If PM_BUSY bit is not clear issue COLD_OFF */
+-		WARN(1, "%s: pmu busy bit not cleared.\n", __func__);
+-		rpmsg_send_generic_simple_command(IPCMSG_COLD_RESET, 1);
+-	}
++	if (!_pmu2_wait_not_busy())
++		rpmsg_send_generic_simple_command(IPCMSG_COLD_OFF, 1);
+ }
+ 
+ static void __exit mid_pci_cleanup(void)
+-- 
+2.37.3
+

@@ -1,0 +1,42 @@
+From b9e0a6686fd76c88e70f1c74c6350dbbe8b5f793 Mon Sep 17 00:00:00 2001
+From: Zhenming Zhao <zhenmingx.zhao@intel.com>
+Date: Mon, 17 Aug 2015 17:58:49 +0800
+Subject: [PATCH 416/429] dwc3: delete redundant process when remove g_multi
+ module
+
+The irq and EPs are free twice which causes the system to
+hang.
+
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ drivers/usb/dwc3/gadget.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/usb/dwc3/gadget.c b/drivers/usb/dwc3/gadget.c
+index 75244f075ea9..5cf8e124f2e8 100644
+--- a/drivers/usb/dwc3/gadget.c
++++ b/drivers/usb/dwc3/gadget.c
+@@ -1982,16 +1982,20 @@ static int dwc3_gadget_stop(struct usb_gadget *g,
+ 
+ 	spin_lock_irqsave(&dwc->lock, flags);
+ 
++#if 0
+ 	dwc3_gadget_disable_irq(dwc);
+ 	__dwc3_gadget_ep_disable(dwc->eps[0]);
+ 	__dwc3_gadget_ep_disable(dwc->eps[1]);
++#endif
+ 
+ 	dwc->gadget_driver	= NULL;
+ 
+ 	spin_unlock_irqrestore(&dwc->lock, flags);
+ 
++#if 0
+ 	irq = platform_get_irq(to_platform_device(dwc->dev), 0);
+ 	free_irq(irq, dwc);
++#endif
+ 
+ 	return 0;
+ }
+-- 
+2.37.3
+

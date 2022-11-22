@@ -1,0 +1,1326 @@
+From b90fc2b1e16f28709a7380dc1f019078517bfeed Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Tue, 10 Sep 2013 14:53:53 +0530
+Subject: [PATCH 057/429] Thermal: Merrifield support to K3.10
+
+Port K3.4 thermal code for Merrifield platform to K3.10
+
+Following changes are ported:
+8044315 wifi: Enable Wifi on SaltBay LnP iwlwifi init
+c108e1d KDump kernel port
+fcf62aa EM/THERMAL: Add platform thermal driver for BYT-M
+8c8b877 audio: Add wm1811a platform data
+eee035e wifi: add vendor agnostic support for wifi chip
+de07a99 EM/THERMAL: Provide platform data for BYT-EC Thermal driver
+152cc9d Add XMM_7160_REV4 support
+b6d1e1f ti-st: Compile platform data for external driver too
+3d3569e pn544: Compile platform data for external driver too
+ac094f9 telephony: remove support of 7160 REV2
+da9e350 EM/CHARGER: Enable SMB Charger and MAX17047 FG driver for BYT
+FFRD8
+9be1814 [BT] Move uart wake/sleep callbacks to bcm_bt_lpm driver
+b00a44e EM/THERMAL: Add SoC cooling device
+0c578a0 platform_mrfl_regulator: MRFLD regulator machine driver
+673efc9 Rename platform_regulator.c to platform_clv_regulator.c
+85f4921 platform: add imx134 platform data
+d1dcd93 Scalability: pannel handler support
+d74493b IMX132: IMX132 kernel driver.
+374a7af audio: compile platform_byt_audio conditionally
+cdce72a atomisp2: Modify Makefile to compile atomisp2 with
+css2.0/css1.5.
+15474e8 EM/THERMAL: Add platform data for SoC DTS driver in BYT
+5122a75 kernel: support modem CYGNUS FFRD EU and NA
+2a08a43 EM/THERMAL: Add thermal sensor list for bodegabay
+2e0f2b4 audio: board file: add codec and machine pdata handler
+4041bb9 audio: wm8994: add pdata for codec MFD chip
+d52629d toggle CLK pin to abort I2X xfer
+b1c6555 imx: common driver - modified the makefiles for imx compilation
+2844f4d EM/THERMAL: Expose slope and intercept for MRFL
+4e89c4a EM/THERMAL: Modify slope and inercept for thermal sensors
+10f355b EM/THERMAL: Add platform data for BYT thermal driver
+24c91d7 atom: Rename platform_clv_regulator.c as platform_regulator.c
+9f5e80a EM/THERMAL: Introduce code for adding slope and intercept in
+MRFL
+6c2ca49 audio: get the codec out of reset
+fc9db68  SCU logging: Implement scuLog SFI entry handling
+b1d7aa3 audio: byt: add acpi support for machine and codec drivers
+3f421d2 [Telephony/Platform]: add support of modem 7160 REV3.5
+875715d EM/THERMAL: Change the order in which sensor registers with TM
+Framework
+ec2a3b1 GPS: Intel MID driver for GPS devices
+78f4e4c extcon-fsa9285: add fsa9285 driver support for baytrail
+be601e9 EM/THERMAL: Add Platform Thermal driver for BYT
+34f226f [Telephony/MCD] Scalability: implement SFI handlers to set the
+modem type.
+be58595 psh_byt: use ACPI to register driver and find resources
+83a6584 extcon: add extcon-mid driver for audio headset reporting
+82afa8f Audio: wm5102 machine driver integration.
+7e4edac Introduce support for wolfson wm5102
+15c931d crystalcove gpio driver
+5e21d81 audio: add the Baytrail ASoC Machine driver
+1e091eb EM/Battery: Enable SPID based platform detection
+cf7f322 audio: add the Merrifield PRh machine driver
+b100c23 audio: remove unused code under MRFLD_TEST_ON_MFLD
+452c808 Revert "audio: remove unused code under MRFLD_TEST_ON_MFLD"
+9814124 Revert "audio: add the Merrifield PRh machine driver"
+2956ded [Telephony/HSI_Driver]: Enable pipeline mode for HSI
+f6eb7e7 audio: add the Merrifield PRh machine driver
+afc948a audio: remove unused code under MRFLD_TEST_ON_MFLD
+4bdc262 HSU: merge k3.0 hsu patches to k3.4
+784a64d touch: add r69001 platform data support and thus support
+PR0/PR1/VV
+3f34cfe rmi4: Support different Synaptics touch hardware
+8df0a79 Audio: Load CTP machine driver based on SFI table
+b069aa4 EM/THERMAL: Negative temperature handling in thermal.
+cf948a8 misc: Add support for Intel VLV2 platform clock driver
+c07e50e s5k8aay: add sensor platform data
+ef15179 dw9719: add dw9719 device to SFI table
+6b3949f switch: add the switch driver
+9a3d016 Revert "[FORKLIFT from K3.0] switch: add the switch driver"
+4f3a488 OV2722_platform: Enable OV2722 sensor platform driver.
+7a9ed56 Bytrail: Add driver support for PSH sensor hub
+37fca05 OSNIB: add support for BYT using CMOS
+b88c717 ulpmc_battery: add support for ulpmc chip battery driver
+99fdaff mfd: Add support for Crystal Cove PMIC
+30246e7 thermal: mrfld: avoid section mismatch warning
+eb73096 [TEMPORARY] vb: imx135 sensor for po camp
+eeed6ab rmi4: Distinguish touch panel by sfi type
+d41520c Revert "EM/Battery: Enable SPID based platform
+detection"
+63dd014 EM/BCU: Port MRFLD BCU driver to K3.4
+572744a EM/BCU: Add entry for BCU device in board file
+651b33c pinctrl: intel-mid-pinctrl support
+3942d52 EM/THERMAL: [MRFLD]Enable Thermal driver in k34
+4871ebd EM/Battery: Enable SPID based platform detection
+7a80dfd pmic_charger: add the pmic_charger device to k3.4
+adb22bb EM/THERMALAdd platform data for soc thermal
+driver
+35d514e bcove_adc: IIO-based Basincove ADC driver
+e12f140 EM/BCU: Config changes required for BCU
+396d72d x86: intel-mid: fix section mismatches
+de1a333 board.c: point bcove_power_btn device handler to
+ipc_device_handler
+b46bb2a EM/max17050: Adding sfi table entry for max17050
+d6dbb6b EM: Export configuration properties in SMIP
+b382c56 PWM: port pwm and kpd led driver to kernel3.4
+5a7c62b Broadcom chip baseporting: added platform
+device and driver
+2298248 flis: port FLIS driver to K3.4
+39b23e9 intel-mid: add l3gd20 gyro entry to device_id array
+3bbc895 [SCALABILITY] [Telephony/MCD]: Create platform device function
+f153381 wifi: add support for broadcom 43xx
+73cc7a8 touch: add r6900 touch driver to kernel-3.4
+16dad3a powerbtn: enable power button for merr_vv on K3.4 kernel
+b83d8e5 rmi4: Add F34 v1 adaptation for firmware update
+46d3576 audio: enable compilation of the MRFLD audio
+machine driver
+dbfbda7 EM/THERMAL[Port from K3.0]: Add SoC Thermal driver
+3cf105b EM/THERMAL[Port from K3.0]: Thermal driver for MRFLD
+4642d8c EM/THERMAL[Port from K3.0]: Add get-set methods for slope
+interface
+bf1fa92 EM/charger: Porting merrifield charger drivers
+for 3.4 kernel
+54a9763 kernel: add Victoria bay modem in board files
+78021ab Remove HDMI platform device.
+0b44718 [REVERT ME][1/2] mfd: downgrade the HSU driver.
+3556361 [FORKLIFT from K3.0] switch: add the switch driver
+e684b2b intel-mid: add camera sensor info for merrifield
+89cbea7 lm3559: add platform code for lm3559
+2582da6 OV5640 camera driver
+870c855 MT9V113 camera driver
+afe9eef MT9D113 camera driver
+13c60c3 ov9724: add initial driver
+24c2c52 imx135: add platform relevant code
+c1fbd7e camera: add LM3554 to board.c
+d9dfc58 mmc: Removed board/SOC dependencies in MMC driver
+af62dc8 USB: add platform data for otg pci_dev
+9a5928fb audio: SFI entry name change for the CTP
+machine driver
+12ced49 Audio: Thermal probe detection code for
+Yukkabeach
+5c9825d kernel: Scalability effort: allow edlp and ffl
+to coexist
+5ac4342 MRFL: gfx: Integrate new Merrifield gfx and
+display
+73e8f63 BT: Added bluetooth platform code
+d1639eb wl12xx: registering wl12xx platform data
+ccc9fb4 imx175: add initial driver for sensor and vcm
+71af8c5 [FORKLIFT FROM K3.0] board: Register camera specific devices
+e6c90e2 audio: Common machine driver for CTP
+73012e3 Forklift of ALS and Gyro from Jellybean mainline
+aede5f0 Forklift accelerometer functionality from JB main
+72cfbc5 Forklift of MDF/CTP barometer from JB main to 3.4
+5b72918 Port of HMC5883 from JB mainline to 3.4 kernel
+4392ffa board_ctp: add max17047 device_ids table
+2fc592f Updating Thermal driver for battery/charger
+changes
+afe2c08 intel-mid: Runtime board identification
+0b119f8 HDMI: Enable HDMI hotplug and HDMI audio for 3.4 kernel
+cb90cf1 [Telephony/HSI_Driver]: HSI driver porting to kernel 3.4
+76cc0c2 AUDIO: Forklift latest audio changes from PSI main.
+921fc4a PM-VRF: Adding VRF support
+3a92bd0 USB: Ported USB changes to k3.4
+e9171eb CTP: Board Bringup
+728a96c Added touchscreen support
+c8d14cb Fuel gauge support
+88d937b GPADC: Added gpadc driver support
+0507217 mmc: enable sdhci_pci_get_data callback
+1662e1c HSU: Multiple platforms support and remove hardcode PCI ID
+9c7b942 INTEL-MID: re-structure arch/x86/platform/mrst
+6a92c36 thermal: add support for thermal sensor present on SPEAr13xx
+machines
+ff16cab69 thermal: re-name thermal.c to thermal_sys.c
+63c4ec9 thermal: add the support for building the generic thermal as a
+module
+203d3d4 the generic thermal sysfs driver
+
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c           |   5 +
+ .../platform/intel-mid/device_libs/Makefile   |  10 +
+ .../device_libs/platform_mrfl_thermal.c       | 139 +++
+ .../device_libs/platform_mrfl_thermal.h       |  26 +
+ drivers/thermal/Makefile                      |   4 +
+ drivers/thermal/intel_mrfl_thermal.c          | 892 ++++++++++++++++++
+ 6 files changed, 1076 insertions(+)
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.h
+ create mode 100644 drivers/thermal/intel_mrfl_thermal.c
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index 7d54f60dbad6..b511c4b86bec 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -58,6 +58,9 @@
+ #include "device_libs/platform_msic_thermal.h"
+ #include "device_libs/platform_msic_adc.h"
+ #include "device_libs/platform_bcove_adc.h"
++#include <asm/platform_mrfld_audio.h>
++#include <asm/platform_ctp_audio.h>
++#include "device_libs/platform_mrfl_thermal.h"
+ 
+ /*
+  * I2C devices
+@@ -127,6 +130,8 @@ struct devs_id __initconst device_ids[] = {
+ 					&ipc_device_handler},
+ 	{"bcove_adc", SFI_DEV_TYPE_IPC, 1, &bcove_adc_platform_data,
+ 					&ipc_device_handler},
++	{"bcove_thrm", SFI_DEV_TYPE_IPC, 1, &mrfl_thermal_platform_data,
++					&ipc_device_handler},
+ 
+ 	/* I2C devices */
+ 	{"bq24192", SFI_DEV_TYPE_I2C, 1, &bq24192_platform_data},
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index f01f173d9fc1..20ae840cf84f 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -13,6 +13,16 @@ obj-$(subst m,y,$(CONFIG_GPIO_INTEL_PMIC)) += platform_pmic_gpio.o
+ obj-$(subst m,y,$(CONFIG_INTEL_MFLD_THERMAL)) += platform_msic_thermal.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_MID_VDD)) += platform_msic_vdd.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_MRFL_OCD)) += platform_mrfl_ocd.o
++obj-$(subst m,y,$(CONFIG_PMIC_CCSM)) += platform_mrfl_pmic.o
++obj-$(subst m,y,$(CONFIG_I2C_PMIC)) += platform_mrfl_pmic_i2c.o
++obj-$(subst m,y,$(CONFIG_VLV2_PLAT_CLK)) += platform_vlv2_plat_clk.o
++ifdef CONFIG_INTEL_BYT_THERMAL
++obj-$(subst m,y,$(CONFIG_INTEL_BYT_THERMAL)) += platform_byt_thermal.o
++else
++obj-$(subst m,y,$(CONFIG_INTEL_BYT_EC_THERMAL)) += platform_byt_thermal.o
++endif
++obj-$(subst m,y,$(CONFIG_SENSORS_THERMAL_MRFLD)) += platform_mrfl_thermal.o
++>>>>>>> f9dcbbf... [PORT FROM K3.4]Thermal: Merrifield support to K3.10
+ # I2C Devices
+ obj-$(subst m,y,$(CONFIG_I2C_DESIGNWARE_PCI_FORK)) += platform_dw_i2c.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_EMC1403)) += platform_emc1403.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
+new file mode 100644
+index 000000000000..0b7c96d596d9
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
+@@ -0,0 +1,139 @@
++/*
++ * platform_mrfl_thermal.c: Platform data initilization file for
++ *			Intel Merrifield Platform thermal driver
++ *
++ * (C) Copyright 2013 Intel Corporation
++ * Author: Durgadoss R <durgadoss.r@intel.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/init.h>
++#include <linux/input.h>
++#include <linux/kernel.h>
++#include <linux/mfd/intel_msic.h>
++#include <linux/platform_device.h>
++#include <asm/intel_mid_thermal.h>
++#include <asm/intel-mid.h>
++#include <asm/intel_mid_remoteproc.h>
++#include "platform_mrfl_thermal.h"
++
++/* 'enum' of Thermal ADC channels */
++enum thermal_adc_channels { SYS0, SYS1, SYS2, PMIC_DIE };
++
++static int linear_temp_correlation(void *info, long temp, long *res)
++{
++	struct intel_mid_thermal_sensor *sensor = info;
++
++	*res = ((temp * sensor->slope) / 1000) + sensor->intercept;
++
++	return 0;
++}
++
++/*
++ * Naming convention:
++ * skin0 -> front skin,
++ * skin1--> back skin
++ */
++
++static struct intel_mid_thermal_sensor mrfl_sensors[] = {
++	{
++		.name = SKIN0_NAME,
++		.index = SYS2,
++		.slope = 969,
++		.intercept = -3741,
++		.temp_correlation = linear_temp_correlation,
++		.direct = false,
++	},
++	{
++		.name = SKIN1_NAME,
++		.index = SYS0,
++		.slope = 966,
++		.intercept = -2052,
++		.temp_correlation = linear_temp_correlation,
++		.direct = false,
++	},
++	{
++		.name = MSIC_DIE_NAME,
++		.index = PMIC_DIE,
++		.slope = 1000,
++		.intercept = 0,
++		.temp_correlation = linear_temp_correlation,
++		.direct = true,
++	},
++};
++
++/* Bodegabay - PRh thermal sensor list */
++static struct intel_mid_thermal_sensor bdgb_sensors[] = {
++	{
++		.name = SKIN0_NAME,
++		.index = SYS0,
++		.slope = 410,
++		.intercept = 16808,
++		.temp_correlation = linear_temp_correlation,
++		.direct = false,
++	},
++	{
++		.name = SKIN1_NAME,
++		.index = SYS0,
++		.slope = 665,
++		.intercept = 8375,
++		.temp_correlation = linear_temp_correlation,
++		.direct = false,
++	},
++	{
++		.name = MSIC_DIE_NAME,
++		.index = PMIC_DIE,
++		.slope = 1000,
++		.intercept = 0,
++		.temp_correlation = linear_temp_correlation,
++		.direct = true,
++	},
++};
++
++static struct intel_mid_thermal_platform_data pdata[] = {
++	[mrfl_thermal] = {
++		.num_sensors = 3,
++		.sensors = mrfl_sensors,
++	},
++	[bdgb_thermal] = {
++		.num_sensors = 3,
++		.sensors = bdgb_sensors,
++	},
++};
++
++void __init *mrfl_thermal_platform_data(void *info)
++{
++	struct platform_device *pdev;
++	struct sfi_device_table_entry *entry = info;
++
++	pr_err("inside mrfl_thermal_platform_data\n");
++
++	pdev = platform_device_alloc(MRFL_THERM_DEV_NAME, -1);
++	if (!pdev) {
++		pr_err("out of memory for SFI platform dev %s\n",
++			MRFL_THERM_DEV_NAME);
++		return NULL;
++	}
++
++	if (platform_device_add(pdev)) {
++		pr_err("failed to add thermal platform device\n");
++		platform_device_put(pdev);
++		return NULL;
++	}
++
++	if (INTEL_MID_BOARD(2, PHONE, MRFL, BB, ENG) ||
++			(INTEL_MID_BOARD(2, PHONE, MRFL, BB, PRO)))
++		pdev->dev.platform_data = &pdata[bdgb_thermal];
++	else
++		pdev->dev.platform_data = &pdata[mrfl_thermal];
++
++	install_irq_resource(pdev, entry->irq);
++	register_rpmsg_service("rpmsg_mrfl_thermal", RPROC_SCU,
++				RP_BCOVE_THERMAL);
++
++	return 0;
++}
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.h b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.h
+new file mode 100644
+index 000000000000..f1011a128a97
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.h
+@@ -0,0 +1,26 @@
++/*
++ * platform_mrfl_thermal.h: Platform data initilization file for
++ *			Intel Merrifield Platform thermal driver
++ *
++ * (C) Copyright 2013 Intel Corporation
++ * Author: Durgadoss R <durgadoss.r@intel.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++#ifndef _PLATFORM_MRFL_THERMAL_H_
++#define _PLATFORM_MRFL_THERMAL_H_
++
++#define MRFL_THERM_DEV_NAME "bcove_thrm"
++
++extern void __init *mrfl_thermal_platform_data(void *)
++			__attribute__((weak));
++
++enum {
++	mrfl_thermal,
++	bdgb_thermal,
++};
++
++#endif
+diff --git a/drivers/thermal/Makefile b/drivers/thermal/Makefile
+index c054d410ac3f..2d44fedd8cfc 100644
+--- a/drivers/thermal/Makefile
++++ b/drivers/thermal/Makefile
+@@ -5,6 +5,10 @@
+ obj-$(CONFIG_THERMAL)		+= thermal_sys.o
+ thermal_sys-y			+= thermal_core.o
+ 
++obj-$(CONFIG_INTEL_MFLD_THERMAL) += intel_mid_thermal.o
++obj-$(CONFIG_INTEL_BYT_THERMAL)  += intel_byt_thermal.o
++obj-$(CONFIG_SENSORS_THERMAL_MRFLD)     += intel_mrfl_thermal.o
++
+ # governors
+ thermal_sys-$(CONFIG_THERMAL_GOV_FAIR_SHARE)	+= fair_share.o
+ thermal_sys-$(CONFIG_THERMAL_GOV_STEP_WISE)	+= step_wise.o
+diff --git a/drivers/thermal/intel_mrfl_thermal.c b/drivers/thermal/intel_mrfl_thermal.c
+new file mode 100644
+index 000000000000..af2a5a1441d4
+--- /dev/null
++++ b/drivers/thermal/intel_mrfl_thermal.c
+@@ -0,0 +1,892 @@
++/*
++ * intel_mrfl_thermal.c - Intel Merrifield Platform Thermal Driver
++ *
++ *
++ * Copyright (C) 2011 Intel Corporation
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; version 2 of the License.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, write to the Free Software Foundation, Inc.,
++ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ * Author: Durgadoss R <durgadoss.r@intel.com>
++ *
++ * DEVICE_NAME: Intel Merrifield platform - PMIC: Thermal Monitor
++ */
++
++#define pr_fmt(fmt)  "intel_mrfl_thermal: " fmt
++
++#include <linux/pm.h>
++#include <linux/init.h>
++#include <linux/slab.h>
++#include <linux/rpmsg.h>
++#include <linux/module.h>
++#include <linux/thermal.h>
++#include <linux/interrupt.h>
++#include <linux/platform_device.h>
++
++#include <asm/intel_scu_pmic.h>
++#include <asm/intel_mid_rpmsg.h>
++#include <asm/intel_basincove_gpadc.h>
++#include <asm/intel_mid_thermal.h>
++#include <linux/iio/consumer.h>
++
++#define DRIVER_NAME "bcove_thrm"
++#define DEVICE_NAME "mrfl_pmic_thermal"
++
++/* Number of Thermal sensors on the PMIC */
++#define PMIC_THERMAL_SENSORS	4
++
++/* Registers that govern Thermal Monitoring */
++#define THRMMONCFG	0xB3
++#define THRMMONCTL	0xB4
++#define THRMIRQ		0x04
++#define MTHRMIRQ	0x0F
++#define STHRMIRQ	0xB2
++#define IRQLVL1		0x01
++#define MIRQLVL1	0x0C
++#define IRQ_MASK_ALL	0x0F
++
++/* PMIC SRAM base address and offset for Thermal register */
++#define PMIC_SRAM_BASE_ADDR	0xFFFFF610
++#define PMIC_SRAM_THRM_OFFSET	0x03
++#define IOMAP_SIZE		0x04
++
++#define PMICALRT	(1 << 3)
++#define SYS2ALRT	(1 << 2)
++#define SYS1ALRT	(1 << 1)
++#define SYS0ALRT	(1 << 0)
++#define THERM_EN	(1 << 0)
++#define THERM_ALRT	(1 << 2)
++
++/* ADC to Temperature conversion table length */
++#define TABLE_LENGTH	34
++#define TEMP_INTERVAL	5
++
++/* Default _max 85 C */
++#define DEFAULT_MAX_TEMP	85
++
++/* Constants defined in BasinCove PMIC spec */
++#define PMIC_DIE_ADC_MIN	395
++#define PMIC_DIE_ADC_MAX	661
++#define PMIC_DIE_TEMP_MIN	-40
++#define PMIC_DIE_TEMP_MAX	125
++#define ADC_VAL_27C		470
++#define ADC_COEFFICIENT		675
++#define TEMP_OFFSET		27000
++
++/* 'enum' of Thermal sensors */
++enum thermal_sensors { SYS0, SYS1, SYS2, PMIC_DIE, _COUNT };
++
++/*
++ * Alert registers store the 'alert' temperature for each sensor,
++ * as 10 bit ADC code. The higher two bits are stored in bits[0:1] of
++ * alert_regs_h. The lower eight bits are stored in alert_regs_l.
++ * The hysteresis value is stored in bits[2:6] of alert_regs_h.
++ * Order: SYS0 SYS1 SYS2 PMIC_DIE
++ *
++ * static const int alert_regs_l[] = { 0xB7, 0xB9, 0xBB, 0xC1 };
++ */
++static const int alert_regs_h[] = { 0xB6, 0xB8, 0xBA, 0xC0 };
++
++/*
++ * ADC code vs Temperature table
++ * This table will be different for different thermistors
++ * Row 0: ADC code
++ * Row 1: Temperature (in degree celsius)
++ */
++static const int adc_code[2][TABLE_LENGTH] = {
++	{952, 932, 906, 877, 843, 804, 761, 714, 665, 614,
++	563, 512, 462, 415, 370, 329, 291, 257, 226, 199,
++	174, 153, 135, 119, 104, 92, 81, 72, 64, 56,
++	50, 45, 40, 36},
++	{-40, -35, -30, -25, -20, -15, -10, -5, 0, 5,
++	10, 15, 20, 25, 30, 35, 40, 45, 50, 55,
++	60, 65, 70, 75, 80, 85, 90, 95, 100, 105,
++	110, 115, 120, 125},
++	};
++
++static DEFINE_MUTEX(thrm_update_lock);
++
++struct thermal_device_info {
++	struct intel_mid_thermal_sensor *sensor;
++};
++
++struct thermal_data {
++	struct platform_device *pdev;
++	struct iio_channel *iio_chan;
++	struct thermal_zone_device **tzd;
++	void *thrm_addr;
++	unsigned int irq;
++	/* Caching information */
++	bool is_initialized;
++	unsigned long last_updated;
++	int cached_vals[PMIC_THERMAL_SENSORS];
++	int num_sensors;
++	struct intel_mid_thermal_sensor *sensors;
++};
++static struct thermal_data *tdata;
++
++static inline int adc_to_pmic_die_temp(unsigned int val)
++{
++	/* return temperature in mC */
++	return (val - ADC_VAL_27C) * ADC_COEFFICIENT + TEMP_OFFSET;
++}
++
++static inline int pmic_die_temp_to_adc(int temp)
++{
++	/* 'temp' is in C, convert to mC and then do calculations */
++	return ((temp * 1000) - TEMP_OFFSET) / ADC_COEFFICIENT + ADC_VAL_27C;
++}
++
++/**
++ * find_adc_code - searches the ADC code using binary search
++ * @val: value to find in the array
++ *
++ * This function does binary search on an array sorted in 'descending' order
++ * Can sleep
++ */
++static int find_adc_code(uint16_t val)
++{
++	int left = 0;
++	int right = TABLE_LENGTH - 1;
++	int mid;
++	while (left <= right) {
++		mid = (left + right)/2;
++		if (val == adc_code[0][mid] ||
++			(mid > 0 &&
++			val > adc_code[0][mid] && val < adc_code[0][mid-1]))
++			return mid;
++		else if (val > adc_code[0][mid])
++			right = mid - 1;
++		else if (val < adc_code[0][mid])
++			left = mid + 1;
++	}
++	return -EINVAL;
++}
++
++/**
++ * adc_to_temp - converts the ADC code to temperature in mC
++ * @direct: true if the sensor uses direct conversion
++ * @adc_val: the ADC code to be converted
++ * @tp: temperature return value
++ *
++ * Can sleep
++ */
++static int adc_to_temp(int direct, uint16_t adc_val, unsigned long *tp)
++{
++	int x0, x1, y0, y1;
++	int nr, dr;		/* Numerator & Denominator */
++	int indx;
++	int x = adc_val;
++
++	/* Direct conversion for pmic die temperature */
++	if (direct) {
++		if (adc_val < PMIC_DIE_ADC_MIN || adc_val > PMIC_DIE_ADC_MAX)
++			return -EINVAL;
++
++		*tp = adc_to_pmic_die_temp(adc_val);
++		return 0;
++	}
++
++	indx = find_adc_code(adc_val);
++	if (indx < 0)
++		return -EINVAL;
++
++	if (adc_code[0][indx] == adc_val) {
++		*tp = adc_code[1][indx] * 1000;
++		return 0;
++	}
++
++	/*
++	 * The ADC code is in between two values directly defined in the
++	 * table. So, do linear interpolation to calculate the temperature.
++	 */
++	x0 = adc_code[0][indx];
++	x1 = adc_code[0][indx - 1];
++	y0 = adc_code[1][indx];
++	y1 = adc_code[1][indx - 1];
++
++	/*
++	 * Find y:
++	 * Of course, we can avoid these variables, but keep them
++	 * for readability and maintainability.
++	 */
++	nr = (x-x0)*y1 + (x1-x)*y0;
++	dr =  x1-x0;
++
++	if (!dr)
++		return -EINVAL;
++	/*
++	 * We have to report the temperature in milli degree celsius.
++	 * So, to reduce the loss of precision, do (Nr*1000)/Dr, instead
++	 * of (Nr/Dr)*1000.
++	 */
++	*tp = (nr * 1000)/dr;
++
++	return 0;
++}
++
++/**
++ * temp_to_adc - converts the temperature(in C) to ADC code
++ * @direct: true if the sensor uses direct conversion
++ * @temp: the temperature to be converted
++ * @adc_val: ADC code return value
++ *
++ * Can sleep
++ */
++static int temp_to_adc(int direct, int temp, int *adc_val)
++{
++	int indx;
++	int x0, x1, y0, y1;
++	int nr, dr;		/* Numerator & Denominator */
++	int x = temp;
++
++	/* Direct conversion for pmic die temperature */
++	if (direct) {
++		if (temp < PMIC_DIE_TEMP_MIN || temp > PMIC_DIE_TEMP_MAX)
++			return -EINVAL;
++
++		*adc_val = pmic_die_temp_to_adc(temp);
++		return 0;
++	}
++
++	if (temp < adc_code[1][0] || temp > adc_code[1][TABLE_LENGTH - 1])
++		return -EINVAL;
++
++
++	/* Find the 'indx' of this 'temp' in the table */
++	indx = (temp - adc_code[1][0]) / TEMP_INTERVAL;
++
++	if (temp == adc_code[1][indx]) {
++		*adc_val = adc_code[0][indx];
++		return 0;
++	}
++
++	/*
++	 * Temperature is not a multiple of 'TEMP_INTERVAL'. So,
++	 * do linear interpolation to obtain a better ADC code.
++	 */
++	x0 = adc_code[1][indx];
++	x1 = adc_code[1][indx + 1];
++	y0 = adc_code[0][indx];
++	y1 = adc_code[0][indx + 1];
++
++	nr = (x-x0)*y1 + (x1-x)*y0;
++	dr =  x1-x0;
++
++	if (!dr)
++		return -EINVAL;
++
++	*adc_val = nr/dr;
++
++	return 0;
++}
++
++/**
++ * set_tmax - sets the given 'adc_val' to the 'alert_reg'
++ * @alert_reg: register address
++ * @adc_val: ADC value to be programmed
++ *
++ * Not protected. Calling function should handle synchronization.
++ * Can sleep
++ */
++static int set_tmax(int alert_reg, int adc_val)
++{
++	int ret;
++
++	/* Set bits[0:1] of alert_reg_h to bits[8:9] of 'adc_val' */
++	ret = intel_scu_ipc_update_register(alert_reg, (adc_val >> 8), 0x03);
++	if (ret)
++		return ret;
++
++	/* Extract bits[0:7] of 'adc_val' and write them into alert_reg_l */
++	return intel_scu_ipc_iowrite8(alert_reg + 1, adc_val & 0xFF);
++}
++
++/**
++ * program_tmax - programs a default _max value for each sensor
++ * @dev: device pointer
++ *
++ * Can sleep
++ */
++static int program_tmax(struct device *dev)
++{
++	int i, ret;
++	int pmic_die_val, adc_val;
++
++	ret = temp_to_adc(0, DEFAULT_MAX_TEMP, &adc_val);
++	if (ret)
++		return ret;
++
++	ret = temp_to_adc(1, DEFAULT_MAX_TEMP, &pmic_die_val);
++	if (ret)
++		return ret;
++	/*
++	 * Since this function sets max value, do for all sensors even if
++	 * the sensor does not register as a thermal zone.
++	 */
++	for (i = 0; i < PMIC_THERMAL_SENSORS - 1; i++) {
++		ret = set_tmax(alert_regs_h[i], adc_val);
++		if (ret)
++			goto exit_err;
++	}
++
++	/* Set _max for pmic die sensor */
++	ret = set_tmax(alert_regs_h[i], pmic_die_val);
++	if (ret)
++		goto exit_err;
++
++	return ret;
++
++exit_err:
++	dev_err(dev, "set_tmax for channel %d failed:%d\n", i, ret);
++	return ret;
++}
++
++static ssize_t store_trip_hyst(struct thermal_zone_device *tzd,
++				int trip, long hyst)
++{
++	int ret;
++	uint8_t data;
++	struct thermal_device_info *td_info = tzd->devdata;
++	int alert_reg = alert_regs_h[td_info->sensor->index];
++
++	/* Hysteresis value is 5 bits wide */
++	if (hyst > 31)
++		return -EINVAL;
++
++	mutex_lock(&thrm_update_lock);
++
++	ret = intel_scu_ipc_ioread8(alert_reg, &data);
++	if (ret)
++		goto ipc_fail;
++
++	/* Set bits [2:6] to value of hyst */
++	data = (data & 0x83) | (hyst << 2);
++
++	ret = intel_scu_ipc_iowrite8(alert_reg, data);
++
++ipc_fail:
++	mutex_unlock(&thrm_update_lock);
++	return ret;
++}
++
++static ssize_t show_trip_hyst(struct thermal_zone_device *tzd,
++				int trip, long *hyst)
++{
++	int ret;
++	uint8_t data;
++	struct thermal_device_info *td_info = tzd->devdata;
++	int alert_reg = alert_regs_h[td_info->sensor->index];
++
++	mutex_lock(&thrm_update_lock);
++
++	ret = intel_scu_ipc_ioread8(alert_reg, &data);
++	if (!ret)
++		*hyst = (data >> 2) & 0x1F; /* Extract bits[2:6] of data */
++
++	mutex_unlock(&thrm_update_lock);
++
++	return ret;
++}
++
++static ssize_t store_trip_temp(struct thermal_zone_device *tzd,
++				int trip, long trip_temp)
++{
++	int ret, adc_val;
++	struct thermal_device_info *td_info = tzd->devdata;
++	int alert_reg = alert_regs_h[td_info->sensor->index];
++
++	if (trip_temp < 1000) {
++		dev_err(&tzd->device, "Temperature should be in mC\n");
++		return -EINVAL;
++	}
++
++	mutex_lock(&thrm_update_lock);
++
++	/* Convert from mC to C */
++	trip_temp /= 1000;
++
++	ret = temp_to_adc(td_info->sensor->direct, (int)trip_temp, &adc_val);
++	if (ret)
++		goto exit;
++
++	ret =  set_tmax(alert_reg, adc_val);
++exit:
++	mutex_unlock(&thrm_update_lock);
++	return ret;
++}
++
++static ssize_t show_trip_temp(struct thermal_zone_device *tzd,
++				int trip, long *trip_temp)
++{
++	int ret, adc_val;
++	uint8_t l, h;
++	struct thermal_device_info *td_info = tzd->devdata;
++	int alert_reg = alert_regs_h[td_info->sensor->index];
++
++	mutex_lock(&thrm_update_lock);
++
++	ret = intel_scu_ipc_ioread8(alert_reg, &h);
++	if (ret)
++		goto exit;
++
++	ret = intel_scu_ipc_ioread8(alert_reg + 1, &l);
++	if (ret)
++		goto exit;
++
++	/* Concatenate 'h' and 'l' to get 10-bit ADC code */
++	adc_val = ((h & 0x03) << 8) | l;
++
++	ret = adc_to_temp(td_info->sensor->direct, adc_val, trip_temp);
++exit:
++	mutex_unlock(&thrm_update_lock);
++	return ret;
++}
++
++static ssize_t show_trip_type(struct thermal_zone_device *tzd,
++			int trip, enum thermal_trip_type *trip_type)
++{
++	/* All are passive trip points */
++	*trip_type = THERMAL_TRIP_PASSIVE;
++
++	return 0;
++}
++
++static ssize_t show_temp(struct thermal_zone_device *tzd, long *temp)
++{
++	int ret;
++	struct thermal_device_info *td_info = tzd->devdata;
++	int indx = td_info->sensor->index;
++
++	if (!tdata->iio_chan)
++		return -EINVAL;
++
++	mutex_lock(&thrm_update_lock);
++
++	if (!tdata->is_initialized ||
++			time_after(jiffies, tdata->last_updated + HZ)) {
++		ret = iio_read_channel_all_raw(tdata->iio_chan,
++						tdata->cached_vals);
++		if (ret) {
++			dev_err(&tzd->device, "ADC sampling failed:%d\n", ret);
++			goto exit;
++		}
++		tdata->last_updated = jiffies;
++		tdata->is_initialized = true;
++	}
++
++	ret = adc_to_temp(td_info->sensor->direct, tdata->cached_vals[indx],
++								temp);
++	if (ret)
++		goto exit;
++
++	if (td_info->sensor->temp_correlation)
++		ret = td_info->sensor->temp_correlation(td_info->sensor,
++							*temp, temp);
++exit:
++	mutex_unlock(&thrm_update_lock);
++	return ret;
++}
++
++#ifdef CONFIG_DEBUG_THERMAL
++static int read_slope(struct thermal_zone_device *tzd, long *slope)
++{
++	struct thermal_device_info *td_info = tzd->devdata;
++
++	*slope = td_info->sensor->slope;
++
++	return 0;
++}
++
++static int update_slope(struct thermal_zone_device *tzd, long slope)
++{
++	struct thermal_device_info *td_info = tzd->devdata;
++
++	td_info->sensor->slope = slope;
++
++	return 0;
++}
++
++static int read_intercept(struct thermal_zone_device *tzd, long *intercept)
++{
++	struct thermal_device_info *td_info = tzd->devdata;
++
++	*intercept = td_info->sensor->intercept;
++
++	return 0;
++}
++
++static int update_intercept(struct thermal_zone_device *tzd, long intercept)
++{
++	struct thermal_device_info *td_info = tzd->devdata;
++
++	td_info->sensor->intercept = intercept;
++
++	return 0;
++}
++#endif
++
++static int enable_tm(void)
++{
++	int ret;
++	uint8_t data;
++
++	mutex_lock(&thrm_update_lock);
++
++	ret = intel_scu_ipc_ioread8(THRMMONCTL, &data);
++	if (ret)
++		goto ipc_fail;
++
++	ret = intel_scu_ipc_iowrite8(THRMMONCTL, data | THERM_EN);
++
++ipc_fail:
++	mutex_unlock(&thrm_update_lock);
++	return ret;
++}
++
++static struct thermal_device_info *initialize_sensor(
++				struct intel_mid_thermal_sensor *sensor)
++{
++	struct thermal_device_info *td_info =
++		kzalloc(sizeof(struct thermal_device_info), GFP_KERNEL);
++
++	if (!td_info)
++		return NULL;
++
++	td_info->sensor = sensor;
++
++	return td_info;
++}
++
++static irqreturn_t thermal_intrpt(int irq, void *dev_data)
++{
++	int ret, sensor, event_type;
++	uint8_t irq_status;
++	unsigned int irq_data;
++	struct thermal_data *tdata = (struct thermal_data *)dev_data;
++
++	if (!tdata)
++		return IRQ_NONE;
++
++	mutex_lock(&thrm_update_lock);
++
++	irq_data = ioread8(tdata->thrm_addr + PMIC_SRAM_THRM_OFFSET);
++
++	ret = intel_scu_ipc_ioread8(STHRMIRQ, &irq_status);
++	if (ret)
++		goto ipc_fail;
++
++	dev_dbg(&tdata->pdev->dev, "STHRMIRQ: %.2x\n", irq_status);
++
++	/*
++	 * -1 for invalid interrupt
++	 * 1 for LOW to HIGH temperature alert
++	 * 0 for HIGH to LOW temperature alert
++	 */
++	event_type = -1;
++
++	/* Check which interrupt occured and for what event */
++	if (irq_data & PMICALRT) {
++		event_type = !!(irq_status & PMICALRT);
++		sensor = PMIC_DIE;
++	} else if (irq_data & SYS2ALRT) {
++		event_type = !!(irq_status & SYS2ALRT);
++		sensor = SYS2;
++	} else if (irq_data & SYS1ALRT) {
++		event_type = !!(irq_status & SYS1ALRT);
++		sensor = SYS1;
++	} else if (irq_data & SYS0ALRT) {
++		event_type = !!(irq_status & SYS0ALRT);
++		sensor = SYS0;
++	} else {
++		dev_err(&tdata->pdev->dev, "Invalid Interrupt\n");
++		ret = IRQ_HANDLED;
++		goto ipc_fail;
++	}
++
++	if (event_type != -1) {
++		dev_info(&tdata->pdev->dev,
++				"%s interrupt for thermal sensor %d\n",
++				event_type ? "HIGH" : "LOW", sensor);
++	}
++
++	/* Notify using UEvent */
++	kobject_uevent(&tdata->pdev->dev.kobj, KOBJ_CHANGE);
++
++	/* Unmask Thermal Interrupt in the mask register */
++	ret = intel_scu_ipc_update_register(MIRQLVL1, 0xFF, THERM_ALRT);
++	if (ret)
++		goto ipc_fail;
++
++	ret = IRQ_HANDLED;
++
++ipc_fail:
++	mutex_unlock(&thrm_update_lock);
++	return ret;
++}
++
++static struct thermal_zone_device_ops tzd_ops = {
++	.get_temp = show_temp,
++	.get_trip_type = show_trip_type,
++	.get_trip_temp = show_trip_temp,
++	.set_trip_temp = store_trip_temp,
++	.get_trip_hyst = show_trip_hyst,
++	.set_trip_hyst = store_trip_hyst,
++#ifdef CONFIG_DEBUG_THERMAL
++	.get_slope = read_slope,
++	.set_slope = update_slope,
++	.get_intercept = read_intercept,
++	.set_intercept = update_intercept,
++#endif
++};
++
++static int mrfl_thermal_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	int ret, i;
++	struct intel_mid_thermal_platform_data *pdata;
++
++	pdata = pdev->dev.platform_data;
++	if (!pdata) {
++		dev_err(&pdev->dev, "platform data not found\n");
++		return -EINVAL;
++	}
++
++	tdata = kzalloc(sizeof(struct thermal_data), GFP_KERNEL);
++	if (!tdata) {
++		dev_err(&pdev->dev, "kzalloc failed\n");
++		return -ENOMEM;
++	}
++
++	tdata->pdev = pdev;
++	tdata->num_sensors = pdata->num_sensors;
++	tdata->sensors = pdata->sensors;
++	tdata->irq = platform_get_irq(pdev, 0);
++	platform_set_drvdata(pdev, tdata);
++
++	tdata->tzd = kzalloc(
++		(sizeof(struct thermal_zone_device *) * tdata->num_sensors),
++								GFP_KERNEL);
++	if (!tdata->tzd) {
++		dev_err(&pdev->dev, "kzalloc failed\n");
++		ret = -ENOMEM;
++		goto exit_free;
++	}
++
++	/* Program a default _max value for each sensor */
++	ret = program_tmax(&pdev->dev);
++	if (ret) {
++		dev_err(&pdev->dev, "Programming _max failed:%d\n", ret);
++		goto exit_tzd;
++	}
++
++	/*
++	 * Register with IIO to sample temperature values
++	 *
++	 * Order of the channels obtained from adc:
++	 * "SYSTHERM0", "SYSTHERM1", "SYSTHERM2", "PMICDIE"
++	 */
++	tdata->iio_chan = iio_channel_get_all(dev);
++	if (tdata->iio_chan == NULL) {
++		dev_err(&pdev->dev, "tdata->iio_chan is null\n");
++		ret = -EINVAL;
++		goto exit_tzd;
++	}
++
++	/* Check whether we got all the four channels */
++	ret = iio_channel_get_num(tdata->iio_chan);
++	if (ret != PMIC_THERMAL_SENSORS) {
++		dev_err(&pdev->dev, "incorrect number of channels:%d\n", ret);
++		ret = -EFAULT;
++		goto exit_iio;
++	}
++
++	/* Register each sensor with the generic thermal framework */
++	for (i = 0; i < tdata->num_sensors; i++) {
++		tdata->tzd[i] = thermal_zone_device_register(
++				tdata->sensors[i].name,	1, 1,
++		initialize_sensor(&tdata->sensors[i]), &tzd_ops, NULL, 0, 0);
++
++		if (IS_ERR(tdata->tzd[i])) {
++			ret = PTR_ERR(tdata->tzd[i]);
++			dev_err(&pdev->dev,
++				"registering thermal sensor %s failed: %d\n",
++				tdata->sensors[i].name, ret);
++			goto exit_reg;
++		}
++	}
++
++	tdata->thrm_addr = ioremap_nocache(PMIC_SRAM_BASE_ADDR, IOMAP_SIZE);
++	if (!tdata->thrm_addr) {
++		ret = -ENOMEM;
++		dev_err(&pdev->dev, "ioremap_nocache failed\n");
++		goto exit_reg;
++	}
++
++	/* Register for Interrupt Handler */
++	ret = request_threaded_irq(tdata->irq, NULL, thermal_intrpt,
++						IRQF_TRIGGER_RISING,
++						DRIVER_NAME, tdata);
++	if (ret) {
++		dev_err(&pdev->dev, "request_threaded_irq failed:%d\n", ret);
++		goto exit_ioremap;
++	}
++
++	/* Enable Thermal Monitoring */
++	ret = enable_tm();
++	if (ret) {
++		dev_err(&pdev->dev, "Enabling TM failed:%d\n", ret);
++		goto exit_irq;
++	}
++
++	return 0;
++
++exit_irq:
++	free_irq(tdata->irq, tdata);
++exit_ioremap:
++	iounmap(tdata->thrm_addr);
++exit_reg:
++	while (--i >= 0)
++		thermal_zone_device_unregister(tdata->tzd[i]);
++exit_iio:
++	iio_channel_release_all(tdata->iio_chan);
++exit_tzd:
++	kfree(tdata->tzd);
++exit_free:
++	kfree(tdata);
++	return ret;
++}
++
++static int mrfl_thermal_resume(struct device *dev)
++{
++	dev_info(dev, "resume called.\n");
++	return 0;
++}
++
++static int mrfl_thermal_suspend(struct device *dev)
++{
++	dev_info(dev, "suspend called.\n");
++	return 0;
++}
++
++static int mrfl_thermal_remove(struct platform_device *pdev)
++{
++	int i;
++	struct thermal_data *tdata = platform_get_drvdata(pdev);
++
++	if (!tdata)
++		return 0;
++
++	for (i = 0; i < tdata->num_sensors; i++)
++		thermal_zone_device_unregister(tdata->tzd[i]);
++
++	free_irq(tdata->irq, tdata);
++	iounmap(tdata->thrm_addr);
++	iio_channel_release_all(tdata->iio_chan);
++	kfree(tdata->tzd);
++	kfree(tdata);
++	return 0;
++}
++
++/*********************************************************************
++ *		Driver initialization and finalization
++ *********************************************************************/
++
++static const struct dev_pm_ops thermal_pm_ops = {
++	.suspend = mrfl_thermal_suspend,
++	.resume = mrfl_thermal_resume,
++};
++
++static struct platform_driver mrfl_thermal_driver = {
++	.driver = {
++		.name = DRIVER_NAME,
++		.owner = THIS_MODULE,
++		.pm = &thermal_pm_ops,
++		},
++	.probe = mrfl_thermal_probe,
++	.remove = mrfl_thermal_remove,
++};
++
++static int mrfl_thermal_module_init(void)
++{
++	return platform_driver_register(&mrfl_thermal_driver);
++}
++
++static void mrfl_thermal_module_exit(void)
++{
++	platform_driver_unregister(&mrfl_thermal_driver);
++}
++
++/* RPMSG related functionality */
++static int mrfl_thermal_rpmsg_probe(struct rpmsg_channel *rpdev)
++{
++	if (!rpdev) {
++		pr_err("rpmsg channel not created\n");
++		return -ENODEV;
++	}
++
++	dev_info(&rpdev->dev, "Probed mrfl_thermal rpmsg device\n");
++
++	return mrfl_thermal_module_init();
++}
++
++static void mrfl_thermal_rpmsg_remove(struct rpmsg_channel *rpdev)
++{
++	mrfl_thermal_module_exit();
++	dev_info(&rpdev->dev, "Removed mrfl_thermal rpmsg device\n");
++}
++
++static void mrfl_thermal_rpmsg_cb(struct rpmsg_channel *rpdev, void *data,
++			int len, void *priv, u32 src)
++{
++	dev_warn(&rpdev->dev, "unexpected, message\n");
++
++	print_hex_dump(KERN_DEBUG, __func__, DUMP_PREFIX_NONE, 16, 1,
++				data, len, true);
++}
++
++static struct rpmsg_device_id mrfl_thermal_id_table[] = {
++	{ .name = "rpmsg_mrfl_thermal" },
++	{ },
++};
++
++MODULE_DEVICE_TABLE(rpmsg, mrfl_thermal_id_table);
++
++static struct rpmsg_driver mrfl_thermal_rpmsg = {
++	.drv.name	= DRIVER_NAME,
++	.drv.owner	= THIS_MODULE,
++	.probe		= mrfl_thermal_rpmsg_probe,
++	.callback	= mrfl_thermal_rpmsg_cb,
++	.remove		= mrfl_thermal_rpmsg_remove,
++	.id_table	= mrfl_thermal_id_table,
++};
++
++static int __init mrfl_thermal_rpmsg_init(void)
++{
++	return register_rpmsg_driver(&mrfl_thermal_rpmsg);
++}
++
++static void __exit mrfl_thermal_rpmsg_exit(void)
++{
++	return unregister_rpmsg_driver(&mrfl_thermal_rpmsg);
++}
++
++module_init(mrfl_thermal_rpmsg_init);
++module_exit(mrfl_thermal_rpmsg_exit);
++
++MODULE_AUTHOR("Durgadoss R <durgadoss.r@intel.com>");
++MODULE_DESCRIPTION("Intel Merrifield Platform Thermal Driver");
++MODULE_LICENSE("GPL");
+-- 
+2.37.3
+

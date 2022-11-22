@@ -1,0 +1,35 @@
+From a635b526cb3b0ec4e253014d77d7449311e51b79 Mon Sep 17 00:00:00 2001
+From: yegnesh <yegnesh.s.iyer@intel.com>
+Date: Tue, 26 Nov 2013 13:47:54 +0530
+Subject: [PATCH 231/429] usb: Changing the variable name mA to ma
+
+Issue description: The structure variable name mA used in many
+power supply charging framework related structures across which
+is causing camel variable name warnings in checkpatch.
+Solution: Change the name from mA to ma.
+
+Category: device enablement
+Domain: USB-OTG_Transceiver
+Origin: internal
+Upstream-Candidate: no, needs rework
+Signed-off-by: yegnesh <yegnesh.s.iyer@intel.com>
+---
+ drivers/usb/dwc3/otg.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index a1f28695ccfc..93f90a4c5fcb 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -521,7 +521,7 @@ static enum dwc_otg_state do_charger_detection(struct dwc_otg2 *otg)
+ 
+ 	spin_lock_irqsave(&otg->lock, flags);
+ 	otg->charging_cap.chrg_type = charger;
+-	otg->charging_cap.mA = ma;
++	otg->charging_cap.ma = ma;
+ 	spin_unlock_irqrestore(&otg->lock, flags);
+ 
+ 	switch (charger) {
+-- 
+2.37.3
+

@@ -1,0 +1,94 @@
+From f97a250b764cbdf6cb3319bff4441fe0d1f70e59 Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Wed, 5 Nov 2014 14:11:23 +0100
+Subject: [PATCH 385/429] audio: build-in audio drivers
+
+This patch aims to available audio codec detection and registration on
+the board.
+Defconfig is updated accordingly to build-in the drivers needed by the
+audio codec for DPCM architecture.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 15 +++++++++------
+ arch/x86/platform/intel-mid/board.c    |  8 +++++++-
+ 2 files changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index d5734ddaa0c6..732b0c5ad594 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -2382,7 +2382,8 @@ CONFIG_SOUND=y
+ CONFIG_SND=y
+ CONFIG_SND_TIMER=y
+ CONFIG_SND_PCM=y
+-CONFIG_SND_COMPRESS_OFFLOAD=y
++# CONFIG_SND_COMPRESS_OFFLOAD is not set
++# CONFIG_SND_EFFECTS_OFFLOAD is not set
+ CONFIG_SND_JACK=y
+ CONFIG_SND_SEQUENCER=y
+ # CONFIG_SND_SEQ_DUMMY is not set
+@@ -2421,13 +2422,15 @@ CONFIG_SND_USB=y
+ CONFIG_SND_SOC=y
+ # CONFIG_SND_ATMEL_SOC is not set
+ # CONFIG_SND_MFLD_MACHINE is not set
+-# CONFIG_SND_INTEL_SST is not set
+-# CONFIG_SND_MRFLD_MACHINE is not set
+-# CONFIG_SND_SST_PLATFORM is not set
+-# CONFIG_SST_MRFLD_DPCM is not set
+-# CONFIG_SND_SST_MACHINE is not set
++CONFIG_SND_INTEL_SST=y
++CONFIG_SND_MRFLD_MACHINE=y
++CONFIG_SND_SST_PLATFORM=y
++CONFIG_SST_MRFLD_DPCM=y
++CONFIG_SND_SST_MACHINE=y
+ CONFIG_SND_SOC_I2C_AND_SPI=y
+ # CONFIG_SND_SOC_ALL_CODECS is not set
++CONFIG_SND_SOC_WM_HUBS=y
++CONFIG_SND_SOC_WM8994=y
+ # CONFIG_SND_SIMPLE_CARD is not set
+ # CONFIG_SOUND_PRIME is not set
+ 
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index eb9d098e889f..0f856fa250e7 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -60,6 +60,7 @@
+ #include "device_libs/platform_soc_thermal.h"
+ #include "device_libs/platform_msic_adc.h"
+ #include "device_libs/platform_bcove_adc.h"
++#include <asm/platform_mrfld_audio.h>
+ #include "device_libs/platform_mrfl_thermal.h"
+ 
+ /*
+@@ -75,6 +76,8 @@
+ #include "device_libs/platform_bq24261.h"
+ #include "device_libs/platform_pcal9555a.h"
+ 
++#include "device_libs/platform_wm8994.h"
++
+ /*
+  * SPI devices
+  */
+@@ -147,14 +150,17 @@ struct devs_id __initconst device_ids[] = {
+ 					&ipc_device_handler},
+ 	{"bcove_thrm", SFI_DEV_TYPE_IPC, 1, &mrfl_thermal_platform_data,
+ 					&ipc_device_handler},
+-
++	{"wm8994", SFI_DEV_TYPE_I2C, 0, &wm8994_platform_data, NULL},
+ 	/* IPC devices */
+ 	{"pmic_charger", SFI_DEV_TYPE_IPC, 1, &no_platform_data, NULL},
+ 	{"pmic_ccsm", SFI_DEV_TYPE_IPC, 1, &mrfl_pmic_ccsm_platform_data,
+ 						&ipc_device_handler},
+ 	{"i2c_pmic_adap", SFI_DEV_TYPE_IPC, 1, &mrfl_pmic_i2c_platform_data,
+ 						&ipc_device_handler},
++	{"mrfld_wm8958", SFI_DEV_TYPE_IPC, 1, &merfld_wm8958_audio_platform_data,
++						&ipc_device_handler},
+ 	{"soc_thrm", SFI_DEV_TYPE_IPC, 1, &no_platform_data,
+ 						&soc_thrm_device_handler},
++	{"wm8958", SFI_DEV_TYPE_I2C, 0, &wm8994_platform_data, NULL},
+ 	{},
+ };
+-- 
+2.37.3
+

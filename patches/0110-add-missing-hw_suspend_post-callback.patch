@@ -1,0 +1,29 @@
+From 2a320f5655aff50d6b9ad651c9dd8ec2f2fce648 Mon Sep 17 00:00:00 2001
+From: Frode Isaksen <frodex.isaksen@intel.com>
+Date: Wed, 30 Oct 2013 18:36:41 +0100
+Subject: [PATCH 110/429] add missing 'hw_suspend_post' callback
+
+Add missing 'hw_suspend_post' callback to the
+GPS HSU port to fix runtime PM  while
+GPS tracking.
+
+Signed-off-by: Frode Isaksen <frodex.isaksen@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/platform_hsu.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index b4ea3d0884a1..3dd2691d5783 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -463,6 +463,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 			.hw_set_alt = NULL,
+ 			.hw_set_rts = intel_mid_hsu_rts,
+ 			.hw_suspend = intel_mid_hsu_suspend,
++			.hw_suspend_post = intel_mid_hsu_suspend_post,
+ 			.hw_resume = intel_mid_hsu_resume,
+ 			.hw_context_save = 1,
+ 		},
+-- 
+2.37.3
+

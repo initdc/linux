@@ -1,0 +1,53 @@
+From f088d26773286f8182a4ad457616dafbde5796e8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Wed, 4 Jun 2014 17:50:20 +0200
+Subject: [PATCH 339/429] hsu: extend the hsu debug port's idle timeout
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When the runtime_idle function is scheduled, it used to check if the
+active_flag is set before scheduling a pm_suspend().
+It occured that the flag was cleared between two key presses, and
+the pm_suspend() was called after only 20 ms.
+
+To avoid this weird behavior, we:
+ - remove the magic value (20 ms) and set the idle timeout according
+   to the platform_hsu file
+ - set the debug port's idle timeout to 5s instead of 2s
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ arch/x86/platform/intel-mid/device_libs/platform_hsu.c | 2 +-
+ drivers/tty/serial/mfd_core.c                          | 2 --
+ 2 files changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index 2005a250e00a..6ca406970e1c 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -113,7 +113,7 @@ static struct hsu_port_cfg hsu_port_cfgs[][hsu_port_max] = {
+ 			.hw_ip = hsu_intel,
+ 			.index = 2,
+ 			.name = HSU_DEBUG_PORT,
+-			.idle = 2000,
++			.idle = 5000,
+ 			.hw_init = intel_mid_hsu_init,
+ 			.hw_set_alt = intel_mid_hsu_switch,
+ 			.hw_suspend = intel_mid_hsu_suspend,
+diff --git a/drivers/tty/serial/mfd_core.c b/drivers/tty/serial/mfd_core.c
+index b9e70543f842..f7e4ab5d7fd1 100644
+--- a/drivers/tty/serial/mfd_core.c
++++ b/drivers/tty/serial/mfd_core.c
+@@ -2038,8 +2038,6 @@ int serial_hsu_do_runtime_idle(struct uart_hsu_port *up)
+ 		 * have finished booting
+ 		 */
+ 		pm_schedule_suspend(up->dev, 30000);
+-	else if (!test_and_clear_bit(flag_active, &up->flags))
+-		pm_schedule_suspend(up->dev, 20);
+ 	else
+ 		pm_schedule_suspend(up->dev, cfg->idle);
+ 	trace_hsu_func_end(up->index, __func__, "");
+-- 
+2.37.3
+

@@ -1,0 +1,39 @@
+From fffadd061d369f790fa8c4a5fc482ebe92621c57 Mon Sep 17 00:00:00 2001
+From: Laurent JOSSE <laurent.josse@intel.com>
+Date: Mon, 2 Dec 2013 12:46:25 +0100
+Subject: [PATCH 275/429] Do not clear HW breakpoints at start-up
+
+Comment clear_all_debug_regs in linux/kernel/arch/x86/kernel/cpu/common.c file
+
+Signed-off-by: Laurent JOSSE <laurent.josse@intel.com>
+---
+ arch/x86/kernel/cpu/common.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/kernel/cpu/common.c b/arch/x86/kernel/cpu/common.c
+index 81e0fe48b9b0..ac15e6462f6a 100644
+--- a/arch/x86/kernel/cpu/common.c
++++ b/arch/x86/kernel/cpu/common.c
+@@ -1187,15 +1187,17 @@ DEFINE_PER_CPU_ALIGNED(struct stack_canary, stack_canary);
+  */
+ static void clear_all_debug_regs(void)
+ {
+-	int i;
++/*	int i;
+ 
+ 	for (i = 0; i < 8; i++) {
++*/
+ 		/* Ignore db4, db5 */
+-		if ((i == 4) || (i == 5))
++/*		if ((i == 4) || (i == 5))
+ 			continue;
+ 
+ 		set_debugreg(0, i);
+ 	}
++*/
+ }
+ 
+ #ifdef CONFIG_KGDB
+-- 
+2.37.3
+

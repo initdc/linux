@@ -1,0 +1,43 @@
+From ac630cf0504e962ef82ddb69064bf8650d014499 Mon Sep 17 00:00:00 2001
+From: Vincent Tinelli <vincent.tinelli@intel.com>
+Date: Wed, 13 Aug 2014 17:44:42 +0200
+Subject: [PATCH 359/429] boot: cleanup logs
+
+remove logs from thermal
+remove sfi entry for battery charger as we don't have one and driver should not
+be probed
+
+Signed-off-by: Vincent Tinelli <vincent.tinelli@intel.com>
+---
+ arch/x86/platform/intel-mid/board.c                             | 1 -
+ arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c | 2 --
+ 2 files changed, 3 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/board.c b/arch/x86/platform/intel-mid/board.c
+index a0c7de17f36b..eb9d098e889f 100644
+--- a/arch/x86/platform/intel-mid/board.c
++++ b/arch/x86/platform/intel-mid/board.c
+@@ -101,7 +101,6 @@ struct devs_id __initconst device_ids[] = {
+ 	 &wifi_platform_data_fastirq},
+ 
+ 	/* I2C devices*/
+-	{"bq24261_charger", SFI_DEV_TYPE_I2C, 1, &bq24261_platform_data, NULL},
+ 	{"pcal9555a-1", SFI_DEV_TYPE_I2C, 1, &pcal9555a_platform_data, NULL},
+ 	{"pcal9555a-2", SFI_DEV_TYPE_I2C, 1, &pcal9555a_platform_data, NULL},
+ 	{"pcal9555a-3", SFI_DEV_TYPE_I2C, 1, &pcal9555a_platform_data, NULL},
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
+index 2e8b45d3dcec..8e118a43a02d 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
+@@ -110,8 +110,6 @@ void __init *mrfl_thermal_platform_data(void *info)
+ 	struct platform_device *pdev;
+ 	struct sfi_device_table_entry *entry = info;
+ 
+-	pr_err("inside mrfl_thermal_platform_data\n");
+-
+ 	pdev = platform_device_alloc(MRFL_THERM_DEV_NAME, -1);
+ 	if (!pdev) {
+ 		pr_err("out of memory for SFI platform dev %s\n",
+-- 
+2.37.3
+

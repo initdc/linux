@@ -1,0 +1,29 @@
+From 38766bcbcbb370f9007fd7d6e700ca87dbe6a084 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Wed, 28 May 2014 16:17:46 +0200
+Subject: [PATCH 324/429] hsu: enable wake_peer operations for hsu driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ drivers/tty/serial/mfd_core.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/tty/serial/mfd_core.c b/drivers/tty/serial/mfd_core.c
+index 1faa04655ee6..b9e70543f842 100644
+--- a/drivers/tty/serial/mfd_core.c
++++ b/drivers/tty/serial/mfd_core.c
+@@ -1780,7 +1780,7 @@ struct uart_ops serial_hsu_pops = {
+ 	.request_port	= serial_hsu_request_port,
+ 	.config_port	= serial_hsu_config_port,
+ 	.verify_port	= serial_hsu_verify_port,
+-	/* .wake_peer	= serial_hsu_wake_peer,*/
++	.wake_peer	= serial_hsu_wake_peer,
+ #ifdef CONFIG_CONSOLE_POLL
+ 	.poll_get_char = serial_hsu_get_poll_char,
+ 	.poll_put_char = serial_hsu_put_poll_char,
+-- 
+2.37.3
+

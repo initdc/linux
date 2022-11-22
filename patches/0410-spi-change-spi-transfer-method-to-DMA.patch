@@ -1,0 +1,197 @@
+From 9e7386739ac74b5b449b096ed275dfdce1c01d01 Mon Sep 17 00:00:00 2001
+From: WangBo <box.b.wang@intel.com>
+Date: Fri, 12 Jun 2015 15:37:37 +0800
+Subject: [PATCH 410/429] spi: change spi transfer method to DMA
+
+Improve SPI performance by adopting DMA method.
+
+Signed-off-by: Bo Wang <box.b.wang@intel.com>
+---
+ .../intel-mid/device_libs/platform_spidev.c   |  4 +-
+ drivers/dma/intel_mid_dma.c                   | 79 +++++++++++++++----
+ drivers/spi/intel_mid_ssp_spi.c               | 27 +++----
+ 3 files changed, 75 insertions(+), 35 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+index c6b3f7bcb058..40827d640115 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+@@ -25,8 +25,8 @@ static int tng_ssp_spi2_FS_gpio = 111;
+ static struct intel_mid_ssp_spi_chip chip = {
+ 	.burst_size = DFLT_FIFO_BURST_SIZE,
+ 	.timeout = DFLT_TIMEOUT_VAL,
+-	/* SPI DMA is currently not usable on Tangier */
+-	.dma_enabled = false,
++	/* SPI DMA is currently usable on Tangier */
++	.dma_enabled = true,
+ 	.cs_control = tng_ssp_spi_cs_control,
+ 	.platform_pinmux = tng_ssp_spi_platform_pinmux,
+ };
+diff --git a/drivers/dma/intel_mid_dma.c b/drivers/dma/intel_mid_dma.c
+index 91c6f8f0159c..9f38076772ab 100644
+--- a/drivers/dma/intel_mid_dma.c
++++ b/drivers/dma/intel_mid_dma.c
+@@ -48,6 +48,12 @@
+ #define INTEL_BYT_LPIO2_DMAC_ID		0x0F40
+ #define INTEL_BYT_DMAC0_ID		0x0F28
+ 
++#define PCI_DEVICE_ID_INTEL_GP_DMAC2_MOOR      0x1497
++
++#define MRFL_INSTANCE_SPI3     3
++#define MRFL_INSTANCE_SPI5     5
++#define MRFL_INSTANCE_SPI6     6
++
+ #define LNW_PERIPHRAL_MASK_SIZE		0x20
+ 
+ #define INFO(_max_chan, _ch_base, _block_size, _pimr_mask,	\
+@@ -1023,29 +1029,68 @@ static struct dma_async_tx_descriptor *intel_mid_dma_prep_memcpy_v2(
+ 	cfg_lo.cfgx_v2.dst_burst_align = 1;
+ 	cfg_lo.cfgx_v2.src_burst_align = 1;
+ 
+-	/*calculate CFG_HI*/
+-	if (mids->cfg_mode == LNW_DMA_MEM_TO_MEM) {
+-		/*SW HS only*/
+-		cfg_hi.cfg_hi = 0;
+-	} else {
+-		cfg_hi.cfg_hi = 0;
++	/* For  mem to mem transfer, it's SW HS only*/
++	cfg_hi.cfg_hi = 0;
++	/*calculate CFG_HI for mem to/from dev scenario */
++	if (mids->cfg_mode != LNW_DMA_MEM_TO_MEM) {
+ 		if (midc->dma->pimr_mask) {
++			/* device_instace => SSP0 = 0, SSP1 = 1, SSP2 = 2*/
++			if (mids->device_instance > 2) {
++				pr_err("Invalid SSP identifier\n");
++				return NULL;
++			}
++			cfg_hi.cfgx_v2.src_per = 0;
++			cfg_hi.cfgx_v2.dst_per = 0;
++			if (mids->dma_slave.direction == DMA_MEM_TO_DEV)
++				/* SSP DMA in Tx direction */
++				cfg_hi.cfgx_v2.dst_per = (2 * mids->device_instance) + 1;
++			else if (mids->dma_slave.direction == DMA_DEV_TO_MEM)
++				/* SSP DMA in Rx direction */
++				cfg_hi.cfgx_v2.src_per = (2 * mids->device_instance);
++			else
++				return NULL;
++
++		} else if ((midc->dma->pci_id == INTEL_MRFLD_GP_DMAC2_ID) ||
++				(midc->dma->pci_id == PCI_DEVICE_ID_INTEL_GP_DMAC2_MOOR)) {
+ 			if (mids->dma_slave.direction == DMA_MEM_TO_DEV) {
+ 				cfg_hi.cfgx_v2.src_per = 0;
+-				if (mids->device_instance == 0)
+-					cfg_hi.cfgx_v2.dst_per = 1;
+-				if (mids->device_instance == 1)
+-					cfg_hi.cfgx_v2.dst_per = 3;
+-			} else if (mids->dma_slave.direction == DMA_DEV_TO_MEM) {
+-				if (mids->device_instance == 0)
+-					cfg_hi.cfgx_v2.src_per = 0;
+-				if (mids->device_instance == 1)
+-					cfg_hi.cfgx_v2.src_per = 2;
++
++				if (mids->device_instance ==
++					MRFL_INSTANCE_SPI3)
++					cfg_hi.cfgx_v2.dst_per = 0xF;
++				else if (mids->device_instance ==
++					MRFL_INSTANCE_SPI5)
++					cfg_hi.cfgx_v2.dst_per = 0xD;
++				else if (mids->device_instance ==
++					MRFL_INSTANCE_SPI6)
++					cfg_hi.cfgx_v2.dst_per = 0xB;
++				else
++					cfg_hi.cfgx_v2.dst_per = midc->ch_id
++						- midc->dma->chan_base;
++			} else if (mids->dma_slave.direction
++				== DMA_DEV_TO_MEM) {
++				if (mids->device_instance ==
++					MRFL_INSTANCE_SPI3)
++					cfg_hi.cfgx_v2.src_per = 0xE;
++				else if (mids->device_instance ==
++					MRFL_INSTANCE_SPI5)
++					cfg_hi.cfgx_v2.src_per = 0xC;
++				else if (mids->device_instance ==
++					MRFL_INSTANCE_SPI6)
++					cfg_hi.cfgx_v2.src_per = 0xA;
++				else
++					cfg_hi.cfgx_v2.src_per = midc->ch_id
++						- midc->dma->chan_base;
++
+ 				cfg_hi.cfgx_v2.dst_per = 0;
++			} else {
++				cfg_hi.cfgx_v2.dst_per =
++					cfg_hi.cfgx_v2.src_per = 0;
+ 			}
+ 		} else {
+-			cfg_hi.cfgx_v2.src_per = cfg_hi.cfgx_v2.dst_per =
+-					midc->ch_id - midc->dma->chan_base;
++			cfg_hi.cfgx_v2.src_per =
++				cfg_hi.cfgx_v2.dst_per =
++				midc->ch_id - midc->dma->chan_base;
+ 		}
+ 	}
+ 	/*calculate CTL_HI*/
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index b68b1eb9c85c..2d2385dda78d 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -1041,16 +1041,7 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			sspc->read = u32_reader;
+ 			sspc->write = u32_writer;
+ 		}
+-		sspc->tx  = (void *)transfer->tx_buf;
+-		sspc->rx  = (void *)transfer->rx_buf;
+-		sspc->len = transfer->len;
+-		sspc->cs_change = transfer->cs_change;
+ 
+-		if (likely(dma_enabled)) {
+-			sspc->dma_mapped = map_dma_buffers(sspc);
+-			if (unlikely(!sspc->dma_mapped))
+-				return 0;
+-		}
+ 		sspc->tx  = (void *)transfer->tx_buf;
+ 		sspc->rx  = (void *)transfer->rx_buf;
+ 		sspc->len = transfer->len;
+@@ -1061,10 +1052,11 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			sspc->dma_mapped = map_dma_buffers(sspc);
+ 			if (unlikely(!sspc->dma_mapped))
+ 				return 0;
+-		} else {
+-			sspc->write = sspc->tx ? sspc->write : null_writer;
+-			sspc->read  = sspc->rx ? sspc->read : null_reader;
+ 		}
++
++		sspc->write = sspc->tx ? sspc->write : null_writer;
++		sspc->read  = sspc->rx ? sspc->read : null_reader;
++
+ 		sspc->tx_end = sspc->tx + transfer->len;
+ 		sspc->rx_end = sspc->rx + transfer->len;
+ 
+@@ -1313,10 +1305,11 @@ static int setup(struct spi_device *spi)
+ 		sspc->rx_fifo_threshold = 4;
+ 	else
+ 		sspc->rx_fifo_threshold = 1;
+-	/*FIXME:this is workaround.
+-	On MRST, in DMA mode, it is very strang that RX fifo can't reach
+-	burst size.*/
+-	if (sspc->quirks & QUIRKS_PLATFORM_MRFL && chip->dma_enabled)
++	/* FIXME: This is a workaround. */
++	/* When speed is lower than 800KHz, the transfer data will be */
++	/* incorrect on MRFL by DMA method*/
++	if (sspc->quirks & QUIRKS_PLATFORM_MRFL && chip->dma_enabled
++			&& (spi->max_speed_hz < 800000))
+ 		sspc->rx_fifo_threshold = 1;
+ 	tx_fifo_threshold = SPI_FIFO_SIZE - sspc->rx_fifo_threshold;
+ 	chip->cr1 |= (SSCR1_RxTresh(sspc->rx_fifo_threshold) &
+@@ -1364,7 +1357,9 @@ static int setup(struct spi_device *spi)
+ 
+ 	if (chip->dma_enabled) {
+ 		sspc->n_bytes = chip->n_bytes;
++		spin_unlock_irqrestore(&sspc->lock, flags);
+ 		intel_mid_ssp_spi_dma_init(sspc);
++		spin_lock_irqsave(&sspc->lock, flags);
+ 		sspc->cr1_sig = SSCR1_TSRE | SSCR1_RSRE;
+ 		sspc->mask_sr = SSSR_ROR | SSSR_TUR;
+ 		if (sspc->quirks & QUIRKS_DMA_USE_NO_TRAIL)
+-- 
+2.37.3
+

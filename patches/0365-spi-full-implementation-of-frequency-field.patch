@@ -1,0 +1,33 @@
+From 45ae5791bb55d2b6a945b7d1bc7a3597e4353439 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Tue, 16 Sep 2014 11:00:02 +0200
+Subject: [PATCH 365/429] spi: full implementation of frequency field
+
+Frequency can be set by ioctl and temporary overriden through spi_transfer.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/spi/intel_mid_ssp_spi.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index 007dd06d976b..e1f037bce1aa 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -1094,7 +1094,12 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 		write_SSFS((1 << chip->chip_select), reg);
+ 
+ 	/* recalculate the frequency for each transfer */
+-	clk_div = ssp_get_clk_div(sspc, transfer->speed_hz);
++	if (transfer->speed_hz)
++		clk_div = ssp_get_clk_div(sspc, transfer->speed_hz);
++	else
++		clk_div = ssp_get_clk_div(sspc, chip->speed_hz);
++
++	cr0 &= ~SSCR0_SCR;
+ 	cr0 |= clk_div << 8;
+ 
+ 	/* Do bitbanging only if SSP not-enabled or not-synchronized */
+-- 
+2.37.3
+

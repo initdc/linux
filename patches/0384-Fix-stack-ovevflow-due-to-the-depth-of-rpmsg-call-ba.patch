@@ -1,0 +1,68 @@
+From fcaea3654581d96f9507c45ab3314034ee01a0ef Mon Sep 17 00:00:00 2001
+From: Dongwon Kim <dongwon.kim@intel.com>
+Date: Tue, 8 Oct 2013 11:52:13 -0700
+Subject: [PATCH 384/429] Fix stack ovevflow due to the depth of rpmsg call
+ back
+
+Currently, during rpmsg initalization, each ns_info is passed and processed
+recursively. In other words, name service info for the next service is handled
+in a function called from the same function call that just processed
+the info for the previous one.
+
+This makes the stack memory size for the current instance increase proportionally
+to # of name serivices in the list. This may cause stack overflow especially
+when there are more than certain number of name services.
+
+To address this issue, this patch changes the code (call back function)
+to push ns_info for all existing (pre-defined) services in the receive buffers
+at once to make them processed in one rx function call.
+
+With this way, stack depth needed for that rpmsg registeration is limited
+no matter how many services we have in future.
+
+Signed-off-by: Dongwon Kim <dongwon.kim@intel.com>
+---
+ drivers/remoteproc/intel_mid_rproc_scu.c | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/remoteproc/intel_mid_rproc_scu.c b/drivers/remoteproc/intel_mid_rproc_scu.c
+index fd5023bcbdb7..53a1cdc0e5a3 100644
+--- a/drivers/remoteproc/intel_mid_rproc_scu.c
++++ b/drivers/remoteproc/intel_mid_rproc_scu.c
+@@ -257,6 +257,7 @@ static void intel_rproc_scu_kick(struct rproc *rproc, int vqid)
+ 	struct intel_mid_rproc *iproc;
+ 	struct rproc_vdev *rvdev;
+ 	struct device *dev = rproc->dev.parent;
++	static unsigned long ns_info_all_received;
+ 
+ 	iproc = (struct intel_mid_rproc *)rproc->priv;
+ 
+@@ -268,19 +269,21 @@ static void intel_rproc_scu_kick(struct rproc *rproc, int vqid)
+ 
+ 	switch (idx) {
+ 	case RX_VRING:
+-		if (iproc->ns_enabled &&
+-			!list_is_last(&iproc->ns_info->node, &nslist->list)) {
++		if (iproc->ns_enabled && !ns_info_all_received) {
++			/* push messages with ns_info for ALL available
++			name services in the list (nslist) into
++			rx buffers. */
+ 			list_for_each_entry_continue(iproc->ns_info,
+ 				&nslist->list, node) {
+ 				ret = intel_mid_rproc_ns_handle(iproc,
+-						iproc->ns_info);
++					iproc->ns_info);
+ 				if (ret) {
+ 					dev_err(dev, "ns handle error\n");
+ 					return;
+ 				}
+-				break;
+ 			}
+ 
++			ns_info_all_received = 1;
+ 			intel_mid_rproc_vq_interrupt(rproc, vqid);
+ 		}
+ 		break;
+-- 
+2.37.3
+

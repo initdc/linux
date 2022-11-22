@@ -1,0 +1,91 @@
+From 51227f1cf82593a94f4254e18a4e2067f502c6db Mon Sep 17 00:00:00 2001
+From: Shimin Zhou <shimingx.zhou@intel.com>
+Date: Tue, 18 Aug 2015 18:18:28 +0800
+Subject: [PATCH 415/429] power: wake up system with power button
+
+When suspend system with freeze mode, system can't
+be waken up and will reboot after a short period of time.
+Stop watchdog when suspend system with freeze will
+prevent from it. Meanwhile, add a function in power button
+that system can be waken up.
+
+Signed-off-by: Shimin Zhou <shimingx.zhou@intel.com>
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ drivers/platform/x86/intel_mid_powerbtn.c |  2 ++
+ drivers/watchdog/intel_scu_watchdog_evo.c | 34 +++++++++++++++++++++--
+ 2 files changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/platform/x86/intel_mid_powerbtn.c b/drivers/platform/x86/intel_mid_powerbtn.c
+index 669a25465bf9..10eaafe17ba9 100644
+--- a/drivers/platform/x86/intel_mid_powerbtn.c
++++ b/drivers/platform/x86/intel_mid_powerbtn.c
+@@ -30,6 +30,7 @@
+ #include <asm/intel_mid_powerbtn.h>
+ #include <asm/intel_scu_pmic.h>
+ #include <asm/intel_mid_rpmsg.h>
++#include <linux/suspend.h>
+ 
+ #define DRIVER_NAME "msic_power_btn"
+ 
+@@ -62,6 +63,7 @@ static irqreturn_t mid_pb_isr(int irq, void *dev_id)
+ 		pr_info("[%s] power button released\n", priv->input->name);
+ 	else
+ 		pr_info("[%s] power button pressed\n", priv->input->name);
++	freeze_wake();
+ 
+ 	return IRQ_WAKE_THREAD;
+ }
+diff --git a/drivers/watchdog/intel_scu_watchdog_evo.c b/drivers/watchdog/intel_scu_watchdog_evo.c
+index 8aeecc4ead16..1e04d73dda8d 100644
+--- a/drivers/watchdog/intel_scu_watchdog_evo.c
++++ b/drivers/watchdog/intel_scu_watchdog_evo.c
+@@ -1363,13 +1363,43 @@ static struct rpmsg_device_id watchdog_rpmsg_id_table[] = {
+ };
+ MODULE_DEVICE_TABLE(rpmsg, watchdog_rpmsg_id_table);
+ 
++static int watchdog_rpmsg_suspend(struct device *dev)
++{
++	int ret;
++
++	pr_debug("%s\n", __func__);
++	ret = watchdog_stop();
++	if (ret)
++		pr_err("cannot stop the watchdog\n");
++	return 0;
++}
++
++static int watchdog_rpmsg_resume(struct device *dev)
++{
++	int ret;
++
++	pr_debug("%s\n", __func__);
++	ret = watchdog_config_and_start(timeout, pre_timeout);
++	if (ret)
++		pr_err("cannot start the watchdog\n");
++	return 0;
++}
++
++static const struct dev_pm_ops wd_pm_ops = {
++	.suspend	= watchdog_rpmsg_suspend,
++	.resume		= watchdog_rpmsg_resume,
++};
++
+ static struct rpmsg_driver watchdog_rpmsg = {
+-	.drv.name	= KBUILD_MODNAME,
+-	.drv.owner	= THIS_MODULE,
+ 	.id_table	= watchdog_rpmsg_id_table,
+ 	.probe		= watchdog_rpmsg_probe,
+ 	.callback	= watchdog_rpmsg_cb,
+ 	.remove		= watchdog_rpmsg_remove,
++	.drv 		= {
++			.name = KBUILD_MODNAME,
++			.owner = THIS_MODULE,
++			.pm	= &wd_pm_ops,
++		},
+ };
+ 
+ static int __init watchdog_rpmsg_init(void)
+-- 
+2.37.3
+

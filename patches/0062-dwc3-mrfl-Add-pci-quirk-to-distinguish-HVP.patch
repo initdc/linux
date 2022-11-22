@@ -1,0 +1,2808 @@
+From 12cb68213e5542929cf80f0cf8865b307dc80c64 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Wed, 4 Sep 2013 16:09:43 +0800
+Subject: [PATCH 062/429] dwc3-mrfl: Add pci quirk to distinguish HVP
+
+Create USB PCI quirk to distinguish HVP and saltbay.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ .../intel-mid/device_libs/pci/Makefile        |    2 +
+ .../device_libs/pci/platform_usb_otg.c        |   52 +-
+ drivers/usb/dwc3/dwc3-intel-mrfl.c            |  685 +++++++++
+ drivers/usb/dwc3/otg.c                        | 1347 +++++++++++++++++
+ drivers/usb/dwc3/otg.h                        |  443 ++++++
+ include/linux/pci_ids.h                       |   13 +
+ include/linux/usb/dwc3-intel-mrfl.h           |  167 ++
+ 7 files changed, 2661 insertions(+), 48 deletions(-)
+ create mode 100644 drivers/usb/dwc3/dwc3-intel-mrfl.c
+ create mode 100644 drivers/usb/dwc3/otg.c
+ create mode 100644 drivers/usb/dwc3/otg.h
+ create mode 100644 include/linux/usb/dwc3-intel-mrfl.h
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/Makefile b/arch/x86/platform/intel-mid/device_libs/pci/Makefile
+index e33a394bb2ba..47c7b78c0cdf 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/pci/Makefile
+@@ -2,3 +2,5 @@
+ obj-$(subst m,y,$(CONFIG_MMC_SDHCI_PCI))				+= platform_sdhci_pci.o
+ # USB OTG controller platform data
+ obj-$(subst m,y,$(CONFIG_USB_PENWELL_OTG))				+= platform_usb_otg.o
++obj-$(subst m,y,$(CONFIG_USB_DWC3_OTG))        += platform_usb_otg.o
++obj-$(subst m,y,$(CONFIG_SND_INTEL_SST))                                += platform_sst_pci.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+index 91ae157c2344..d4cfe0208133 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+@@ -15,58 +15,15 @@
+ #include <asm/intel_scu_ipc.h>
+ #include <linux/dma-mapping.h>
+ 
+-#ifdef CONFIG_USB_DWC_OTG_XCEIV
+-#include <linux/usb/dwc_otg3.h>
+-
+-static bool dwc_otg_get_usbspecoverride(void)
+-{
+-	void __iomem *usb_comp_iomap;
+-	bool usb_spec_override;
+-
+-	/* Read MISCFLAGS byte from offset 0x717 */
+-	usb_comp_iomap = ioremap_nocache(0xFFFCE717, 4);
+-	/* MISCFLAGS.BIT[6] indicates USB spec override */
+-	usb_spec_override = ioread8(usb_comp_iomap) & 0x40;
+-	iounmap(usb_comp_iomap);
+-
+-	return usb_spec_override;
+-}
+-
+-
++#ifdef CONFIG_USB_DWC3_OTG
++#include <linux/usb/dwc3-intel-mrfl.h>
+ static struct intel_dwc_otg_pdata dwc_otg_pdata;
+ static struct intel_dwc_otg_pdata *get_otg_platform_data(struct pci_dev *pdev)
+ {
+ 	switch (pdev->device) {
+-	case PCI_DEVICE_ID_INTEL_MRFLD_OTG:
++	case PCI_DEVICE_ID_INTEL_MRFL_DWC3_OTG:
+ 		if (intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_HVP)
+ 			dwc_otg_pdata.is_hvp = 1;
+-
+-		dwc_otg_pdata.charging_compliance =
+-			dwc_otg_get_usbspecoverride();
+-
+-		/* The dwc3 hibernation mode with D3hot can't be work.
+-		 * So enable SW workaround for it until silicon fix.
+-		 */
+-		return &dwc_otg_pdata;
+-	case PCI_DEVICE_ID_INTEL_BYT_OTG:
+-		dwc_otg_pdata.is_hvp = 1;
+-		dwc_otg_pdata.no_device_mode = 0;
+-		dwc_otg_pdata.no_host_mode = 1;
+-		dwc_otg_pdata.is_byt = 1;
+-
+-		/* FIXME: Hardcode now, but need to use ACPI table for GPIO */
+-		if (INTEL_MID_BOARD(3, TABLET, BYT, BLK, PRO, RVP3) ||
+-			INTEL_MID_BOARD(3, TABLET, BYT, BLK, ENG, RVP3)) {
+-			pr_info("This is BYT RVP\n");
+-			dwc_otg_pdata.gpio_cs = 156;
+-			dwc_otg_pdata.gpio_reset = 144;
+-		} else if (INTEL_MID_BOARD(3, TABLET, BYT, BLK, PRO, 10PR11) ||
+-			INTEL_MID_BOARD(3, TABLET, BYT, BLK, ENG, 10PR11)) {
+-			pr_info("This is BYT FFRD10 PRx\n");
+-			dwc_otg_pdata.gpio_cs = 54;
+-			dwc_otg_pdata.gpio_reset = 144;
+-		}
+-
+ 		return &dwc_otg_pdata;
+ 	default:
+ 		break;
+@@ -74,7 +31,6 @@ static struct intel_dwc_otg_pdata *get_otg_platform_data(struct pci_dev *pdev)
+ 
+ 	return NULL;
+ }
+-
+ #endif
+ 
+ #ifdef CONFIG_USB_PENWELL_OTG
+@@ -133,7 +89,7 @@ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_MFD_OTG,
+ 			otg_pci_early_quirks);
+ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_CLV_OTG,
+ 			otg_pci_early_quirks);
+-DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_MRFLD_OTG,
++DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_MRFL_DWC3_OTG,
+ 			otg_pci_early_quirks);
+ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_BYT_OTG,
+ 			otg_pci_early_quirks);
+diff --git a/drivers/usb/dwc3/dwc3-intel-mrfl.c b/drivers/usb/dwc3/dwc3-intel-mrfl.c
+new file mode 100644
+index 000000000000..30b4c853f2b5
+--- /dev/null
++++ b/drivers/usb/dwc3/dwc3-intel-mrfl.c
+@@ -0,0 +1,685 @@
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/pci.h>
++#include <linux/platform_device.h>
++#include <linux/dma-mapping.h>
++#include <linux/usb/otg.h>
++#include <linux/slab.h>
++#include <linux/sched.h>
++#include <linux/freezer.h>
++#include <linux/delay.h>
++#include <linux/kthread.h>
++#include <linux/version.h>
++
++#include <linux/usb.h>
++#include <linux/usb/hcd.h>
++#include <linux/usb/gadget.h>
++#include <linux/usb/dwc3-intel-mrfl.h>
++#include <asm/intel_scu_pmic.h>
++#include "otg.h"
++
++#define VERSION "2.10a"
++
++static int otg_id = -1;
++static int enable_usb_phy(struct dwc_otg2 *otg, bool on_off);
++static int dwc3_intel_notify_charger_type(struct dwc_otg2 *otg,
++		enum usb_charger_state state);
++
++static int is_hybridvp(struct dwc_otg2 *otg)
++{
++	struct intel_dwc_otg_pdata *data;
++	if (!otg || !otg->otg_data)
++		return -EINVAL;
++
++	data = (struct intel_dwc_otg_pdata *)otg->otg_data;
++
++	return data->is_hvp;
++}
++
++static enum usb_charger_type aca_check(struct dwc_otg2 *otg)
++{
++	u8 rarbrc;
++	enum usb_charger_type type = CHRG_UNKNOWN;
++	int ret;
++
++	/* Wait >66.1ms (for TCHGD_SERX_DEB) */
++	msleep(66);
++
++	/* Read decoded RID value */
++	ret = intel_scu_ipc_ioread8(PMIC_USBIDSTS, &rarbrc);
++	if (ret)
++		otg_err(otg, "Fail to read decoded RID value\n");
++	rarbrc &= USBIDSTS_ID_RARBRC_STS(3);
++
++	/* If ID_RARBRC_STS==01: ACA-Dock detected
++	 * If ID_RARBRC_STS==00: MHL detected
++	 */
++	if (rarbrc == 1) {
++		/* ACA-Dock */
++		type = CHRG_ACA_DOCK;
++	} else if (!rarbrc) {
++		/* MHL */
++		type = CHRG_MHL;
++	}
++
++	return type;
++}
++
++static ssize_t store_otg_id(struct device *_dev,
++		struct device_attribute *attr, const char *buf, size_t count)
++{
++	unsigned long flags;
++	struct dwc_otg2 *otg = dwc3_get_otg();
++
++	if (!otg)
++		return 0;
++	if (count != 2) {
++		otg_err(otg, "return EINVAL\n");
++		return -EINVAL;
++	}
++
++	if (count > 0 && buf[count-1] == '\n')
++		((char *) buf)[count-1] = 0;
++
++	switch (buf[0]) {
++	case 'a':
++	case 'A':
++		otg_dbg(otg, "Change ID to A\n");
++		otg->user_events |= USER_ID_A_CHANGE_EVENT;
++		spin_lock_irqsave(&otg->lock, flags);
++		dwc3_wakeup_otg_thread(otg);
++		otg_id = 0;
++		spin_unlock_irqrestore(&otg->lock, flags);
++		return count;
++	case 'b':
++	case 'B':
++		otg_dbg(otg, "Change ID to B\n");
++		otg->user_events |= USER_ID_B_CHANGE_EVENT;
++		spin_lock_irqsave(&otg->lock, flags);
++		dwc3_wakeup_otg_thread(otg);
++		otg_id = 1;
++		spin_unlock_irqrestore(&otg->lock, flags);
++		return count;
++	default:
++		otg_err(otg, "Just support change ID to A!\n");
++		return -EINVAL;
++	}
++
++	return count;
++}
++
++static ssize_t
++show_otg_id(struct device *_dev, struct device_attribute *attr, char *buf)
++{
++	char				*next;
++	unsigned			size, t;
++
++	next = buf;
++	size = PAGE_SIZE;
++
++	t = scnprintf(next, size,
++		"USB OTG ID: %s\n",
++		(otg_id ? "B" : "A")
++		);
++	size -= t;
++	next += t;
++
++	return PAGE_SIZE - size;
++}
++
++static DEVICE_ATTR(otg_id, S_IRUGO|S_IWUSR|S_IWGRP,
++			show_otg_id, store_otg_id);
++
++static void set_sus_phy(struct dwc_otg2 *otg, int bit)
++{
++	u32 data = 0;
++
++	data = otg_read(otg, GUSB2PHYCFG0);
++	if (bit)
++		data |= GUSB2PHYCFG_SUS_PHY;
++	else
++		data &= ~GUSB2PHYCFG_SUS_PHY;
++
++	otg_write(otg, GUSB2PHYCFG0, data);
++
++	data = otg_read(otg, GUSB3PIPECTL0);
++	if (bit)
++		data |= GUSB3PIPECTL_SUS_EN;
++	else
++		data &= ~GUSB3PIPECTL_SUS_EN;
++	otg_write(otg, GUSB3PIPECTL0, data);
++}
++
++int dwc3_intel_platform_init(struct dwc_otg2 *otg)
++{
++	u32 gctl;
++	int retval;
++
++	otg_info(otg, "De-assert USBRST# to enable PHY\n");
++	retval = intel_scu_ipc_iowrite8(PMIC_USBPHYCTRL,
++			PMIC_USBPHYCTRL_D0);
++	if (retval)
++		otg_err(otg, "Fail to de-assert USBRST#\n");
++
++	/* Don't let phy go to suspend mode, which
++	 * will cause FS/LS devices enum failed in host mode.
++	 */
++	set_sus_phy(otg, 0);
++
++	retval = device_create_file(otg->dev, &dev_attr_otg_id);
++	if (retval < 0) {
++		otg_dbg(otg,
++			"Can't register sysfs attribute: %d\n", retval);
++		return -ENOMEM;
++	}
++
++	otg_dbg(otg, "\n");
++	otg_write(otg, OEVTEN, 0);
++	otg_write(otg, OCTL, 0);
++	gctl = otg_read(otg, GCTL);
++	gctl |= GCTL_PRT_CAP_DIR_OTG << GCTL_PRT_CAP_DIR_SHIFT;
++	otg_write(otg, GCTL, gctl);
++
++	return 0;
++}
++
++/* This function will control VUSBPHY to power gate/ungate USBPHY */
++static int enable_usb_phy(struct dwc_otg2 *otg, bool on_off)
++{
++	int ret;
++
++	if (on_off) {
++		ret = intel_scu_ipc_update_register(PMIC_VLDOCNT,
++				0xff, PMIC_VLDOCNT_VUSBPHYEN);
++		if (ret)
++			otg_err(otg, "Fail to enable VBUSPHY\n");
++
++		msleep(20);
++	} else {
++		ret = intel_scu_ipc_update_register(PMIC_VLDOCNT,
++				0x00, PMIC_VLDOCNT_VUSBPHYEN);
++		if (ret)
++			otg_err(otg, "Fail to disable VBUSPHY\n");
++	}
++
++	return 0;
++}
++
++int dwc3_intel_get_id(struct dwc_otg2 *otg)
++{
++	int ret, id = RID_UNKNOWN;
++	u8 idsts;
++
++	ret = intel_scu_ipc_update_register(PMIC_USBIDCTRL,
++			USBIDCTRL_ACA_DETEN_D1 | PMIC_USBPHYCTRL_D0,
++			USBIDCTRL_ACA_DETEN_D1 | PMIC_USBPHYCTRL_D0);
++	if (ret)
++		otg_err(otg, "Fail to enable ACA&ID detection logic\n");
++
++	mdelay(50);
++
++	ret = intel_scu_ipc_ioread8(PMIC_USBIDSTS, &idsts);
++	if (ret) {
++		otg_err(otg, "Fail to read id\n");
++		return id;
++	}
++
++	if (idsts & USBIDSTS_ID_FLOAT_STS)
++		id = RID_FLOAT;
++	else if (idsts & USBIDSTS_ID_GND)
++		id = RID_GND;
++	else if (idsts & USBIDSTS_ID_RARBRC_STS(1))
++		id = RID_A;
++	else if (idsts & USBIDSTS_ID_RARBRC_STS(2))
++		id = RID_B;
++	else if (idsts & USBIDSTS_ID_RARBRC_STS(3))
++		id = RID_C;
++
++	return id;
++}
++
++int dwc3_intel_b_idle(struct dwc_otg2 *otg)
++{
++	u32 gctl, tmp;
++
++	if (!is_hybridvp(otg))
++		enable_usb_phy(otg, false);
++
++	/* Disable hibernation mode by default */
++	gctl = otg_read(otg, GCTL);
++	gctl &= ~GCTL_GBL_HIBERNATION_EN;
++	otg_write(otg, GCTL, gctl);
++
++	/* Reset ADP related registers */
++	otg_write(otg, ADPCFG, 0);
++	otg_write(otg, ADPCTL, 0);
++	otg_write(otg, ADPEVTEN, 0);
++	tmp = otg_read(otg, ADPEVT);
++	otg_write(otg, ADPEVT, tmp);
++
++	otg_write(otg, OCFG, 0);
++	otg_write(otg, OEVTEN, 0);
++	tmp = otg_read(otg, OEVT);
++	otg_write(otg, OEVT, tmp);
++	otg_write(otg, OCTL, OCTL_PERI_MODE);
++
++	/* Force config to device mode as default */
++	gctl = otg_read(otg, GCTL);
++	gctl &= ~GCTL_PRT_CAP_DIR;
++	gctl |= GCTL_PRT_CAP_DIR_DEV << GCTL_PRT_CAP_DIR_SHIFT;
++	otg_write(otg, GCTL, gctl);
++
++	enable_usb_phy(otg, true);
++	mdelay(100);
++
++	return 0;
++}
++
++static int dwc3_intel_set_power(struct usb_phy *_otg,
++		unsigned ma)
++{
++	unsigned long flags;
++	struct dwc_otg2 *otg = dwc3_get_otg();
++
++	if (!otg)
++		return 0;
++
++	/* force 896ma to 900ma
++	 * Beucause the power just can be set as an
++	 * integer multiple of 8 in usb configuration descriptor
++	 */
++	if (ma == 896)
++		ma = 900;
++
++	if ((ma != 100) &&
++		(ma != 150) &&
++		(ma != 500) &&
++		(ma != 900)) {
++		otg_err(otg, "Device driver set invalid SDP current value!\n");
++		return -EINVAL;
++	}
++
++	if (otg->charging_cap.chrg_type == CHRG_CDP)
++		return 0;
++	else if (otg->charging_cap.chrg_type != CHRG_SDP) {
++		otg_err(otg, "%s: currently, chrg type is not SDP!\n",
++				__func__);
++		return -EINVAL;
++	}
++
++	spin_lock_irqsave(&otg->lock, flags);
++	otg->charging_cap.ma = ma;
++	spin_unlock_irqrestore(&otg->lock, flags);
++
++	dwc3_intel_notify_charger_type(otg,
++			OTG_CHR_STATE_CONNECTED);
++
++	return 0;
++}
++
++int dwc3_intel_enable_vbus(struct dwc_otg2 *otg, int enable)
++{
++	struct otg_bc_cap cap;
++	int ret = 0;
++	u8 ovrwr;
++
++	if (enable) {
++		cap.chrg_state = OTG_CHR_STATE_HOST;
++		ovrwr = 0x40;
++	} else {
++		cap.chrg_state = OTG_CHR_STATE_DISCONNECTED;
++		ovrwr = 0x00;
++	}
++
++	/* Workaround for EM driver.
++	 * Revert it after EM port done.
++	 */
++	ret = intel_scu_ipc_iowrite8(PMIC_I2COVRDADDR, 0x6B);
++	if (ret) {
++		otg_err(otg, "Fail to Write the I2C address for Charger IC\n");
++		goto err;
++	}
++
++	ret = intel_scu_ipc_iowrite8(PMIC_I2COVROFFSET, 0x0);
++	if (ret) {
++		otg_err(otg, "Fail to Load offset\n");
++		goto err;
++	}
++
++	ret = intel_scu_ipc_iowrite8(PMIC_I2COVRWRDATA, ovrwr);
++	if (ret) {
++		otg_err(otg, "Fail to Load the data to be writen\n");
++		goto err;
++	}
++
++	ret = intel_scu_ipc_iowrite8(PMIC_I2COVRCTRL, 0x01);
++	if (ret) {
++		otg_err(otg, "Fail to Set I2CWR bit\n");
++		goto err;
++	}
++
++	atomic_notifier_call_chain(&otg->usb2_phy.notifier,
++			USB_EVENT_DRIVE_VBUS, &cap);
++
++err:
++	return ret;
++}
++
++static int dwc3_intel_notify_charger_type(struct dwc_otg2 *otg,
++		enum usb_charger_state state)
++{
++	struct otg_bc_cap cap;
++	int ret = 0;
++	unsigned long flags;
++
++	if (state > OTG_CHR_STATE_HOST) {
++		otg_err(otg, "%s: Invalid usb_charger_state!\n", __func__);
++		return -EINVAL;
++	}
++
++	if ((otg->charging_cap.chrg_type ==  CHRG_SDP) &&
++			((otg->charging_cap.ma != 100) &&
++			 (otg->charging_cap.ma != 150) &&
++			 (otg->charging_cap.ma != 500) &&
++			 (otg->charging_cap.ma != 900))) {
++		otg_err(otg, "%s: invalid SDP current!\n", __func__);
++		return -EINVAL;
++	}
++
++	spin_lock_irqsave(&otg->lock, flags);
++	cap.chrg_type = otg->charging_cap.chrg_type;
++	cap.ma = otg->charging_cap.ma;
++	cap.chrg_state = state;
++	spin_unlock_irqrestore(&otg->lock, flags);
++
++	atomic_notifier_call_chain(&otg->usb2_phy.notifier, USB_EVENT_CHARGER,
++			&cap);
++
++	return ret;
++}
++
++enum usb_charger_type dwc3_intel_get_charger_type(struct dwc_otg2 *otg)
++{
++	u8 val, vdat_det, chgd_serx_dm;
++	unsigned long timeout, interval;
++	int ret;
++	enum usb_charger_type type = CHRG_UNKNOWN;
++	struct usb_phy *phy;
++
++	phy = usb_get_phy(USB_PHY_TYPE_USB2);
++	if (!phy) {
++		otg_err(otg, "Get USB2 PHY failed\n");
++		return CHRG_UNKNOWN;
++	}
++
++	/* PHY Enable:
++	 * Power on PHY
++	 */
++	enable_usb_phy(otg, true);
++
++	/* Wait 10ms (~5ms before PHY de-asserts DIR,
++	 * XXus for initial Link reg sync-up).*/
++	msleep(20);
++
++	/* Enable ACA:
++	 * Enable ACA & ID detection logic.
++	 */
++	ret = intel_scu_ipc_update_register(PMIC_USBIDCTRL,
++			USBIDCTRL_ACA_DETEN_D1 | PMIC_USBPHYCTRL_D0,
++			USBIDCTRL_ACA_DETEN_D1 | PMIC_USBPHYCTRL_D0);
++	if (ret)
++		otg_err(otg, "Fail to enable ACA&ID detection logic\n");
++
++	/* DCD Enable: Change OPMODE to 01 (Non-driving),
++	 * TermSel to 0, &
++	 * XcvrSel to 01 (enable FS xcvr)
++	 */
++	usb_phy_io_write(phy, FUNCCTRL_OPMODE(1) | FUNCCTRL_XCVRSELECT(1),
++					TUSB1211_FUNC_CTRL_SET);
++
++	usb_phy_io_write(phy, FUNCCTRL_OPMODE(2) | FUNCCTRL_XCVRSELECT(2)
++					| FUNCCTRL_TERMSELECT,
++					TUSB1211_FUNC_CTRL_CLR);
++
++	/*Enable SW control*/
++	usb_phy_io_write(phy, PWCTRL_SW_CONTROL, TUSB1211_POWER_CONTROL_SET);
++
++	/* Enable IDPSRC */
++	usb_phy_io_write(phy, VS3_CHGD_IDP_SRC_EN,
++			TUSB1211_VENDOR_SPECIFIC3_SET);
++
++	/* Check DCD result, use same polling parameter */
++	timeout = jiffies + msecs_to_jiffies(DATACON_TIMEOUT);
++	interval = DATACON_INTERVAL * 1000; /* us */
++
++	/* DCD Check:
++	 * Delay 66.5 ms. (Note:
++	 * TIDP_SRC_ON + TCHGD_SERX_DEB =
++	 * 347.8us + 66.1ms).
++	 */
++	usleep_range(66500, 67000);
++
++	while (!time_after(jiffies, timeout)) {
++		/* Read DP logic level. */
++		val = usb_phy_io_read(phy, TUSB1211_VENDOR_SPECIFIC4);
++		if (val < 0) {
++			otg_err(otg, "ULPI read error! try again\n");
++			continue;
++		}
++
++		if (!(val & VS4_CHGD_SERX_DP)) {
++			otg_info(otg, "Data contact detected!\n");
++			break;
++		}
++
++		/* Polling interval */
++		usleep_range(interval, interval + 2000);
++	}
++
++	/* Disable DP pullup (Idp_src) */
++	usb_phy_io_write(phy, VS3_CHGD_IDP_SRC_EN,
++			TUSB1211_VENDOR_SPECIFIC3_CLR);
++
++	/* ID Check:
++	 * Check ID pin state.
++	 */
++	val = dwc3_intel_get_id(otg);
++	if (val)
++		otg_err(otg, "Fail to enable ACA&ID detection logic\n");
++
++	val &= USBIDSTS_ID_FLOAT_STS;
++	if (!val) {
++		type = aca_check(otg);
++		goto cleanup;
++	}
++
++	/* SE1 Det Enable:
++	 * Read DP/DM logic level. Note: use DEBUG
++	 * because VS4 isn’t enabled in this situation.
++     */
++	val = usb_phy_io_read(phy, TUSB1211_DEBUG);
++	if (val < 0)
++		otg_err(otg, "ULPI read error!\n");
++
++	val &= DEBUG_LINESTATE;
++
++	/* If '11': SE1 detected; goto 'Cleanup'.
++	 * Else: goto 'Pri Det Enable'.
++	 */
++	if (val == 3) {
++		type = CHRG_SE1;
++		goto cleanup;
++	}
++
++	/* Pri Det Enable:
++	 * Enable VDPSRC.
++	 */
++	usb_phy_io_write(phy, PWCTRL_DP_VSRC_EN, TUSB1211_POWER_CONTROL_SET);
++
++	/* Wait >106.1ms (40ms for BC
++	 * Tvdpsrc_on, 66.1ms for TI CHGD_SERX_DEB).
++	 */
++	msleep(107);
++
++	/* Pri Det Check:
++	 * Check if DM > VDATREF.
++	 */
++	vdat_det = usb_phy_io_read(phy, TUSB1211_POWER_CONTROL);
++	if (vdat_det < 0)
++		otg_err(otg, "ULPI read error!\n");
++
++	vdat_det &= PWCTRL_VDAT_DET;
++
++	/* Check if DM<VLGC */
++	chgd_serx_dm = usb_phy_io_read(phy, TUSB1211_VENDOR_SPECIFIC4);
++	if (chgd_serx_dm < 0)
++		otg_err(otg, "ULPI read error!\n");
++
++	chgd_serx_dm &= VS4_CHGD_SERX_DM;
++
++	/* If VDAT_DET==0 || CHGD_SERX_DM==1: SDP detected
++	 * If VDAT_DET==1 && CHGD_SERX_DM==0: CDP/DCP
++	 */
++	if (vdat_det == 0 || chgd_serx_dm == 1)
++		type = CHRG_SDP;
++
++	/* Disable VDPSRC. */
++	usb_phy_io_write(phy, PWCTRL_DP_VSRC_EN, TUSB1211_POWER_CONTROL_CLR);
++
++	/* If SDP, goto “Cleanup”.
++	 * Else, goto “Sec Det Enable”
++	 */
++	if (type == CHRG_SDP)
++		goto cleanup;
++
++	/* Sec Det Enable:
++	 * delay 1ms.
++	 */
++	usleep_range(1000, 1500);
++
++	/* Swap DP & DM */
++	usb_phy_io_write(phy, VS1_DATAPOLARITY, TUSB1211_VENDOR_SPECIFIC1_CLR);
++
++	/* Enable 'VDMSRC'. */
++	usb_phy_io_write(phy, PWCTRL_DP_VSRC_EN, TUSB1211_POWER_CONTROL_SET);
++
++	/* Wait >73ms (40ms for BC Tvdmsrc_on, 33ms for TI TVDPSRC_DEB) */
++	msleep(80);
++
++	/* Sec Det Check:
++	 * Check if DP>VDATREF.
++	 */
++	val = usb_phy_io_read(phy, TUSB1211_POWER_CONTROL);
++	if (val < 0)
++		otg_err(otg, "ULPI read error!\n");
++
++	val &= PWCTRL_VDAT_DET;
++
++	/* If VDAT_DET==0: CDP detected.
++	 * If VDAT_DET==1: DCP detected.
++	 */
++	if (!val)
++		type = CHRG_CDP;
++	else
++		type = CHRG_DCP;
++
++	/* Disable VDMSRC. */
++	usb_phy_io_write(phy, PWCTRL_DP_VSRC_EN, TUSB1211_POWER_CONTROL_CLR);
++
++	/* Swap DP & DM. */
++	usb_phy_io_write(phy, VS1_DATAPOLARITY, TUSB1211_VENDOR_SPECIFIC1_SET);
++
++cleanup:
++
++	/* If DCP detected, assert VDPSRC. */
++	if (type == CHRG_DCP)
++		usb_phy_io_write(phy, PWCTRL_SW_CONTROL | PWCTRL_DP_VSRC_EN,
++				TUSB1211_POWER_CONTROL_SET);
++
++	usb_put_phy(phy);
++
++	return type;
++
++}
++
++static int dwc3_intel_handle_notification(struct notifier_block *nb,
++		unsigned long event, void *data)
++{
++	struct dwc_otg2 *otg = dwc3_get_otg();
++	int state, val;
++	unsigned long flags;
++
++	if (!otg)
++		return NOTIFY_BAD;
++
++	val = *(int *)data;
++
++	spin_lock_irqsave(&otg->lock, flags);
++	switch (event) {
++	case USB_EVENT_ID:
++		otg->otg_events |= OEVT_CONN_ID_STS_CHNG_EVNT;
++		state = NOTIFY_OK;
++		break;
++	case USB_EVENT_VBUS:
++		if (val)
++			otg->otg_events |= OEVT_B_DEV_SES_VLD_DET_EVNT;
++		else
++			otg->otg_events |= OEVT_A_DEV_SESS_END_DET_EVNT;
++		state = NOTIFY_OK;
++		break;
++	default:
++		otg_dbg(otg, "DWC OTG Notify unknow notify message\n");
++		state = NOTIFY_DONE;
++	}
++	dwc3_wakeup_otg_thread(otg);
++	spin_unlock_irqrestore(&otg->lock, flags);
++
++	return state;
++
++}
++
++int dwc3_intel_prepare_start_host(struct dwc_otg2 *otg)
++{
++	if (!is_hybridvp(otg))
++		enable_usb_phy(otg, true);
++	return 0;
++}
++
++int dwc3_intel_prepare_start_peripheral(struct dwc_otg2 *otg)
++{
++	if (!is_hybridvp(otg))
++		enable_usb_phy(otg, true);
++
++	return 0;
++}
++
++struct dwc3_otg_hw_ops dwc3_intel_otg_pdata = {
++	.mode = DWC3_DRD,
++	.bus = DWC3_PCI,
++	.get_id = dwc3_intel_get_id,
++	.b_idle = dwc3_intel_b_idle,
++	.set_power = dwc3_intel_set_power,
++	.enable_vbus = dwc3_intel_enable_vbus,
++	.platform_init = dwc3_intel_platform_init,
++	.get_charger_type = dwc3_intel_get_charger_type,
++	.otg_notifier_handler = dwc3_intel_handle_notification,
++	.prepare_start_peripheral = dwc3_intel_prepare_start_peripheral,
++	.prepare_start_host = dwc3_intel_prepare_start_host,
++};
++
++static int __init dwc3_intel_init(void)
++{
++	return dwc3_otg_register(&dwc3_intel_otg_pdata);
++}
++module_init(dwc3_intel_init);
++
++static void __exit dwc3_intel_exit(void)
++{
++	dwc3_otg_unregister(&dwc3_intel_otg_pdata);
++}
++module_exit(dwc3_intel_exit);
++
++MODULE_AUTHOR("Wang Yu <yu.y.wang@intel.com>");
++MODULE_DESCRIPTION("DWC3 Intel OTG Driver");
++MODULE_LICENSE("Dual BSD/GPL");
++MODULE_VERSION(VERSION);
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+new file mode 100644
+index 000000000000..232843f2e6d8
+--- /dev/null
++++ b/drivers/usb/dwc3/otg.c
+@@ -0,0 +1,1347 @@
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/pci.h>
++#include <linux/platform_device.h>
++#include <linux/dma-mapping.h>
++#include <linux/usb/otg.h>
++#include <linux/slab.h>
++#include <linux/sched.h>
++#include <linux/freezer.h>
++#include <linux/delay.h>
++#include <linux/kthread.h>
++#include <linux/version.h>
++
++#include "otg.h"
++
++#define VERSION "2.10a"
++
++struct dwc3_otg_hw_ops *dwc3_otg_pdata;
++struct dwc_device_par *platform_par;
++
++static struct mutex lock;
++static const char driver_name[] = "dwc3_otg";
++static struct dwc_otg2 *the_transceiver;
++static void dwc_otg_remove(struct pci_dev *pdev);
++
++
++static inline struct dwc_otg2 *xceiv_to_dwc_otg2(struct usb_otg *x)
++{
++	return container_of(x, struct dwc_otg2, otg);
++}
++
++struct dwc_otg2 *dwc3_get_otg(void)
++{
++	return the_transceiver;
++}
++EXPORT_SYMBOL_GPL(dwc3_get_otg);
++
++/* Caller must hold otg->lock */
++void dwc3_wakeup_otg_thread(struct dwc_otg2 *otg)
++{
++	if (!otg->main_thread)
++		return;
++
++	otg_dbg(otg, "\n");
++	/* Tell the main thread that something has happened */
++	otg->main_wakeup_needed = 1;
++	wake_up_interruptible(&otg->main_wq);
++}
++EXPORT_SYMBOL_GPL(dwc3_wakeup_otg_thread);
++
++static int sleep_main_thread_timeout(struct dwc_otg2 *otg, int msecs)
++{
++	signed long jiffies;
++	int rc = msecs;
++
++	if (otg->state == DWC_STATE_EXIT) {
++		otg_dbg(otg, "Main thread exiting\n");
++		rc = -EINTR;
++		goto done;
++	}
++
++	if (signal_pending(current)) {
++		otg_dbg(otg, "Main thread signal pending\n");
++		rc = -EINTR;
++		goto done;
++	}
++	if (otg->main_wakeup_needed) {
++		otg_dbg(otg, "Main thread wakeup needed\n");
++		rc = msecs;
++		goto done;
++	}
++
++	jiffies = msecs_to_jiffies(msecs);
++	rc = wait_event_freezable_timeout(otg->main_wq,
++					otg->main_wakeup_needed,
++					jiffies);
++
++	if (otg->state == DWC_STATE_EXIT) {
++		otg_dbg(otg, "Main thread exiting\n");
++		rc = -EINTR;
++		goto done;
++	}
++
++	if (rc > 0)
++		rc = jiffies_to_msecs(rc);
++
++done:
++	otg->main_wakeup_needed = 0;
++	return rc;
++}
++
++static int sleep_main_thread(struct dwc_otg2 *otg)
++{
++	int rc = 0;
++
++	do {
++		rc = sleep_main_thread_timeout(otg, 5000);
++	} while (rc == 0);
++
++	return rc;
++}
++
++static void get_events(struct dwc_otg2 *otg,
++		u32 *otg_events,
++		u32 *user_events)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&otg->lock, flags);
++
++	if (otg_events)
++		*otg_events = otg->otg_events;
++
++	if (user_events)
++		*user_events = otg->user_events;
++	spin_unlock_irqrestore(&otg->lock, flags);
++}
++
++static void get_and_clear_events(struct dwc_otg2 *otg,
++				u32 *otg_events,
++				u32 *user_events)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&otg->lock, flags);
++
++	if (otg_events)
++		*otg_events = otg->otg_events;
++
++	if (user_events)
++		*user_events = otg->user_events;
++
++	otg->otg_events = 0;
++	otg->user_events = 0;
++
++	spin_unlock_irqrestore(&otg->lock, flags);
++}
++
++static int check_event(struct dwc_otg2 *otg,
++		u32 otg_mask,
++		u32 user_mask)
++{
++	u32 otg_events = 0;
++	u32 user_events = 0;
++
++	get_events(otg, &otg_events, &user_events);
++	if ((otg_events & otg_mask) ||
++			(user_events & user_mask)) {
++		otg_dbg(otg, "Event occurred:");
++		otg_dbg(otg, "otg_events=%x, otg_mask=%x,",
++				otg_events, otg_mask);
++		otg_dbg(otg, "user_events=%x, user_mask=%x",
++				user_events, user_mask);
++		return 1;
++	}
++
++	return 0;
++}
++
++static int sleep_until_event(struct dwc_otg2 *otg,
++			u32 otg_mask, u32 user_mask,
++			u32 *otg_events, u32 *user_events,
++			int timeout)
++{
++	int rc = 0;
++
++	/* Wait until it occurs, or timeout, or interrupt. */
++	if (timeout) {
++		otg_dbg(otg, "Waiting for event (timeout=%d)...\n", timeout);
++		rc = sleep_main_thread_until_condition_timeout(otg,
++				check_event(otg, otg_mask,
++				user_mask), timeout);
++	} else {
++		otg_dbg(otg, "Waiting for event (no timeout)...\n");
++		rc = sleep_main_thread_until_condition(otg,
++				check_event(otg, otg_mask,
++					user_mask));
++	}
++
++	/* Disable the events */
++	otg_write(otg, OEVTEN, 0);
++	otg_write(otg, ADPEVTEN, 0);
++
++	otg_dbg(otg, "Woke up rc=%d\n", rc);
++	if (rc < 0)
++		goto done;
++	else
++		get_and_clear_events(otg, otg_events, user_events);
++
++done:
++	return rc;
++}
++
++
++static int start_host(struct dwc_otg2 *otg)
++{
++	int ret = 0;
++	struct usb_hcd *hcd = NULL;
++
++	otg_dbg(otg, "\n");
++
++	if (!otg->otg.host) {
++		otg_err(otg, "Haven't set host yet!\n");
++		return -ENODEV;
++	}
++
++	if (dwc3_otg_pdata->prepare_start_host)
++		ret = dwc3_otg_pdata->prepare_start_host(otg);
++
++	/* Start host driver */
++	hcd = container_of(otg->otg.host, struct usb_hcd, self);
++	ret = otg->start_host(hcd);
++
++	return ret;
++}
++
++static int stop_host(struct dwc_otg2 *otg)
++{
++	int ret = -1;
++	struct usb_hcd *hcd = NULL;
++
++	otg_dbg(otg, "\n");
++
++	hcd = container_of(otg->otg.host, struct usb_hcd, self);
++	if (otg->otg.host)
++		ret = otg->stop_host(hcd);
++
++	if (dwc3_otg_pdata->after_stop_host)
++		ret = dwc3_otg_pdata->after_stop_host(otg);
++
++	return ret;
++}
++
++static void start_peripheral(struct dwc_otg2 *otg)
++{
++	struct usb_gadget *gadget;
++	int ret;
++
++	if (dwc3_otg_pdata->prepare_start_peripheral)
++		ret = dwc3_otg_pdata->prepare_start_peripheral(otg);
++
++	gadget = otg->otg.gadget;
++	if (!gadget) {
++		otg_err(otg, "Haven't set gadget yet!\n");
++		return;
++	}
++
++	otg->start_device(gadget);
++}
++
++static void stop_peripheral(struct dwc_otg2 *otg)
++{
++	struct usb_gadget *gadget = otg->otg.gadget;
++	int ret;
++
++	if (!gadget)
++		return;
++
++	otg->stop_device(gadget);
++
++	if (dwc3_otg_pdata->after_stop_peripheral)
++		ret = dwc3_otg_pdata->after_stop_peripheral(otg);
++}
++
++static int get_id(struct dwc_otg2 *otg)
++{
++	if (dwc3_otg_pdata->get_id)
++		return dwc3_otg_pdata->get_id(otg);
++	return RID_UNKNOWN;
++}
++
++static int dwc_otg_notify_charger_type(struct dwc_otg2 *otg,
++		enum usb_charger_state state)
++{
++	if (dwc3_otg_pdata->notify_charger_type)
++		return dwc3_otg_pdata->notify_charger_type(otg, state);
++
++	return 0;
++}
++
++static int dwc_otg_get_chrg_status(struct usb_phy *x, void *data)
++{
++	unsigned long flags;
++	struct otg_bc_cap *cap = (struct otg_bc_cap *)data;
++	struct dwc_otg2 *otg = the_transceiver;
++
++	if (!x)
++		return -ENODEV;
++
++	if (!data)
++		return -EINVAL;
++
++	spin_lock_irqsave(&otg->lock, flags);
++	cap->chrg_type = otg->charging_cap.chrg_type;
++	cap->chrg_state = otg->charging_cap.chrg_state;
++	cap->ma = otg->charging_cap.ma;
++	spin_unlock_irqrestore(&otg->lock, flags);
++
++	return 0;
++}
++
++static int dwc_otg_enable_vbus(struct dwc_otg2 *otg, int enable)
++{
++	if (dwc3_otg_pdata->enable_vbus)
++		return dwc3_otg_pdata->enable_vbus(otg, enable);
++
++	return -EINVAL;
++}
++
++static int is_self_powered_b_device(struct dwc_otg2 *otg)
++{
++	return get_id(otg) == RID_GND;
++}
++
++static enum dwc_otg_state do_wait_vbus_raise(struct dwc_otg2 *otg)
++{
++	int ret;
++	unsigned long flags;
++	u32 otg_events = 0;
++	u32 user_events = 0;
++	u32 otg_mask = 0;
++	u32 user_mask = 0;
++
++	otg_mask = OEVT_B_DEV_SES_VLD_DET_EVNT |
++				OEVT_CONN_ID_STS_CHNG_EVNT;
++
++	ret = sleep_until_event(otg, otg_mask,
++			user_mask, &otg_events,
++			&user_events, VBUS_TIMEOUT);
++	if (ret < 0)
++		return DWC_STATE_EXIT;
++
++	if (otg_events & OEVT_B_DEV_SES_VLD_DET_EVNT) {
++		otg_dbg(otg, "OEVT_B_SES_VLD_EVT\n");
++		return DWC_STATE_CHARGER_DETECTION;
++	}
++
++	if (otg_events & OEVT_CONN_ID_STS_CHNG_EVNT) {
++		otg_dbg(otg, "OEVT_CONN_ID_STS_CHNG_EVNT\n");
++		return DWC_STATE_B_IDLE;
++	}
++
++	/* timeout*/
++	if (!ret) {
++		if (is_self_powered_b_device(otg)) {
++			spin_lock_irqsave(&otg->lock, flags);
++			otg->charging_cap.chrg_type = B_DEVICE;
++			spin_unlock_irqrestore(&otg->lock, flags);
++
++			return DWC_STATE_A_HOST;
++		}
++	}
++
++	return DWC_STATE_INVALID;
++}
++
++static enum dwc_otg_state do_wait_vbus_fall(struct dwc_otg2 *otg)
++{
++	int ret;
++
++	u32 otg_events = 0;
++	u32 user_events = 0;
++	u32 otg_mask = 0;
++	u32 user_mask = 0;
++
++	otg_mask = OEVT_A_DEV_SESS_END_DET_EVNT;
++
++	ret = sleep_until_event(otg, otg_mask,
++			user_mask, &otg_events,
++			&user_events, VBUS_TIMEOUT);
++	if (ret < 0)
++		return DWC_STATE_EXIT;
++
++	if (otg_events & OEVT_A_DEV_SESS_END_DET_EVNT) {
++		otg_dbg(otg, "OEVT_A_DEV_SESS_END_DET_EVNT\n");
++		if (otg->charging_cap.chrg_type == CHRG_ACA_DOCK)
++			dwc_otg_notify_charger_type(otg,
++				OTG_CHR_STATE_DISCONNECTED);
++		return DWC_STATE_B_IDLE;
++	}
++
++	/* timeout*/
++	if (!ret) {
++		otg_err(otg, "Haven't get VBus drop event! Maybe something wrong\n");
++		return DWC_STATE_B_IDLE;
++	}
++
++	return DWC_STATE_INVALID;
++}
++
++static enum dwc_otg_state do_charging(struct dwc_otg2 *otg)
++{
++	int ret;
++	u32 otg_events = 0;
++	u32 user_events = 0;
++	u32 otg_mask = 0;
++	u32 user_mask = 0;
++
++	otg_mask = OEVT_A_DEV_SESS_END_DET_EVNT;
++
++	if (dwc3_otg_pdata->do_charging)
++		dwc3_otg_pdata->do_charging(otg);
++
++	ret = sleep_until_event(otg, otg_mask,
++			user_mask, &otg_events,
++			&user_events, 0);
++	if (ret < 0)
++		return DWC_STATE_EXIT;
++
++	if (otg_events & OEVT_A_DEV_SESS_END_DET_EVNT) {
++		otg_dbg(otg, "OEVT_A_DEV_SESS_END_DET_EVNT\n");
++		dwc_otg_notify_charger_type(otg,
++				OTG_CHR_STATE_DISCONNECTED);
++		return DWC_STATE_B_IDLE;
++	}
++
++	return DWC_STATE_INVALID;
++}
++
++static enum usb_charger_type get_charger_type(struct dwc_otg2 *otg)
++{
++	if (dwc3_otg_pdata->get_charger_type)
++		return dwc3_otg_pdata->get_charger_type(otg);
++
++	return CHRG_UNKNOWN;
++}
++
++static enum dwc_otg_state do_charger_detection(struct dwc_otg2 *otg)
++{
++	enum dwc_otg_state state = DWC_STATE_INVALID;
++	enum usb_charger_type charger = CHRG_UNKNOWN;
++	unsigned long flags, ma = 0;
++
++	charger = get_charger_type(otg);
++	switch (charger) {
++	case CHRG_ACA_C:
++	case CHRG_ACA_A:
++	case CHRG_ACA_B:
++		otg_err(otg, "Ignore micro ACA charger.\n");
++		charger = CHRG_UNKNOWN;
++		break;
++	case CHRG_SDP:
++	case CHRG_CDP:
++		state = DWC_STATE_B_PERIPHERAL;
++		break;
++	case CHRG_ACA_DOCK:
++		state = DWC_STATE_A_HOST;
++		break;
++	case CHRG_DCP:
++	case CHRG_SE1:
++		state = DWC_STATE_CHARGING;
++		break;
++	case CHRG_UNKNOWN:
++	default:
++		if (is_self_powered_b_device(otg)) {
++			state = DWC_STATE_A_HOST;
++			charger = B_DEVICE;
++			break;
++		}
++	};
++
++	switch (charger) {
++	case CHRG_ACA_DOCK:
++	case CHRG_ACA_A:
++	case CHRG_ACA_B:
++	case CHRG_ACA_C:
++	case CHRG_DCP:
++	case CHRG_CDP:
++	case CHRG_SE1:
++		ma = 1500;
++		break;
++	case CHRG_SDP:
++		/* Notify SDP current is 100ma before enumeration. */
++		ma = 100;
++		break;
++	default:
++		otg_err(otg, "Charger type is not valid to notify battery\n");
++		return -EINVAL;
++	}
++
++	spin_lock_irqsave(&otg->lock, flags);
++	otg->charging_cap.chrg_type = charger;
++	otg->charging_cap.ma = ma;
++	spin_unlock_irqrestore(&otg->lock, flags);
++
++	switch (charger) {
++	case CHRG_ACA_DOCK:
++	case CHRG_DCP:
++	case CHRG_CDP:
++	case CHRG_SDP:
++	case CHRG_SE1:
++		if (dwc_otg_notify_charger_type(otg,
++					OTG_CHR_STATE_CONNECTED) < 0)
++			otg_err(otg, "Notify battery type failed!\n");
++		break;
++	default:
++		break;
++	}
++
++	return state;
++}
++
++static enum dwc_otg_state do_connector_id_status(struct dwc_otg2 *otg)
++{
++	int ret;
++	unsigned long flags;
++	u32 events = 0, user_events = 0;
++	u32 otg_mask = 0, user_mask = 0;
++	enum dwc_otg_state state = DWC_STATE_INVALID;
++
++	otg_dbg(otg, "\n");
++	spin_lock_irqsave(&otg->lock, flags);
++	otg->charging_cap.chrg_type = CHRG_UNKNOWN;
++	otg->charging_cap.ma = 0;
++	otg->charging_cap.chrg_state = OTG_CHR_STATE_DISCONNECTED;
++	spin_unlock_irqrestore(&otg->lock, flags);
++
++	otg_mask = OEVT_CONN_ID_STS_CHNG_EVNT |
++			OEVT_B_DEV_SES_VLD_DET_EVNT;
++
++	user_mask = USER_ID_B_CHANGE_EVENT |
++				USER_ID_A_CHANGE_EVENT;
++
++	if (dwc3_otg_pdata->b_idle)
++		dwc3_otg_pdata->b_idle(otg);
++
++	ret = sleep_until_event(otg, otg_mask,
++			user_mask, &events,
++			&user_events, 0);
++	if (ret < 0)
++		return DWC_STATE_EXIT;
++
++	if (events & OEVT_B_DEV_SES_VLD_DET_EVNT) {
++		otg_dbg(otg, "OEVT_B_DEV_SES_VLD_DET_EVNT\n");
++		state = DWC_STATE_CHARGER_DETECTION;
++	}
++
++	if (events & OEVT_CONN_ID_STS_CHNG_EVNT) {
++		otg_dbg(otg, "OEVT_CONN_ID_STS_CHNG_EVNT\n");
++		state = DWC_STATE_WAIT_VBUS_RAISE;
++	}
++
++	if (user_events & USER_ID_A_CHANGE_EVENT) {
++		otg_dbg(otg, "events is user id A change\n");
++		state = DWC_STATE_A_HOST;
++	}
++
++	if (user_events & USER_ID_B_CHANGE_EVENT) {
++		otg_dbg(otg, "events is user id B change\n");
++		state = DWC_STATE_B_PERIPHERAL;
++	}
++
++	/** TODO: This is a workaround for latest hibernation-enabled bitfiles
++     ** which have problems before initializing SRP.*/
++	mdelay(50);
++
++	return state;
++}
++
++static enum dwc_otg_state do_a_host(struct dwc_otg2 *otg)
++{
++	int rc = 0;
++	u32 otg_events, user_events, otg_mask, user_mask;
++	int id = RID_UNKNOWN;
++	unsigned long flags;
++
++	if (otg->charging_cap.chrg_type != CHRG_ACA_DOCK) {
++		dwc_otg_enable_vbus(otg, 1);
++
++		/* meant receive vbus valid event*/
++		if (do_wait_vbus_raise(otg) !=
++				DWC_STATE_CHARGER_DETECTION) {
++			otg_err(otg, "Drive VBUS maybe fail!\n");
++		}
++	}
++
++	rc = start_host(otg);
++	if (rc < 0) {
++		stop_host(otg);
++		otg_err(otg, "start_host failed!");
++		return DWC_STATE_INVALID;
++	}
++
++	otg_events = 0;
++	user_events = 0;
++	otg_mask = 0;
++	user_mask = 0;
++
++	otg_mask = OEVT_CONN_ID_STS_CHNG_EVNT |
++			OEVT_A_DEV_SESS_END_DET_EVNT;
++	user_mask =	USER_ID_B_CHANGE_EVENT;
++
++	rc = sleep_until_event(otg,
++			otg_mask, user_mask,
++			&otg_events, &user_events, 0);
++	if (rc < 0) {
++		stop_host(otg);
++		return DWC_STATE_EXIT;
++	}
++
++	/* Higher priority first */
++	if (otg_events & OEVT_A_DEV_SESS_END_DET_EVNT) {
++		otg_dbg(otg, "OEVT_A_DEV_SESS_END_DET_EVNT\n");
++
++		/* ACA-Dock plug out */
++		if (otg->charging_cap.chrg_type == CHRG_ACA_DOCK)
++			dwc_otg_notify_charger_type(otg,
++					OTG_CHR_STATE_DISCONNECTED);
++		else
++			dwc_otg_enable_vbus(otg, 0);
++
++		stop_host(otg);
++		return DWC_STATE_B_IDLE;
++	}
++
++	if (otg_events & OEVT_CONN_ID_STS_CHNG_EVNT) {
++		otg_dbg(otg, "OEVT_CONN_ID_STS_CHNG_EVNT\n");
++		id = get_id(otg);
++
++		/* Plug out ACA_DOCK/USB device */
++		if (id == RID_FLOAT) {
++			if (otg->charging_cap.chrg_type == CHRG_ACA_DOCK) {
++				/* ACA_DOCK plug out, receive
++				 * id change prior to vBus change
++				 */
++				stop_host(otg);
++			} else {
++				/* Normal USB device plug out */
++				spin_lock_irqsave(&otg->lock, flags);
++				otg->charging_cap.chrg_type = CHRG_UNKNOWN;
++				spin_unlock_irqrestore(&otg->lock, flags);
++
++				stop_host(otg);
++				dwc_otg_enable_vbus(otg, 0);
++			}
++		} else {
++			otg_err(otg, "Meet invalid charger cases!");
++			spin_lock_irqsave(&otg->lock, flags);
++			otg->charging_cap.chrg_type = CHRG_UNKNOWN;
++			spin_unlock_irqrestore(&otg->lock, flags);
++
++			stop_host(otg);
++		}
++		return DWC_STATE_WAIT_VBUS_FALL;
++	}
++
++	/* Higher priority first */
++	if (user_events & USER_ID_B_CHANGE_EVENT) {
++		otg_dbg(otg, "USER_ID_B_CHANGE_EVENT\n");
++		stop_host(otg);
++		otg->user_events |= USER_ID_B_CHANGE_EVENT;
++		return DWC_STATE_B_IDLE;
++	}
++
++	/* Invalid state */
++	return DWC_STATE_INVALID;
++}
++
++static int do_b_peripheral(struct dwc_otg2 *otg)
++{
++	int rc = 0;
++	u32 otg_mask, user_mask, otg_events, user_events;
++
++	otg_mask = 0;
++	user_mask = 0;
++	otg_events = 0;
++	user_events = 0;
++
++	otg_mask = OEVT_A_DEV_SESS_END_DET_EVNT;
++	user_mask = USER_ID_A_CHANGE_EVENT;
++
++	rc = sleep_until_event(otg,
++			otg_mask, user_mask,
++			&otg_events, &user_events, 0);
++	if (rc < 0)
++		return DWC_STATE_EXIT;
++
++	if (otg_events & OEVT_A_DEV_SESS_END_DET_EVNT) {
++		otg_dbg(otg, "OEVT_A_DEV_SESS_END_DET_EVNT\n");
++		dwc_otg_notify_charger_type(otg,
++				OTG_CHR_STATE_DISCONNECTED);
++		return DWC_STATE_B_IDLE;
++	}
++
++	if (user_events & USER_ID_A_CHANGE_EVENT) {
++		otg_dbg(otg, "USER_ID_A_CHANGE_EVENT\n");
++		otg->user_events |= USER_ID_A_CHANGE_EVENT;
++		return DWC_STATE_B_IDLE;
++	}
++
++	return DWC_STATE_INVALID;
++}
++
++/* Charger driver may send ID change and VBus change event to OTG driver.
++ * This is like IRQ handler, just the event source is from charger driver.
++ * Because on Merrifield platform, the ID line and VBus line are connect to
++ * PMic which can make USB controller and PHY power off to save power.
++ */
++static int dwc_otg_handle_notification(struct notifier_block *nb,
++		unsigned long event, void *data)
++{
++	if (dwc3_otg_pdata->otg_notifier_handler)
++		return dwc3_otg_pdata->otg_notifier_handler(nb, event, data);
++
++	return NOTIFY_DONE;
++}
++
++int otg_main_thread(void *data)
++{
++	struct dwc_otg2 *otg = (struct dwc_otg2 *)data;
++
++	/* Allow the thread to be killed by a signal, but set the signal mask
++	 * to block everything but INT, TERM, KILL, and USR1. */
++	allow_signal(SIGINT);
++	allow_signal(SIGTERM);
++	allow_signal(SIGKILL);
++	allow_signal(SIGUSR1);
++
++	/* Allow the thread to be frozen */
++	set_freezable();
++
++	/* Set device mode as default for EM driver WA */
++	otg->user_events |= USER_ID_B_CHANGE_EVENT;
++
++	otg_dbg(otg, "Thread running\n");
++	while (otg->state != DWC_STATE_TERMINATED) {
++		int next = DWC_STATE_B_IDLE;
++		otg_dbg(otg, "\n\n\nMain thread entering state\n");
++
++		switch (otg->state) {
++		case DWC_STATE_B_IDLE:
++			otg_dbg(otg, "DWC_STATE_B_IDLE\n");
++			next = do_connector_id_status(otg);
++			break;
++		case DWC_STATE_CHARGER_DETECTION:
++			otg_dbg(otg, "DWC_STATE_CHARGER_DETECTION\n");
++			next = do_charger_detection(otg);
++			break;
++		case DWC_STATE_WAIT_VBUS_RAISE:
++			otg_dbg(otg, "DWC_STATE_WAIT_VBUS_RAISE\n");
++			next = do_wait_vbus_raise(otg);
++			break;
++		case DWC_STATE_WAIT_VBUS_FALL:
++			otg_dbg(otg, "DWC_STATE_WAIT_VBUS_FALL\n");
++			next = do_wait_vbus_fall(otg);
++			break;
++		case DWC_STATE_CHARGING:
++			otg_dbg(otg, "DWC_STATE_CHARGING\n");
++			next = do_charging(otg);
++			break;
++		case DWC_STATE_A_HOST:
++			otg_dbg(otg, "DWC_STATE_A_HOST\n");
++			next = do_a_host(otg);
++			break;
++		case DWC_STATE_B_PERIPHERAL:
++			otg_dbg(otg, "DWC_STATE_B_PERIPHERAL\n");
++			start_peripheral(otg);
++			next = do_b_peripheral(otg);
++
++			stop_peripheral(otg);
++			break;
++		case DWC_STATE_EXIT:
++			otg_dbg(otg, "DWC_STATE_EXIT\n");
++			next = DWC_STATE_TERMINATED;
++			break;
++		case DWC_STATE_INVALID:
++			otg_dbg(otg, "DWC_STATE_INVALID!!!\n");
++		default:
++			otg_dbg(otg, "Unknown State %d, sleeping...\n",
++					otg->state);
++			sleep_main_thread(otg);
++			break;
++		}
++
++		otg->prev = otg->state;
++		otg->state = next;
++	}
++
++	otg->main_thread = NULL;
++	otg_dbg(otg, "OTG main thread exiting....\n");
++
++	return 0;
++}
++
++static void start_main_thread(struct dwc_otg2 *otg)
++{
++	enum dwc3_otg_mode mode = dwc3_otg_pdata->mode;
++	bool children_ready = false;
++
++	mutex_lock(&lock);
++
++	if ((mode == DWC3_DEVICE_ONLY) &&
++			otg->otg.gadget)
++		children_ready = true;
++
++	if ((mode == DWC3_HOST_ONLY) &&
++			otg->otg.host)
++		children_ready = true;
++
++	if ((mode == DWC3_DRD) &&
++			otg->otg.host && otg->otg.gadget)
++		children_ready = true;
++
++	if (!otg->main_thread && children_ready) {
++		otg_dbg(otg, "Starting OTG main thread\n");
++		otg->main_thread = kthread_create(otg_main_thread, otg, "otg");
++		wake_up_process(otg->main_thread);
++	}
++	mutex_unlock(&lock);
++}
++
++static void stop_main_thread(struct dwc_otg2 *otg)
++{
++	mutex_lock(&lock);
++	if (otg->main_thread) {
++		otg_dbg(otg, "Stopping OTG main thread\n");
++		otg->state = DWC_STATE_EXIT;
++		dwc3_wakeup_otg_thread(otg);
++	}
++	mutex_unlock(&lock);
++}
++
++static int dwc_otg2_set_peripheral(struct usb_otg *x,
++		struct usb_gadget *gadget)
++{
++	struct dwc_otg2 *otg;
++
++	if (!x) {
++		otg_err(otg, "otg is NULL!\n");
++		return -ENODEV;
++	}
++
++	otg = xceiv_to_dwc_otg2(x);
++	otg_dbg(otg, "\n");
++
++	if (!gadget) {
++		otg->otg.gadget = NULL;
++		stop_main_thread(otg);
++		return -ENODEV;
++	}
++
++	otg->otg.gadget = gadget;
++	otg->usb2_phy.state = OTG_STATE_B_IDLE;
++	start_main_thread(otg);
++	return 0;
++}
++
++static int dwc_otg2_set_host(struct usb_otg *x, struct usb_bus *host)
++{
++	struct dwc_otg2 *otg;
++
++	if (!x) {
++		otg_dbg(otg, "otg is NULL!\n");
++		return -ENODEV;
++	}
++
++	otg = xceiv_to_dwc_otg2(x);
++	otg_dbg(otg, "\n");
++
++	if (!host) {
++		otg->otg.host = NULL;
++		stop_main_thread(otg);
++		return -ENODEV;
++	}
++
++	otg->otg.host = host;
++	start_main_thread(otg);
++	return 0;
++}
++
++static int ulpi_read(struct usb_phy *phy, u32 reg)
++{
++	struct dwc_otg2 *otg = container_of(phy, struct dwc_otg2, usb2_phy);
++	u32 val32 = 0, count = 200;
++	u8 val;
++
++	reg &= 0xFF;
++
++	while (count) {
++		if (otg_read(otg, GUSB2PHYACC0) & GUSB2PHYACC0_VSTSBSY)
++			udelay(5);
++		else
++			break;
++
++		count--;
++	}
++
++	if (!count) {
++		otg_err(otg, "USB2 PHY always busy!!\n");
++		return -EBUSY;
++	}
++
++	count = 200;
++	/* Determine if use extend registers access */
++	if (reg & EXTEND_ULPI_REGISTER_ACCESS_MASK) {
++		otg_dbg(otg, "Access extend registers 0x%x\n", reg);
++		val32 = GUSB2PHYACC0_NEWREGREQ
++			| GUSB2PHYACC0_REGADDR(ULPI_ACCESS_EXTENDED)
++			| GUSB2PHYACC0_VCTRL(reg);
++	} else {
++		otg_dbg(otg, "Access normal registers 0x%x\n", reg);
++		val32 = GUSB2PHYACC0_NEWREGREQ | GUSB2PHYACC0_REGADDR(reg)
++			| GUSB2PHYACC0_VCTRL(0x00);
++	}
++	otg_write(otg, GUSB2PHYACC0, val32);
++
++	while (count) {
++		if (otg_read(otg, GUSB2PHYACC0) & GUSB2PHYACC0_VSTSDONE) {
++			val = otg_read(otg, GUSB2PHYACC0) &
++				  GUSB2PHYACC0_REGDATA_MASK;
++			otg_dbg(otg, "%s - reg 0x%x data 0x%x\n",
++					__func__, reg, val);
++			return val;
++		}
++
++		count--;
++	}
++
++	otg_err(otg, "%s read PHY data failed.\n", __func__);
++
++	return -ETIMEDOUT;
++}
++
++static int ulpi_write(struct usb_phy *phy, u32 val, u32 reg)
++{
++	struct dwc_otg2 *otg = container_of(phy, struct dwc_otg2, usb2_phy);
++	u32 val32 = 0, count = 200;
++
++	val &= 0xFF;
++	reg &= 0xFF;
++
++	while (count) {
++		if (otg_read(otg, GUSB2PHYACC0) & GUSB2PHYACC0_VSTSBSY)
++			udelay(5);
++		else
++			break;
++
++		count--;
++	}
++
++	if (!count) {
++		otg_err(otg, "USB2 PHY always busy!!\n");
++		return -EBUSY;
++	}
++
++	count = 200;
++
++	if (reg & EXTEND_ULPI_REGISTER_ACCESS_MASK) {
++		otg_dbg(otg, "Access extend registers 0x%x\n", reg);
++		val32 = GUSB2PHYACC0_NEWREGREQ
++			| GUSB2PHYACC0_REGADDR(ULPI_ACCESS_EXTENDED)
++			| GUSB2PHYACC0_VCTRL(reg)
++			| GUSB2PHYACC0_REGWR | GUSB2PHYACC0_REGDATA(val);
++	} else {
++		otg_dbg(otg, "Access normal registers 0x%x\n", reg);
++		val32 = GUSB2PHYACC0_NEWREGREQ
++			| GUSB2PHYACC0_REGADDR(reg)
++			| GUSB2PHYACC0_REGWR
++			| GUSB2PHYACC0_REGDATA(val);
++	}
++	otg_write(otg, GUSB2PHYACC0, val32);
++
++	while (count) {
++		if (otg_read(otg, GUSB2PHYACC0) & GUSB2PHYACC0_VSTSDONE) {
++			otg_dbg(otg, "%s - reg 0x%x data 0x%x write done\n",
++					__func__, reg, val);
++			return 0;
++		}
++
++		count--;
++	}
++
++	otg_err(otg, "%s read PHY data failed.\n", __func__);
++
++	return -ETIMEDOUT;
++}
++
++static struct usb_phy_io_ops dwc_otg_io_ops = {
++	.read = ulpi_read,
++	.write = ulpi_write,
++};
++
++static struct dwc_otg2 *dwc3_otg_alloc(struct device *dev)
++{
++	struct dwc_otg2 *otg = NULL;
++	struct usb_phy *usb_phy;
++	int retval;
++
++	otg = kzalloc(sizeof(*otg), GFP_KERNEL);
++	if (!otg) {
++		otg_err(otg, "Alloc otg failed\n");
++		return NULL;
++	}
++
++	the_transceiver = otg;
++	otg->otg_data = dev->platform_data;
++
++	usb_phy = &otg->usb2_phy;
++	otg->otg.phy = usb_phy;
++	otg->usb2_phy.otg = &otg->otg;
++
++	otg->dev		= dev;
++	otg->usb3_phy.dev		= otg->dev;
++	otg->usb3_phy.label		= "dwc-usb3-phy";
++	otg->usb3_phy.state		= OTG_STATE_UNDEFINED;
++	otg->usb3_phy.otg	= &otg->otg;
++	otg->usb2_phy.dev		= otg->dev;
++	otg->usb2_phy.label		= "dwc-usb2-phy";
++	otg->usb2_phy.state		= OTG_STATE_UNDEFINED;
++	otg->usb2_phy.set_power	= dwc3_otg_pdata->set_power;
++	otg->usb2_phy.get_chrg_status	= dwc_otg_get_chrg_status;
++	otg->usb2_phy.io_ops = &dwc_otg_io_ops;
++	otg->usb2_phy.otg	= &otg->otg;
++	otg->otg.set_host	= dwc_otg2_set_host;
++	otg->otg.set_peripheral	= dwc_otg2_set_peripheral;
++	ATOMIC_INIT_NOTIFIER_HEAD(&otg->usb2_phy.notifier);
++	ATOMIC_INIT_NOTIFIER_HEAD(&otg->usb3_phy.notifier);
++
++	otg->state = DWC_STATE_B_IDLE;
++	spin_lock_init(&otg->lock);
++	init_waitqueue_head(&otg->main_wq);
++
++	/* Register otg notifier to monitor ID and VBus change events */
++	otg->nb.notifier_call = dwc_otg_handle_notification;
++	usb_register_notifier(&otg->usb2_phy, &otg->nb);
++
++	otg_dbg(otg, "Version: %s\n", VERSION);
++	retval = usb_add_phy(&otg->usb2_phy, USB_PHY_TYPE_USB2);
++	if (retval) {
++		otg_err(otg, "can't register transceiver, err: %d\n",
++			retval);
++		goto err1;
++	}
++
++	retval = usb_add_phy(&otg->usb3_phy, USB_PHY_TYPE_USB3);
++	if (retval) {
++		otg_err(otg, "can't register transceiver, err: %d\n",
++			retval);
++		goto err2;
++	}
++
++	return otg;
++
++err2:
++	usb_remove_phy(&otg->usb2_phy);
++
++err1:
++	kfree(otg);
++	otg = NULL;
++
++	return otg;
++}
++
++static int dwc3_otg_create_children(struct dwc_otg2 *otg,
++		struct resource *res, int num)
++{
++	struct platform_device *dwc_host, *dwc_gadget;
++	enum dwc3_otg_mode mode = dwc3_otg_pdata->mode;
++	int retval = 0, i;
++
++	if (!otg || !res)
++		return -EINVAL;
++
++	if (num != 2)
++		return -EINVAL;
++
++	dwc_host = dwc_gadget = NULL;
++
++	for (i = 0; i < 2; i++) {
++		if (res[i].flags == IORESOURCE_MEM) {
++			otg->usb2_phy.io_priv = ioremap_nocache(
++				res[i].start, res[i].end - res[i].start);
++			if (!otg->usb2_phy.io_priv) {
++				otg_err(otg, "dwc3 otg ioremap failed\n");
++				return -ENOMEM;
++			}
++			break;
++		}
++	}
++
++	/* resource have no mem io resource */
++	if (!otg->usb2_phy.io_priv)
++		return -EINVAL;
++
++	platform_par = kzalloc(sizeof(*platform_par), GFP_KERNEL);
++	if (!platform_par) {
++		otg_err(otg, "alloc dwc_device_par failed\n");
++		goto err1;
++	}
++
++	platform_par->io_addr = otg->usb2_phy.io_priv;
++	platform_par->len = res[i].end - res[i].start;
++
++	if (mode == DWC3_DEVICE_ONLY)
++		goto device_only;
++
++	dwc_host = platform_device_alloc(DWC3_HOST_NAME,
++			HOST_DEVID);
++	if (!dwc_host) {
++		otg_err(otg, "couldn't allocate dwc3 host device\n");
++		goto err2;
++	}
++
++	retval = platform_device_add_resources(dwc_host, res, num);
++	if (retval) {
++		otg_err(otg, "couldn't add resources to dwc3 device\n");
++		goto err3;
++	}
++
++	platform_device_add_data(dwc_host, platform_par,
++			sizeof(struct dwc_device_par));
++
++	dwc_host->dev.dma_mask = otg->dev->dma_mask;
++	dwc_host->dev.dma_parms = otg->dev->dma_parms;
++	dwc_host->dev.parent = otg->dev;
++
++	retval = platform_device_add(dwc_host);
++	if (retval)	{
++		otg_err(otg, "failed to register dwc3 host\n");
++		goto err1;
++	}
++
++	otg->host = dwc_host;
++
++	if (mode != DWC3_DRD)
++		return 0;
++
++device_only:
++	dwc_gadget = platform_device_alloc(DWC3_DEVICE_NAME,
++			GADGET_DEVID);
++	if (!dwc_gadget) {
++		otg_err(otg, "couldn't allocate dwc3 device\n");
++		goto err3;
++	}
++
++	retval = platform_device_add_resources(dwc_gadget,
++				res, num);
++	if (retval) {
++		otg_err(otg, "couldn't add resources to dwc3 device\n");
++		goto err3;
++	}
++
++	dwc_gadget->dev.dma_mask = otg->dev->dma_mask;
++	dwc_gadget->dev.dma_parms = otg->dev->dma_parms;
++	dwc_gadget->dev.parent = otg->dev;
++
++	platform_device_add_data(dwc_gadget, platform_par,
++			sizeof(struct dwc_device_par));
++	retval = platform_device_add(dwc_gadget);
++	if (retval) {
++		otg_err(otg, "failed to register dwc3 gadget\n");
++		goto err3;
++	}
++	otg->gadget = dwc_gadget;
++
++	return 0;
++
++err3:
++	if (mode == DWC3_DRD)
++		platform_device_unregister(dwc_host);
++
++err2:
++	kfree(platform_par);
++
++err1:
++	iounmap(otg->usb2_phy.io_priv);
++
++	return retval;
++}
++
++#ifdef CONFIG_PCI
++
++static int dwc_otg_probe(struct pci_dev *pdev,
++			const struct pci_device_id *id)
++{
++	int retval = 0;
++	struct resource		res[2];
++	struct dwc_otg2 *otg = NULL;
++	unsigned long resource, len;
++
++	if (!dwc3_otg_pdata)
++		return -ENODEV;
++
++	if (pci_enable_device(pdev) < 0) {
++		dev_err(&pdev->dev, "pci device enable failed\n");
++		return -ENODEV;
++	}
++
++	pci_set_power_state(pdev, PCI_D0);
++	pci_set_master(pdev);
++
++	otg = dwc3_otg_alloc(&pdev->dev);
++	if (!otg) {
++		otg_err(otg, "dwc3 otg init failed\n");
++		goto err;
++	}
++
++	/* control register: BAR 0 */
++	resource = pci_resource_start(pdev, 0);
++	len = pci_resource_len(pdev, 0);
++	if (!request_mem_region(resource, len, driver_name)) {
++		otg_err(otg, "Request memory region failed\n");
++		retval = -EBUSY;
++		goto err;
++	}
++
++	otg_dbg(otg, "dwc otg pci resouce: 0x%lu, len: 0x%lu\n",
++			resource, len);
++	otg_dbg(otg, "vendor: 0x%x, device: 0x%x\n",
++			pdev->vendor, pdev->device);
++
++	memset(res, 0x00, sizeof(struct resource) * ARRAY_SIZE(res));
++
++	res[0].start	= pci_resource_start(pdev, 0);
++	res[0].end	= pci_resource_end(pdev, 0);
++	res[0].name	= "dwc_usb3_io";
++	res[0].flags	= IORESOURCE_MEM;
++
++	res[1].start	= pdev->irq;
++	res[1].name	= "dwc_usb3_irq";
++	res[1].flags	= IORESOURCE_IRQ;
++
++	retval = dwc3_otg_create_children(otg, res, ARRAY_SIZE(res));
++	if (retval) {
++		otg_err(otg, "dwc3 otg create alloc children failed\n");
++		goto err;
++	}
++
++	otg->irqnum = pdev->irq;
++
++	if (dwc3_otg_pdata->platform_init) {
++		retval = dwc3_otg_pdata->platform_init(otg);
++		if (retval)
++			goto err;
++	}
++
++	return 0;
++
++err:
++	if (the_transceiver)
++		dwc_otg_remove(pdev);
++
++	return retval;
++}
++
++static void dwc_otg_remove(struct pci_dev *pdev)
++{
++	struct dwc_otg2 *otg = the_transceiver;
++	int resource, len;
++
++	if (otg->gadget)
++		platform_device_unregister(otg->gadget);
++	if (otg->host)
++		platform_device_unregister(otg->host);
++
++	kfree(platform_par);
++	iounmap(otg->usb2_phy.io_priv);
++
++	usb_remove_phy(&otg->usb2_phy);
++	usb_remove_phy(&otg->usb3_phy);
++	kfree(otg);
++	otg = NULL;
++
++	resource = pci_resource_start(pdev, 0);
++	len = pci_resource_len(pdev, 0);
++	release_mem_region(resource, len);
++
++	pci_disable_device(pdev);
++
++	the_transceiver = NULL;
++}
++
++static DEFINE_PCI_DEVICE_TABLE(pci_ids) = {
++	{ PCI_DEVICE_CLASS(((PCI_CLASS_SERIAL_USB << 8) | 0x20), ~0),
++		.vendor = PCI_VENDOR_ID_INTEL,
++		.device = PCI_DEVICE_ID_DWC,
++	},
++	{ /* end: all zeroes */ }
++};
++
++static struct pci_driver dwc_otg_pci_driver = {
++	.name =		(char *) driver_name,
++	.id_table =	pci_ids,
++	.probe =	dwc_otg_probe,
++	.remove =	dwc_otg_remove,
++	.driver = {
++		.name = (char *) driver_name,
++		.owner = THIS_MODULE,
++	},
++};
++#endif
++
++int dwc3_otg_register(struct dwc3_otg_hw_ops *pdata)
++{
++	int retval;
++
++	if (!pdata)
++		return -EINVAL;
++
++	if (dwc3_otg_pdata)
++		return -EBUSY;
++
++	dwc3_otg_pdata = pdata;
++
++#ifdef CONFIG_PCI
++	retval = pci_register_driver(&dwc_otg_pci_driver);
++#endif
++	mutex_init(&lock);
++
++	return retval;
++}
++EXPORT_SYMBOL_GPL(dwc3_otg_register);
++
++int dwc3_otg_unregister(struct dwc3_otg_hw_ops *pdata)
++{
++	if (!pdata)
++		return -EINVAL;
++
++	if (dwc3_otg_pdata != pdata)
++		return -EINVAL;
++
++	dwc3_otg_pdata = NULL;
++
++#ifdef CONFIG_PCI
++	pci_unregister_driver(&dwc_otg_pci_driver);
++#endif
++	mutex_destroy(&lock);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(dwc3_otg_unregister);
++
++static int __init dwc_otg_init(void)
++{
++	return 0;
++}
++module_init(dwc_otg_init);
++
++static void __exit dwc_otg_exit(void)
++{
++}
++module_exit(dwc_otg_exit);
++
++MODULE_AUTHOR("Wang Yu <yu.y.wang@intel.com>");
++MODULE_DESCRIPTION("DWC3 OTG-PCI Driver");
++MODULE_LICENSE("Dual BSD/GPL");
++MODULE_VERSION("1.0");
+diff --git a/drivers/usb/dwc3/otg.h b/drivers/usb/dwc3/otg.h
+new file mode 100644
+index 000000000000..feac6f59b76b
+--- /dev/null
++++ b/drivers/usb/dwc3/otg.h
+@@ -0,0 +1,443 @@
++/*
++ * Intel Penwell USB OTG transceiver driver
++ * Copyright (C) 2009 - 2010, Intel Corporation.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc.,
++ * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
++ *
++ */
++
++#ifndef __DWC3_OTG_H
++#define __DWC3_OTG_H
++
++#include <linux/usb.h>
++#include <linux/device.h>
++#include <linux/compiler.h>
++#include <linux/usb/gadget.h>
++#include <linux/usb/hcd.h>
++#include <linux/usb/ulpi.h>
++
++
++struct dwc_device_par {
++	void __iomem *io_addr;
++	int len;
++};
++
++#define DWC3_DEVICE_NAME "dwc3-device"
++#define DWC3_HOST_NAME "dwc3-host"
++#define GADGET_DEVID 1
++#define HOST_DEVID 2
++#define DRIVER_VERSION "0.1"
++
++#ifdef CONFIG_USB_DWC3_OTG_DEBUG
++#define DWC_OTG_DEBUG 1
++#else
++#define DWC_OTG_DEBUG 0
++#endif
++
++#define otg_dbg(d, fmt, args...)  \
++	do { if (DWC_OTG_DEBUG) dev_dbg((d)->dev, \
++			"%s(): " fmt , __func__, ## args); } while (0)
++#define otg_vdbg(d, fmt, args...)  \
++	do { if (DWC_OTG_DEBUG) dev_dbg((d)->dev, \
++			"%s(): " fmt , __func__, ## args); } while (0)
++#define otg_err(d, fmt, args...)  \
++	do { if (DWC_OTG_DEBUG) dev_err((d)->dev, \
++			"%s(): " fmt , __func__, ## args); } while (0)
++#define otg_warn(d, fmt, args...)  \
++	do { if (DWC_OTG_DEBUG) dev_warn((d)->dev, \
++			"%s(): " fmt , __func__, ## args); } while (0)
++#define otg_info(d, fmt, args...)  \
++	do { if (DWC_OTG_DEBUG) dev_info((d)->dev, \
++			"%s(): " fmt , __func__, ## args); } while (0)
++
++#ifdef DEBUG
++#define otg_write(o, reg, val)	do { \
++		otg_dbg(o, "OTG_WRITE: reg=0x%05x, val=0x%08x\n", reg, val); \
++		writel(val, ((void *)((o)->usb2_phy.io_priv)) + reg);	\
++	} while (0)
++
++#define otg_read(o, reg) ({ \
++		u32 __r; \
++		__r = readl(((void *)((o)->usb2_phy.io_priv)) + reg);	\
++		otg_dbg(o, "OTG_READ: reg=0x%05x, val=0x%08x\n", reg, __r); \
++		__r;							\
++	})
++#else
++#define otg_write(o, reg, val) \
++		writel(val, ((void *)((o)->usb2_phy.io_priv)) + reg);
++
++#define otg_read(o, reg)	({ \
++		readl(((void *)((o)->usb2_phy.io_priv)) + reg); \
++	})
++#endif
++
++#define GUSB2PHYCFG0				0xc200
++#define GUSB2PHYCFG_SUS_PHY                     0x40
++#define GUSB2PHYCFG_PHYSOFTRST (1 << 31)
++
++#define EXTEND_ULPI_REGISTER_ACCESS_MASK	0xC0
++#define GUSB2PHYACC0	0xc280
++#define GUSB2PHYACC0_DISULPIDRVR  (1 << 26)
++#define GUSB2PHYACC0_NEWREGREQ  (1 << 25)
++#define GUSB2PHYACC0_VSTSDONE  (1 << 24)
++#define GUSB2PHYACC0_VSTSBSY  (1 << 23)
++#define GUSB2PHYACC0_REGWR  (1 << 22)
++#define GUSB2PHYACC0_REGADDR(v)  ((v & 0x3F) << 16)
++#define GUSB2PHYACC0_EXTREGADDR(v)  ((v & 0x3F) << 8)
++#define GUSB2PHYACC0_VCTRL(v)  ((v & 0xFF) << 8)
++#define GUSB2PHYACC0_REGDATA(v)  (v & 0xFF)
++#define GUSB2PHYACC0_REGDATA_MASK  0xFF
++
++#define GUSB3PIPECTL0                           0xc2c0
++#define GUSB3PIPECTL_SUS_EN                     0x20000
++#define GUSB3PIPE_DISRXDETP3                    (1 << 28)
++#define GUSB3PIPECTL_PHYSOFTRST (1 << 31)
++
++#define GHWPARAMS6				0xc158
++#define GHWPARAMS6_SRP_SUPPORT_ENABLED		0x0400
++#define GHWPARAMS6_HNP_SUPPORT_ENABLED		0x0800
++#define GHWPARAMS6_ADP_SUPPORT_ENABLED		0x1000
++
++#define GUCTL 0xC12C
++#define GUCTL_CMDEVADDR		(1 << 15)
++
++#define GCTL 0xc110
++#define GCTL_PRT_CAP_DIR 0x3000
++#define GCTL_PRT_CAP_DIR_SHIFT 12
++#define GCTL_PRT_CAP_DIR_HOST 1
++#define GCTL_PRT_CAP_DIR_DEV 2
++#define GCTL_PRT_CAP_DIR_OTG 3
++#define GCTL_GBL_HIBERNATION_EN 0x2
++#define GCTL_CORESOFTRESET (1 << 11)
++
++#define OCFG					0xcc00
++#define OCFG_SRP_CAP				0x01
++#define OCFG_SRP_CAP_SHIFT			0
++#define OCFG_HNP_CAP				0x02
++#define OCFG_HNP_CAP_SHIFT			1
++#define OCFG_OTG_VERSION			0x04
++#define OCFG_OTG_VERSION_SHIFT			2
++
++#define GCTL					0xc110
++#define OCTL					0xcc04
++#define OCTL_HST_SET_HNP_EN			0x01
++#define OCTL_HST_SET_HNP_EN_SHIFT		0
++#define OCTL_DEV_SET_HNP_EN			0x02
++#define OCTL_DEV_SET_HNP_EN_SHIFT		1
++#define OCTL_TERM_SEL_DL_PULSE			0x04
++#define OCTL_TERM_SEL_DL_PULSE_SHIFT		2
++#define OCTL_SES_REQ				0x08
++#define OCTL_SES_REQ_SHIFT			3
++#define OCTL_HNP_REQ				0x10
++#define OCTL_HNP_REQ_SHIFT			4
++#define OCTL_PRT_PWR_CTL			0x20
++#define OCTL_PRT_PWR_CTL_SHIFT			5
++#define OCTL_PERI_MODE				0x40
++#define OCTL_PERI_MODE_SHIFT			6
++
++#define OEVT					0xcc08
++#define OEVT_ERR				0x00000001
++#define OEVT_ERR_SHIFT				0
++#define OEVT_SES_REQ_SCS			0x00000002
++#define OEVT_SES_REQ_SCS_SHIFT			1
++#define OEVT_HST_NEG_SCS			0x00000004
++#define OEVT_HST_NEG_SCS_SHIFT			2
++#define OEVT_B_SES_VLD_EVT			0x00000008
++#define OEVT_B_SES_VLD_EVT_SHIFT		3
++#define OEVT_B_DEV_VBUS_CHNG_EVNT		0x00000100
++#define OEVT_B_DEV_VBUS_CHNG_EVNT_SHIFT		8
++#define OEVT_B_DEV_SES_VLD_DET_EVNT		0x00000200
++#define OEVT_B_DEV_SES_VLD_DET_EVNT_SHIFT	9
++#define OEVT_B_DEV_HNP_CHNG_EVNT		0x00000400
++#define OEVT_B_DEV_HNP_CHNG_EVNT_SHIFT		10
++#define OEVT_B_DEV_B_HOST_END_EVNT		0x00000800
++#define OEVT_B_DEV_B_HOST_END_EVNT_SHIFT	11
++#define OEVT_A_DEV_SESS_END_DET_EVNT		0x00010000
++#define OEVT_A_DEV_SESS_END_DET_EVNT_SHIFT	16
++#define OEVT_A_DEV_SRP_DET_EVNT			0x00020000
++#define OEVT_A_DEV_SRP_DET_EVNT_SHIFT		17
++#define OEVT_A_DEV_HNP_CHNG_EVNT		0x00040000
++#define OEVT_A_DEV_HNP_CHNG_EVNT_SHIFT		18
++#define OEVT_A_DEV_HOST_EVNT			0x00080000
++#define OEVT_A_DEV_HOST_EVNT_SHIFT		19
++#define OEVT_A_DEV_B_DEV_HOST_END_EVNT		0x00100000
++#define OEVT_A_DEV_B_DEV_HOST_END_EVNT_SHIFT	20
++#define OEVT_HOST_ROLE_REQ_INIT_EVNT            0x00400000
++#define OEVT_HOST_ROLE_REQ_INIT_EVNT_SHIFT      22
++#define OEVT_HOST_ROLE_REQ_CONFIRM_EVNT         0x00800000
++#define OEVT_HOST_ROLE_REQ_CONFIRM_EVNT_SHIFT   23
++#define OEVT_CONN_ID_STS_CHNG_EVNT		0x01000000
++#define OEVT_CONN_ID_STS_CHNG_EVNT_SHIFT	24
++#define OEVT_DEV_MOD_EVNT			0x80000000
++#define OEVT_DEV_MOD_EVNT_SHIFT			31
++
++#define OEVTEN					0xcc0c
++
++#define OEVT_ALL (OEVT_CONN_ID_STS_CHNG_EVNT | \
++		OEVT_HOST_ROLE_REQ_INIT_EVNT | \
++		OEVT_HOST_ROLE_REQ_CONFIRM_EVNT | \
++		OEVT_A_DEV_B_DEV_HOST_END_EVNT | \
++		OEVT_A_DEV_HOST_EVNT | \
++		OEVT_A_DEV_HNP_CHNG_EVNT | \
++		OEVT_A_DEV_SRP_DET_EVNT | \
++		OEVT_A_DEV_SESS_END_DET_EVNT | \
++		OEVT_B_DEV_B_HOST_END_EVNT | \
++		OEVT_B_DEV_HNP_CHNG_EVNT | \
++		OEVT_B_DEV_SES_VLD_DET_EVNT | \
++		OEVT_B_DEV_VBUS_CHNG_EVNT)
++
++#define OSTS					0xcc10
++#define OSTS_CONN_ID_STS			0x0001
++#define OSTS_CONN_ID_STS_SHIFT			0
++#define OSTS_A_SES_VLD				0x0002
++#define OSTS_A_SES_VLD_SHIFT			1
++#define OSTS_B_SES_VLD				0x0004
++#define OSTS_B_SES_VLD_SHIFT			2
++#define OSTS_XHCI_PRT_PWR			0x0008
++#define OSTS_XHCI_PRT_PWR_SHIFT			3
++#define OSTS_PERIP_MODE				0x0010
++#define OSTS_PERIP_MODE_SHIFT			4
++#define OSTS_OTG_STATES				0x0f00
++#define OSTS_OTG_STATE_SHIFT			8
++
++#define ADPCFG					0xcc20
++#define ADPCFG_PRB_DSCHGS			0x0c000000
++#define ADPCFG_PRB_DSCHG_SHIFT			26
++#define ADPCFG_PRB_DELTAS			0x30000000
++#define ADPCFG_PRB_DELTA_SHIFT			28
++#define ADPCFG_PRB_PERS				0xc0000000
++#define ADPCFG_PRB_PER_SHIFT			30
++
++#define ADPCTL					0xcc24
++#define ADPCTL_WB				0x01000000
++#define ADPCTL_WB_SHIFT				24
++#define ADPCTL_ADP_RES				0x02000000
++#define ADPCTL_ADP_RES_SHIFT			25
++#define ADPCTL_ADP_EN				0x04000000
++#define ADPCTL_ADP_EN_SHIFT			26
++#define ADPCTL_ENA_SNS				0x08000000
++#define ADPCTL_ENA_SNS_SHIFT			27
++#define ADPCTL_ENA_PRB				0x10000000
++#define ADPCTL_ENA_PRB_SHIFT			28
++
++#define ADPEVT					0xcc28
++#define ADPEVT_RTIM_EVNTS			0x000007ff
++#define ADPEVT_RTIM_EVNT_SHIFT			0
++#define ADPEVT_ADP_RST_CMPLT_EVNT		0x02000000
++#define ADPEVT_ADP_RST_CMPLT_EVNT_SHIFT		25
++#define ADPEVT_ADP_TMOUT_EVNT			0x04000000
++#define ADPEVT_ADP_TMOUT_EVNT_SHIFT		26
++#define ADPEVT_ADP_SNS_EVNT			0x08000000
++#define ADPEVT_ADP_SNS_EVNT_SHIFT		27
++#define ADPEVT_ADP_PRB_EVNT			0x10000000
++#define ADPEVT_ADP_PRB_EVNT_SHIFT		28
++
++#define ADPEVTEN				0xcc2c
++#define ADPEVTEN_ACC_DONE_EN			0x01000000
++#define ADPEVTEN_ACC_DONE_EN_SHIFT		24
++#define ADPEVTEN_ADP_RST_CMPLT_EVNT_EN		0x02000000
++#define ADPEVTEN_ADP_RST_CMPLT_EVNT_EN_SHIFT	25
++#define ADPEVTEN_ADP_TMOUT_EVNT_EN		0x04000000
++#define ADPEVTEN_ADP_TMOUT_EVNT_EN_SHIFT	26
++#define ADPEVTEN_ADP_SNS_EVNT_EN		0x08000000
++#define ADPEVTEN_ADP_SNS_EVNT_EN_SHIFT		27
++#define ADPEVTEN_ADP_PRB_EVNT_EN		0x10000000
++#define ADPEVTEN_ADP_PRB_EVNT_EN_SHIFT		28
++
++
++/* charger defined in BC 1.2 */
++enum usb_charger_type {
++	CHRG_UNKNOWN,
++	CHRG_SDP,	/* Standard Downstream Port */
++	CHRG_CDP,	/* Charging Downstream Port */
++	CHRG_DCP,	/* Dedicated Charging Port */
++	CHRG_ACA,	/* Accessory Charger Adapter */
++	CHRG_ACA_DOCK,	/* Accessory Charger Adapter - Dock */
++	CHRG_ACA_A,	/* Accessory Charger Adapter - RID_A */
++	CHRG_ACA_B,	/* Accessory Charger Adapter - RID_B */
++	CHRG_ACA_C,	/* Accessory Charger Adapter - RID_C */
++	CHRG_SE1,	/* SE1 (Apple)*/
++	CHRG_MHL,	/* Moblie High-Definition Link */
++	B_DEVICE	/* Normal B Device */
++};
++
++#define RID_A		0x01
++#define RID_B		0x02
++#define RID_C		0x03
++#define RID_FLOAT	0x04
++#define RID_GND		0x05
++#define RID_UNKNOWN	0x00
++
++enum usb_charger_state {
++	OTG_CHR_STATE_CONNECTED,		/* charger is connected */
++	OTG_CHR_STATE_DISCONNECTED,	/* USB port is disconnected */
++	OTG_CHR_STATE_SUSPENDED,		/* PORT goes to suspend */
++	OTG_CHR_STATE_HOST,			/* USB in host mode */
++};
++
++struct otg_bc_cap {
++	enum usb_charger_type   chrg_type;
++	enum usb_charger_state      chrg_state;
++	unsigned int            ma;
++};
++
++/** The states for the OTG driver */
++enum dwc_otg_state {
++	DWC_STATE_INVALID = -1,
++
++	/** The initial state, check the connector
++	 * id status and determine what mode
++	 * (A-device or B-device) to operate in. */
++	DWC_STATE_B_IDLE = 0,
++
++	/* A-Host states */
++	DWC_STATE_A_PROBE,
++	DWC_STATE_A_HOST,
++	DWC_STATE_A_HNP_INIT,
++
++	/* A-Peripheral states */
++	DWC_STATE_A_PERIPHERAL,
++
++	/* B-Peripheral states */
++	DWC_STATE_B_SENSE,
++	DWC_STATE_B_PROBE,
++	DWC_STATE_B_PERIPHERAL,
++	DWC_STATE_B_HNP_INIT,
++
++	/* B-Host states */
++	DWC_STATE_B_HOST,
++
++	/* RSP */
++	DWC_STATE_B_RSP_INIT,
++
++	/* USB charger detection */
++	DWC_STATE_CHARGER_DETECTION,
++
++	/* VBUS */
++	DWC_STATE_WAIT_VBUS_RAISE,
++	DWC_STATE_WAIT_VBUS_FALL,
++
++	/* Charging*/
++	DWC_STATE_CHARGING,
++
++	/* Exit */
++	DWC_STATE_EXIT,
++	DWC_STATE_TERMINATED
++};
++
++/** The main structure to keep track of OTG driver state. */
++struct dwc_otg2 {
++	/** OTG transceiver */
++	struct usb_otg	otg;
++	struct usb_phy	usb2_phy;
++	struct usb_phy	usb3_phy;
++	struct device		*dev;
++	int irqnum;
++
++	int main_wakeup_needed;
++	struct task_struct *main_thread;
++	wait_queue_head_t main_wq;
++
++	spinlock_t lock;
++
++	/* Events */
++	u32 otg_events;
++	u32 user_events;
++
++	/** User space ID switch event */
++#define USER_ID_A_CHANGE_EVENT 0x01
++#define USER_ID_B_CHANGE_EVENT 0x02
++
++	/* States */
++	enum dwc_otg_state prev;
++	enum dwc_otg_state state;
++	struct platform_device *host;
++	struct platform_device *gadget;
++
++	/* Charger detection */
++	struct otg_bc_cap charging_cap;
++	struct notifier_block nb;
++
++	/* Interfaces between host/device driver */
++	int (*start_host) (struct usb_hcd *hcd);
++	int (*stop_host) (struct usb_hcd *hcd);
++	int (*start_device)(struct usb_gadget *);
++	int (*stop_device)(struct usb_gadget *);
++	int (*vbus_draw) (struct usb_gadget *, unsigned ma);
++
++	/* Vendor driver private date */
++	void *otg_data;
++};
++
++#define sleep_main_thread_until_condition_timeout(otg, condition, msecs) ({ \
++		int __timeout = msecs;				\
++		while (!(condition)) {				\
++			otg_dbg(otg, "  ... sleeping for %d\n", __timeout); \
++			__timeout = sleep_main_thread_timeout(otg, __timeout); \
++			if (__timeout <= 0) {			\
++				break;				\
++			}					\
++		}						\
++		__timeout;					\
++	})
++
++#define sleep_main_thread_until_condition(otg, condition) ({	\
++		int __rc = 0;					\
++		do {						\
++			__rc = sleep_main_thread_until_condition_timeout(otg, \
++			condition, 50000); \
++		} while (__rc == 0);				\
++		__rc;						\
++	})
++
++#define VBUS_TIMEOUT	300
++#define PCI_DEVICE_ID_DWC 0x119E
++
++enum dwc3_otg_mode {
++	DWC3_DEVICE_ONLY,
++	DWC3_HOST_ONLY,
++	DWC3_DRD,
++};
++
++enum driver_bus_type {
++	DWC3_PLAT,
++	DWC3_PCI,
++};
++
++struct dwc3_otg_hw_ops {
++	enum dwc3_otg_mode mode;
++	enum driver_bus_type bus;
++
++	int (*set_power)(struct usb_phy *_otg, unsigned ma);
++	int (*platform_init)(struct dwc_otg2 *otg);
++	int (*otg_notifier_handler)(struct notifier_block *nb,
++			unsigned long event, void *data);
++	int (*prepare_start_peripheral)(struct dwc_otg2 *otg);
++	int (*prepare_start_host)(struct dwc_otg2 *otg);
++	int (*after_stop_peripheral)(struct dwc_otg2 *otg);
++	int (*after_stop_host)(struct dwc_otg2 *otg);
++	int (*b_idle)(struct dwc_otg2 *otg);
++	int (*do_charging)(struct dwc_otg2 *otg);
++	int (*notify_charger_type)(struct dwc_otg2 *otg,
++			enum usb_charger_state state);
++	enum usb_charger_type (*get_charger_type)(struct dwc_otg2 *otg);
++	int (*enable_vbus)(struct dwc_otg2 *otg, int enable);
++	int (*get_id)(struct dwc_otg2 *otg);
++};
++
++void dwc3_wakeup_otg_thread(struct dwc_otg2 *otg);
++struct dwc_otg2 *dwc3_get_otg(void);
++int dwc3_otg_register(struct dwc3_otg_hw_ops *pdata);
++int dwc3_otg_unregister(struct dwc3_otg_hw_ops *pdata);
++#endif /* __DWC3_OTG_H */
+diff --git a/include/linux/pci_ids.h b/include/linux/pci_ids.h
+index 6c7bb35ad6d1..6655cabf0374 100644
+--- a/include/linux/pci_ids.h
++++ b/include/linux/pci_ids.h
+@@ -2548,6 +2548,19 @@
+ #define PCI_DEVICE_ID_INTEL_MFD_EMMC1	0x0824
+ #define PCI_DEVICE_ID_INTEL_MRST_SD2	0x084F
+ #define PCI_DEVICE_ID_INTEL_I960	0x0960
++#define PCI_DEVICE_ID_INTEL_CLV_SDIO0	0x08F9
++#define PCI_DEVICE_ID_INTEL_CLV_SDIO1	0x08FA
++#define PCI_DEVICE_ID_INTEL_CLV_SDIO2	0x08FB
++#define PCI_DEVICE_ID_INTEL_CLV_EMMC0	0x08E5
++#define PCI_DEVICE_ID_INTEL_CLV_EMMC1	0x08E6
++#define PCI_DEVICE_ID_INTEL_CLV_OTG	0xE006
++#define PCI_DEVICE_ID_INTEL_MRFL_MMC	0x1190
++#define PCI_DEVICE_ID_INTEL_MRFL_DWC3_OTG	0x119E
++#define PCI_DEVICE_ID_INTEL_BYT_EMMC	0x0f14
++#define PCI_DEVICE_ID_INTEL_BYT_SDIO	0x0f15
++#define PCI_DEVICE_ID_INTEL_BYT_SD	0x0f16
++#define PCI_DEVICE_ID_INTEL_BYT_EMMC45	0x0f50
++#define PCI_DEVICE_ID_INTEL_BYT_OTG	0x0f37
+ #define PCI_DEVICE_ID_INTEL_I960RM	0x0962
+ #define PCI_DEVICE_ID_INTEL_CENTERTON_ILB	0x0c60
+ #define PCI_DEVICE_ID_INTEL_8257X_SOL	0x1062
+diff --git a/include/linux/usb/dwc3-intel-mrfl.h b/include/linux/usb/dwc3-intel-mrfl.h
+new file mode 100644
+index 000000000000..f8168313cf98
+--- /dev/null
++++ b/include/linux/usb/dwc3-intel-mrfl.h
+@@ -0,0 +1,167 @@
++/*
++ * Intel Penwell USB OTG transceiver driver
++ * Copyright (C) 2009 - 2010, Intel Corporation.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc.,
++ * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
++ *
++ */
++
++#ifndef __DWC3_INTEL_H
++#define __DWC3_INTEL_H
++
++#include "otg.h"
++
++struct intel_dwc_otg_pdata {
++	int is_hvp;
++};
++
++#define TUSB1211_VENDOR_ID_LO					0x00
++#define TUSB1211_VENDOR_ID_HI					0x01
++#define TUSB1211_PRODUCT_ID_LO					0x02
++#define TUSB1211_PRODUCT_ID_HI					0x03
++#define TUSB1211_FUNC_CTRL						0x04
++#define TUSB1211_FUNC_CTRL_SET					0x05
++#define TUSB1211_FUNC_CTRL_CLR					0x06
++#define TUSB1211_IFC_CTRL						0x07
++#define TUSB1211_IFC_CTRL_SET					0x08
++#define TUSB1211_IFC_CTRL_CLR					0x09
++#define TUSB1211_OTG_CTRL						0x0A
++#define TUSB1211_OTG_CTRL_SET					0x0B
++#define TUSB1211_OTG_CTRL_CLR					0x0C
++#define TUSB1211_USB_INT_EN_RISE				0x0D
++#define TUSB1211_USB_INT_EN_RISE_SET			0x0E
++#define TUSB1211_USB_INT_EN_RISE_CLR			0x0F
++#define TUSB1211_USB_INT_EN_FALL				0x10
++#define TUSB1211_USB_INT_EN_FALL_SET			0x11
++#define TUSB1211_USB_INT_EN_FALL_CLR			0x12
++#define TUSB1211_USB_INT_STS					0x13
++#define TUSB1211_USB_INT_LATCH					0x14
++#define TUSB1211_DEBUG							0x15
++#define TUSB1211_SCRATCH_REG					0x16
++#define TUSB1211_SCRATCH_REG_SET				0x17
++#define TUSB1211_SCRATCH_REG_CLR				0x18
++#define TUSB1211_ACCESS_EXT_REG_SET				0x2F
++
++#define TUSB1211_VENDOR_SPECIFIC1				0x80
++#define TUSB1211_VENDOR_SPECIFIC1_SET			0x81
++#define TUSB1211_VENDOR_SPECIFIC1_CLR			0x82
++#define TUSB1211_POWER_CONTROL					0x3D
++#define TUSB1211_POWER_CONTROL_SET				0x3E
++#define TUSB1211_POWER_CONTROL_CLR				0x3F
++
++#define TUSB1211_VENDOR_SPECIFIC2				0x80
++#define TUSB1211_VENDOR_SPECIFIC2_SET			0x81
++#define TUSB1211_VENDOR_SPECIFIC2_CLR			0x82
++#define TUSB1211_VENDOR_SPECIFIC2_STS			0x83
++#define TUSB1211_VENDOR_SPECIFIC2_LATCH			0x84
++#define TUSB1211_VENDOR_SPECIFIC3				0x85
++#define TUSB1211_VENDOR_SPECIFIC3_SET			0x86
++#define TUSB1211_VENDOR_SPECIFIC3_CLR			0x87
++#define TUSB1211_VENDOR_SPECIFIC4				0x88
++#define TUSB1211_VENDOR_SPECIFIC4_SET			0x89
++#define TUSB1211_VENDOR_SPECIFIC4_CLR			0x8A
++#define TUSB1211_VENDOR_SPECIFIC5				0x8B
++#define TUSB1211_VENDOR_SPECIFIC5_SET			0x8C
++#define TUSB1211_VENDOR_SPECIFIC5_CLR			0x8D
++#define TUSB1211_VENDOR_SPECIFIC6				0x8E
++#define TUSB1211_VENDOR_SPECIFIC6_SET			0x8F
++#define TUSB1211_VENDOR_SPECIFIC6_CLR			0x90
++
++#define VS1_DATAPOLARITY						(1 << 6)
++#define VS1_ZHSDRV(v)					((v & 0x3) << 5)
++#define VS1_IHSTX(v)						 ((v & 0x7))
++
++#define VS2STS_VBUS_MNTR_STS					(1 << 7)
++#define VS2STS_REG3V3IN_MNTR_STS				(1 << 6)
++#define VS2STS_SVLDCONWKB_WDOG_STS				(1 << 5)
++#define VS2STS_ID_FLOAT_STS						(1 << 4)
++#define VS2STS_ID_RARBRC_STS(v)					((v & 0x3) << 2)
++#define VS2STS_BVALID_STS						(1 << 0)
++
++#define VS3_CHGD_IDP_SRC_EN						(1 << 6)
++#define VS3_IDPULLUP_WK_EN						(1 << 5)
++#define VS3_SW_USB_DET							(1 << 4)
++#define VS3_DATA_CONTACT_DET_EN					(1 << 3)
++#define VS3_REG3V3_VSEL(v)					   (v & 0x7)
++
++#define VS4_ACA_DET_EN							(1 << 6)
++#define VS4_RABUSIN_EN							(1 << 5)
++#define VS4_R1KSERIES							(1 << 4)
++#define VS4_PSW_OSOD							(1 << 3)
++#define VS4_PSW_CMOS							(1 << 2)
++#define VS4_CHGD_SERX_DP						(1 << 1)
++#define VS4_CHGD_SERX_DM						(1 << 0)
++
++#define VS5_AUTORESUME_WDOG_EN					(1 << 6)
++#define VS5_ID_FLOAT_EN							(1 << 5)
++#define VS5_ID_RES_EN							(1 << 4)
++#define VS5_SVLDCONWKB_WDOG_EN					(1 << 3)
++#define VS5_VBUS_MNTR_RISE_EN					(1 << 2)
++#define VS5_VBUS_MNTR_FALL_EN					(1 << 1)
++#define VS5_REG3V3IN_MNTR_EN					(1 << 0)
++
++#define DEBUG_LINESTATE                       (0x3 << 0)
++
++#define OTGCTRL_USEEXTVBUS_INDICATOR			(1 << 7)
++#define OTGCTRL_DRVVBUSEXTERNAL					(1 << 6)
++#define OTGCTRL_DRVVBUS							(1 << 5)
++#define OTGCTRL_CHRGVBUS						(1 << 4)
++#define OTGCTRL_DISCHRGVBUS						(1 << 3)
++#define OTGCTRL_DMPULLDOWN						(1 << 2)
++#define OTGCTRL_DPPULLDOWN						(1 << 1)
++#define OTGCTRL_IDPULLUP						(1 << 0)
++
++#define FUNCCTRL_SUSPENDM						(1 << 6)
++#define FUNCCTRL_RESET							(1 << 5)
++#define FUNCCTRL_OPMODE(v)				((v & 0x3) << 3)
++#define FUNCCTRL_TERMSELECT						(1 << 2)
++#define FUNCCTRL_XCVRSELECT(v)					(v & 0x3)
++
++#define PWCTRL_HWDETECT							(1 << 7)
++#define PWCTRL_DP_VSRC_EN						(1 << 6)
++#define PWCTRL_VDAT_DET							(1 << 5)
++#define PWCTRL_DP_WKPU_EN						(1 << 4)
++#define PWCTRL_BVALID_FALL						(1 << 3)
++#define PWCTRL_BVALID_RISE						(1 << 2)
++#define PWCTRL_DET_COMP							(1 << 1)
++#define PWCTRL_SW_CONTROL						(1 << 0)
++
++
++#define PMIC_VLDOCNT                0xAF
++#define PMIC_VLDOCNT_VUSBPHYEN      (1 << 2)
++
++#define PMIC_TLP1ESBS0I1VNNBASE		0X6B
++#define PMIC_I2COVRDADDR			0x59
++#define PMIC_I2COVROFFSET			0x5A
++#define PMIC_USBPHYCTRL				0x30
++#define PMIC_I2COVRWRDATA			0x5B
++#define PMIC_I2COVRCTRL				0x58
++#define PMIC_I2COVRCTL_I2CWR		0x01
++
++#define USBPHYCTRL_D0			(1 << 0)
++#define PMIC_USBIDCTRL				0x19
++#define USBIDCTRL_ACA_DETEN_D1	(1 << 1)
++#define USBIDCTRL_USB_IDEN_D0	(1 << 0)
++#define PMIC_USBIDSTS				0x1A
++#define USBIDSTS_ID_GND			(1 << 0)
++#define USBIDSTS_ID_RARBRC_STS(v)	((v & 0x3)  << 0)
++#define USBIDSTS_ID_FLOAT_STS	(1 << 3)
++#define PMIC_USBPHYCTRL_D0		(1 << 0)
++#define APBFC_EXIOTG3_MISC0_REG			0xF90FF85C
++
++#define DATACON_TIMEOUT		750
++#define DATACON_INTERVAL	10
++#define VBUS_TIMEOUT	300
++#define PCI_DEVICE_ID_DWC 0x119E
++#endif /* __DWC3_INTEL_H */
+-- 
+2.37.3
+

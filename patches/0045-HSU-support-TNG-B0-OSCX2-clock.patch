@@ -1,0 +1,47 @@
+From 9654423a31d842069ce8e6ee1f3d7df615f61d81 Mon Sep 17 00:00:00 2001
+From: Wang Yiyang <yiyang.wang@intel.com>
+Date: Wed, 21 Aug 2013 06:26:04 +0800
+Subject: [PATCH 045/429] HSU: support TNG B0 OSCX2 clock
+
+TNG B0 chip HSU default source clock is OSCX2 --> 38.4M
+1. fix bug in patch: 104088
+   uartclk = 115200 * 24 * 16 --> uartclk = 115200 * uclk * 16
+   uartlck should be 115200 * 16 * 16 for 38.4M
+   This also cover 115200 multiple baud e.g.921600bps
+
+2. for 38.4M power on BT
+   BT UART high baud is 3Mbps, default div 0x3d09 and ps 12 could
+   not get integral mul, so add enum function for 38.4M to get
+   inegral mul. 38.4M should be only for power on stage, following
+   should switch to SCU fabric 100M that's same as A0 stepping.
+
+Signed-off-by: Wang Yiyang <yiyang.wang@intel.com>
+---
+ .../x86/platform/intel-mid/device_libs/platform_hsu.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index c44a81e7be11..b6a5d07852af 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -687,9 +687,14 @@ static void hsu_platform_clk(enum intel_mid_cpu_type cpu_type)
+ 		if (clk_src & (1 << 16))
+ 			/* source SCU fabric 100M */
+ 			clock = clock / ((clk_div & 0x7) + 1);
+-		else
+-			/* source OSC clock 19.2M */
+-			clock = 19200;
++		else {
++			if (clk_src & (1 << 31))
++				/* source OSCX2 38.4M */
++				clock = 38400;
++			else
++				/* source OSC clock 19.2M */
++				clock = 19200;
++		}
+ 
+ 		iounmap(clkctl);
+ 		iounmap(clksc);
+-- 
+2.37.3
+

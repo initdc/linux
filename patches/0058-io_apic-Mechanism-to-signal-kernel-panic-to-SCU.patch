@@ -1,0 +1,53 @@
+From 639bd3160fb37a32d97a7acd9cc9003f05903136 Mon Sep 17 00:00:00 2001
+From: Samu Onkalo <samu.onkalo@intel.com>
+Date: Tue, 9 Apr 2013 14:27:27 +0300
+Subject: [PATCH 058/429] io_apic: Mechanism to signal kernel panic to SCU
+
+IO_apic write generates IPC2 event in SCU. Make a dummy
+write to unused location to hit IPC2 event to SCU.
+Target of the dummy write is at the end of the RTE table.
+
+SCU can check the value and hit an SCU status dump to SRAM.
+This mechanims is always available when kernel is running.
+It is not blocked by ipc1 or pmu operations. This is used only
+in error situation (panic / warn) to trig SCU to refresh its
+status to shared RAM.
+
+Signed-off-by: Samu Onkalo <samu.onkalo@intel.com>
+Signed-off-by: Jouni Hogander <jouni.hogander@intel.com>
+---
+ arch/x86/kernel/apic/io_apic.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/arch/x86/kernel/apic/io_apic.c b/arch/x86/kernel/apic/io_apic.c
+index 9ed796ccc32c..5aa143822d86 100644
+--- a/arch/x86/kernel/apic/io_apic.c
++++ b/arch/x86/kernel/apic/io_apic.c
+@@ -316,6 +316,24 @@ void io_apic_eoi(unsigned int apic, unsigned int vector)
+ 	writel(vector, &io_apic->eoi);
+ }
+ 
++/*
++ * This index matches with 1024 - 4 address in SCU RTE table area.
++ * That is not used for anything. Works in CLVP only
++ */
++#define LAST_INDEX_IN_IO_APIC_SPACE 255
++#define KERNEL_TO_SCU_PANIC_REQUEST (0x0515dead)
++void apic_scu_panic_dump(void)
++{
++	unsigned long flags;
++
++	printk(KERN_ERR "Request SCU panic dump");
++	raw_spin_lock_irqsave(&ioapic_lock, flags);
++	io_apic_write(0, LAST_INDEX_IN_IO_APIC_SPACE,
++		      KERNEL_TO_SCU_PANIC_REQUEST);
++	raw_spin_unlock_irqrestore(&ioapic_lock, flags);
++}
++EXPORT_SYMBOL_GPL(apic_scu_panic_dump);
++
+ unsigned int native_io_apic_read(unsigned int apic, unsigned int reg)
+ {
+ 	struct io_apic __iomem *io_apic = io_apic_base(apic);
+-- 
+2.37.3
+

@@ -1,0 +1,165 @@
+From 39a0ce41498941a4ecb4c0fae9c3a8ca6912a458 Mon Sep 17 00:00:00 2001
+From: Sudarshan Ramachandra <sudarshan.n.ramachandra@intel.com>
+Date: Tue, 29 Oct 2013 11:54:13 +0530
+Subject: [PATCH 107/429] Add S0i1-audio(LPMP3) counters
+
+This patch adds support for S0i1-audio
+residency and cycle counters. This also
+changes address from which S0ix residency
+and count is read to accommodate corresponding
+change in SCU
+
+Signed-off-by: Sudarshan Ramachandra <sudarshan.n.ramachandra@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_mrfld.c | 34 +++++++++++++------
+ arch/x86/platform/intel-mid/intel_soc_mrfld.h | 14 ++++----
+ .../platform/intel-mid/intel_soc_pm_debug.c   |  5 ++-
+ arch/x86/platform/intel-mid/intel_soc_pmu.h   |  1 +
+ 4 files changed, 37 insertions(+), 17 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.c b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+index 0ead68802ec9..0054c3b44d03 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+@@ -81,26 +81,34 @@ static int mrfld_pmu_init(void)
+ 	residency[SYS_STATE_S0I1] = ioremap_nocache(S0I1_RES_ADDR, sizeof(u64));
+ 	if (residency[SYS_STATE_S0I1] == NULL)
+ 		goto err1;
++	residency[SYS_STATE_LPMP3] = ioremap_nocache(LPMP3_RES_ADDR,
++								sizeof(u64));
++	if (residency[SYS_STATE_LPMP3] == NULL)
++		goto err2;
+ 	residency[SYS_STATE_S0I2] = ioremap_nocache(S0I2_RES_ADDR, sizeof(u64));
+ 	if (residency[SYS_STATE_S0I2] == NULL)
+-		goto err2;
++		goto err3;
+ 	residency[SYS_STATE_S0I3] = ioremap_nocache(S0I3_RES_ADDR, sizeof(u64));
+ 	if (residency[SYS_STATE_S0I3] == NULL)
+-		goto err3;
++		goto err4;
+ 
+ 	/* Map S0ix iteration counters */
+ 	s0ix_counter[SYS_STATE_S0I1] = ioremap_nocache(S0I1_COUNT_ADDR,
+ 								sizeof(u32));
+ 	if (s0ix_counter[SYS_STATE_S0I1] == NULL)
+-		goto err4;
++		goto err5;
++	s0ix_counter[SYS_STATE_LPMP3] = ioremap_nocache(LPMP3_COUNT_ADDR,
++								sizeof(u32));
++	if (s0ix_counter[SYS_STATE_LPMP3] == NULL)
++		goto err6;
+ 	s0ix_counter[SYS_STATE_S0I2] = ioremap_nocache(S0I2_COUNT_ADDR,
+ 								sizeof(u32));
+ 	if (s0ix_counter[SYS_STATE_S0I2] == NULL)
+-		goto err5;
++		goto err7;
+ 	s0ix_counter[SYS_STATE_S0I3] = ioremap_nocache(S0I3_COUNT_ADDR,
+ 								sizeof(u32));
+ 	if (s0ix_counter[SYS_STATE_S0I3] == NULL)
+-		goto err6;
++		goto err8;
+ 	/* Keep PSH LSS's 00, 33, 34 in D0i0 if PM is disabled */
+ 	if (!enable_s0ix && !enable_s3) {
+ 		mid_pmu_cxt->os_sss[2] &=
+@@ -116,21 +124,27 @@ static int mrfld_pmu_init(void)
+ 
+ 	return PMU_SUCCESS;
+ 
+-err6:
++err8:
+ 	iounmap(s0ix_counter[SYS_STATE_S0I3]);
+ 	s0ix_counter[SYS_STATE_S0I3] = NULL;
+-err5:
++err7:
+ 	iounmap(s0ix_counter[SYS_STATE_S0I2]);
+ 	s0ix_counter[SYS_STATE_S0I2] = NULL;
+-err4:
++err6:
++	iounmap(s0ix_counter[SYS_STATE_LPMP3]);
++	s0ix_counter[SYS_STATE_LPMP3] = NULL;
++err5:
+ 	iounmap(s0ix_counter[SYS_STATE_S0I1]);
+ 	s0ix_counter[SYS_STATE_S0I1] = NULL;
+-err3:
++err4:
+ 	iounmap(residency[SYS_STATE_S0I3]);
+ 	residency[SYS_STATE_S0I3] = NULL;
+-err2:
++err3:
+ 	iounmap(residency[SYS_STATE_S0I2]);
+ 	residency[SYS_STATE_S0I2] = NULL;
++err2:
++	iounmap(residency[SYS_STATE_LPMP3]);
++	residency[SYS_STATE_LPMP3] = NULL;
+ err1:
+ 	iounmap(residency[SYS_STATE_S0I1]);
+ 	residency[SYS_STATE_S0I1] = NULL;
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.h b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+index 8d377b573cf0..7a83eb9dcb9f 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.h
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+@@ -39,14 +39,16 @@
+ #define NC_PM_SSS			0x3F
+ 
+ /* SRAM locations to get S0ix residency */
+-#define S0I1_RES_ADDR		0xFFFFFDE0
+-#define S0I2_RES_ADDR		0xFFFFFDE8
+-#define S0I3_RES_ADDR		0xFFFFFDF0
++#define S0I1_RES_ADDR		0xFFFFF560
++#define LPMP3_RES_ADDR		0xFFFFF578
++#define S0I2_RES_ADDR		0xFFFFF568
++#define S0I3_RES_ADDR		0xFFFFF570
+ 
+ /* SRAM locations to get S0ix count */
+-#define S0I1_COUNT_ADDR		0xFFFFF420
+-#define S0I2_COUNT_ADDR		0xFFFFF424
+-#define S0I3_COUNT_ADDR		0xFFFFF428
++#define S0I1_COUNT_ADDR		0xFFFFF588
++#define LPMP3_COUNT_ADDR	0xFFFFF594
++#define S0I2_COUNT_ADDR		0xFFFFF58C
++#define S0I3_COUNT_ADDR		0xFFFFF590
+ 
+ /* IPC commands to start, stop and
+  * dump S0ix residency counters */
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+index 1069bc11f0ee..887f63fcc454 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+@@ -1455,7 +1455,8 @@ static int pmu_devices_state_show(struct seq_file *s, void *unused)
+ 	up(&mid_pmu_cxt->scu_ready_sem);
+ 
+ 	pmu_stat_seq_printf(s, SYS_STATE_S0I1, "s0i1");
+-	pmu_stat_seq_printf(s, SYS_STATE_S0I2, "S0i2");
++	pmu_stat_seq_printf(s, SYS_STATE_LPMP3, "lpmp3");
++	pmu_stat_seq_printf(s, SYS_STATE_S0I2, "s0i2");
+ 	pmu_stat_seq_printf(s, SYS_STATE_S0I3, "s0i3");
+ 	pmu_stat_seq_printf(s, SYS_STATE_S3, "s3");
+ 
+@@ -1531,10 +1532,12 @@ static ssize_t devices_state_write(struct file *file,
+ 
+ 		mid_pmu_cxt->pmu_init_time = cpu_clock(0);
+ 		prev_s0ix_cnt[SYS_STATE_S0I1] = readl(s0ix_counter[SYS_STATE_S0I1]);
++		prev_s0ix_cnt[SYS_STATE_LPMP3] = readl(s0ix_counter[SYS_STATE_LPMP3]);
+ 		prev_s0ix_cnt[SYS_STATE_S0I2] = readl(s0ix_counter[SYS_STATE_S0I2]);
+ 		prev_s0ix_cnt[SYS_STATE_S0I3] = readl(s0ix_counter[SYS_STATE_S0I3]);
+ 		prev_s0ix_cnt[SYS_STATE_S3] = 0;
+ 		prev_s0ix_res[SYS_STATE_S0I1] = readq(residency[SYS_STATE_S0I1]);
++		prev_s0ix_res[SYS_STATE_LPMP3] = readq(residency[SYS_STATE_LPMP3]);
+ 		prev_s0ix_res[SYS_STATE_S0I2] = readq(residency[SYS_STATE_S0I2]);
+ 		prev_s0ix_res[SYS_STATE_S0I3] = readq(residency[SYS_STATE_S0I3]);
+ 		prev_s0ix_res[SYS_STATE_S3] = 0 ;
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.h b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+index 00bac52ef287..5adb014bb867 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.h
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+@@ -144,6 +144,7 @@
+ enum sys_state {
+ 	SYS_STATE_S0I0,
+ 	SYS_STATE_S0I1,
++	SYS_STATE_LPMP3,
+ 	SYS_STATE_S0I2,
+ 	SYS_STATE_S0I3,
+ 	SYS_STATE_S3,
+-- 
+2.37.3
+

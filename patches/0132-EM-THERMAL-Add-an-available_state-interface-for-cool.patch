@@ -1,0 +1,125 @@
+From 1d50744b8c7ed123a875e7ffa30bc872337fc15a Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Wed, 16 Oct 2013 13:34:57 +0530
+Subject: [PATCH 132/429] EM/THERMAL: Add an available_state interface for
+ cooling dev
+
+[Implemented Solution]
+This patch adds an available state interface which will
+be exposed when debug flag is not set. This patch adds
+a new sysfs interface to show the available throttle values
+in cooling device mapped to the thermal state.
+
+Category: feature differentiation
+Domain: EM.ThermalManagement-commmon
+Origin: internal
+Upstream-Candidate: yes
+
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ drivers/thermal/thermal_core.c | 36 +++++++++++++++++++++++++++++++---
+ include/linux/thermal.h        |  2 ++
+ 2 files changed, 35 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
+index ff224465e648..d8ffd5dd5e87 100644
+--- a/drivers/thermal/thermal_core.c
++++ b/drivers/thermal/thermal_core.c
+@@ -822,6 +822,15 @@ thermal_cooling_device_force_state_override_store(struct device *dev,
+ 	return count;
+ }
+ 
++static ssize_t
++thermal_cooling_device_available_states_show(struct device *dev,
++				struct device_attribute *attr, char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++
++	return cdev->ops->get_available_states(cdev, buf);
++}
++
+ static ssize_t
+ thermal_cooling_device_cur_state_show(struct device *dev,
+ 				      struct device_attribute *attr, char *buf)
+@@ -867,6 +876,8 @@ static DEVICE_ATTR(cur_state, 0644,
+ static DEVICE_ATTR(force_state_override, 0644,
+ 		thermal_cooling_device_force_state_override_show,
+ 		thermal_cooling_device_force_state_override_store);
++static DEVICE_ATTR(available_states, 0444,
++		thermal_cooling_device_available_states_show, NULL);
+ 
+ static ssize_t
+ thermal_cooling_device_trip_point_show(struct device *dev,
+@@ -1378,20 +1389,26 @@ thermal_cooling_device_register(char *type, void *devdata,
+ 
+ 	result = device_create_file(&cdev->device, &dev_attr_max_state);
+ 	if (result)
+-		goto unregister;
++		goto remove_type;
+ 
+ 	result = device_create_file(&cdev->device, &dev_attr_cur_state);
+ 	if (result)
+-		goto unregister;
++		goto remove_max_state;
+ 
+ 	if (ops->get_force_state_override) {
+ 		result = device_create_file(&cdev->device,
+ 					&dev_attr_force_state_override);
+ 		if (result)
+-			goto unregister;
++			goto remove_cur_state;
+ 	}
+ 
+ 	/* Add 'this' new cdev to the global cdev list */
++	if (ops->get_available_states) {
++		result = device_create_file(&cdev->device,
++						&dev_attr_available_states);
++		if (result)
++			goto remove_force_override;
++	}
+ 	mutex_lock(&thermal_list_lock);
+ 	list_add(&cdev->node, &thermal_cdev_list);
+ 	mutex_unlock(&thermal_list_lock);
+@@ -1401,6 +1418,16 @@ thermal_cooling_device_register(char *type, void *devdata,
+ 
+ 	return cdev;
+ 
++remove_force_override:
++	if (cdev->ops->get_force_state_override)
++		device_remove_file(&cdev->device,
++				&dev_attr_force_state_override);
++remove_cur_state:
++	device_remove_file(&cdev->device, &dev_attr_cur_state);
++remove_max_state:
++	device_remove_file(&cdev->device, &dev_attr_max_state);
++remove_type:
++	device_remove_file(&cdev->device, &dev_attr_cdev_type);
+ unregister:
+ 	release_idr(&thermal_cdev_idr, &thermal_idr_lock, cdev->id);
+ 	device_unregister(&cdev->device);
+@@ -1464,6 +1491,9 @@ void thermal_cooling_device_unregister(struct thermal_cooling_device *cdev)
+ 	if (cdev->ops->get_force_state_override)
+ 		device_remove_file(&cdev->device,
+ 					&dev_attr_force_state_override);
++	if (cdev->ops->get_available_states)
++		device_remove_file(&cdev->device,
++					&dev_attr_available_states);
+ 	release_idr(&thermal_cdev_idr, &thermal_idr_lock, cdev->id);
+ 	device_unregister(&cdev->device);
+ 	return;
+diff --git a/include/linux/thermal.h b/include/linux/thermal.h
+index beeab6f9e3da..cc43bd75d762 100644
+--- a/include/linux/thermal.h
++++ b/include/linux/thermal.h
+@@ -141,6 +141,8 @@ struct thermal_cooling_device_ops {
+ 								char *);
+ 	int (*set_force_state_override) (struct thermal_cooling_device *,
+ 								char *);
++	int (*get_available_states) (struct thermal_cooling_device *,
++								char *);
+ };
+ 
+ struct thermal_cooling_device {
+-- 
+2.37.3
+

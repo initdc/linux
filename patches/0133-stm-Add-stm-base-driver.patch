@@ -1,0 +1,851 @@
+From af254c17ec621056c0f29efaf7690d36b10bed46 Mon Sep 17 00:00:00 2001
+From: Christophe Guerard <christophe.guerard@intel.com>
+Date: Fri, 4 Oct 2013 07:47:52 +0200
+Subject: [PATCH 133/429] stm: Add stm base driver
+
+stm: add base stm driver
+pti: add stm dependency
+pti,stm: split stm with header and Kconfig
+stm: add stm ebc_io ops to register/unregister in dwc3 gadget layer
+stm: add exi inbound and outbound ebc_io ops
+stm,pti: manage pci bar for stm and pti
+stm,pti: disable stm by default
+
+Signed-off-by: Christophe Guerard <christophe.guerard@intel.com>
+---
+ drivers/misc/Kconfig  |  12 ++
+ drivers/misc/Makefile |   1 +
+ drivers/misc/pti.c    |  77 +++++++
+ drivers/misc/stm.c    | 470 ++++++++++++++++++++++++++++++++++++++++++
+ drivers/misc/stm.h    | 114 ++++++++++
+ include/linux/sdm.h   |  60 ++++++
+ 6 files changed, 734 insertions(+)
+ create mode 100644 drivers/misc/stm.c
+ create mode 100644 drivers/misc/stm.h
+ create mode 100644 include/linux/sdm.h
+
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index c002d8660e30..b2ff90909151 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -147,6 +147,18 @@ config INTEL_MID_PTI
+ 	  an Intel Atom (non-netbook) mobile device containing a MIPI
+ 	  P1149.7 standard implementation.
+ 
++config INTEL_PTI_STM
++	tristate "MIPI Sytem Trace Macro (STM) for Intel"
++	default n
++	depends on INTEL_MID_PTI
++	help
++	  The STM (Sytem Trace Monitor) driver control trace data
++	  route through an Intel Tangier PTI port or through USB xDCI
++	  interface with Debug-Class DvC.Trace support.
++
++	  It provide the ability to PTI driver to setup the output and
++	  to user to change the output with sysfs and exported header.
++
+ config SGI_IOC4
+ 	tristate "SGI IOC4 Base IO support"
+ 	depends on PCI
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index c235d5b68311..5c91f3ba49c1 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -7,6 +7,7 @@ obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
+ obj-$(CONFIG_AD525X_DPOT_I2C)	+= ad525x_dpot-i2c.o
+ obj-$(CONFIG_AD525X_DPOT_SPI)	+= ad525x_dpot-spi.o
+ obj-$(CONFIG_INTEL_MID_PTI)	+= pti.o
++obj-$(CONFIG_INTEL_PTI_STM)	+= stm.o
+ obj-$(CONFIG_ATMEL_PWM)		+= atmel_pwm.o
+ obj-$(CONFIG_ATMEL_SSC)		+= atmel-ssc.o
+ obj-$(CONFIG_ATMEL_TCLIB)	+= atmel_tclib.o
+diff --git a/drivers/misc/pti.c b/drivers/misc/pti.c
+index f84ff0c06035..5d53a0c70bc0 100644
+--- a/drivers/misc/pti.c
++++ b/drivers/misc/pti.c
+@@ -21,6 +21,8 @@
+  * compact JTAG, standard.
+  */
+ 
++#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
++
+ #include <linux/init.h>
+ #include <linux/sched.h>
+ #include <linux/interrupt.h>
+@@ -36,6 +38,12 @@
+ #include <linux/slab.h>
+ #include <linux/uaccess.h>
+ 
++#include <asm/intel_scu_ipc.h>
++
++#ifdef CONFIG_INTEL_PTI_STM
++#include "stm.h"
++#endif
++
+ #define DRIVERNAME		"pti"
+ #define PCINAME			"pciPTI"
+ #define TTYNAME			"ttyPTI"
+@@ -55,6 +63,55 @@
+ #define APERTURE_14		0x3800000 /* offset to first OS write addr */
+ #define APERTURE_LEN		0x400000  /* address length */
+ 
++#define SMIP_PTI_OFFSET	0x30C  /* offset to PTI config in MIP header */
++#define SMIP_PTI_EN	(1<<7) /* PTI enable bit in PTI configuration */
++
++#define PTI_PNW_PCI_ID			0x082B
++#define PTI_CLV_PCI_ID			0x0900
++#define PTI_TNG_PCI_ID			0x119F
++
++#define INTEL_PTI_PCI_DEVICE(dev, info) {	\
++	.vendor = PCI_VENDOR_ID_INTEL,		\
++	.device = dev,				\
++	.subvendor = PCI_ANY_ID,		\
++	.subdevice = PCI_ANY_ID,		\
++	.driver_data = (unsigned long) info }
++
++struct pti_device_info {
++	u8 pci_bar;
++	u8 scu_secure_mode:1;
++	u8 has_d8_d16_support:1;
++};
++
++static const struct pti_device_info intel_pti_pnw_info = {
++	.pci_bar = 1,
++	.scu_secure_mode = 0,
++	.has_d8_d16_support = 0,
++};
++
++static const struct pti_device_info intel_pti_clv_info = {
++	.pci_bar = 1,
++	.scu_secure_mode = 1,
++	.has_d8_d16_support = 0,
++};
++
++static const struct pti_device_info intel_pti_tng_info = {
++	.pci_bar = 2,
++	.scu_secure_mode = 0,
++	.has_d8_d16_support = 1,
++};
++
++static DEFINE_PCI_DEVICE_TABLE(pci_ids) = {
++	INTEL_PTI_PCI_DEVICE(PTI_PNW_PCI_ID, &intel_pti_pnw_info),
++	INTEL_PTI_PCI_DEVICE(PTI_CLV_PCI_ID, &intel_pti_clv_info),
++	INTEL_PTI_PCI_DEVICE(PTI_TNG_PCI_ID, &intel_pti_tng_info),
++	{0}
++};
++
++#define GET_PCI_BAR(pti_dev) (pti_dev->pti_dev_info->pci_bar)
++#define HAS_SCU_SECURE_MODE(pti_dev) (pti_dev->pti_dev_info->scu_secure_mode)
++#define HAS_D8_D16_SUPPORT(pti_dev) (pti_dev->pti_dev_info->has_d8_d16_support)
++
+ struct pti_tty {
+ 	struct pti_masterchannel *mc;
+ };
+@@ -67,8 +124,16 @@ struct pti_dev {
+ 	u8 ia_app[MAX_APP_IDS];
+ 	u8 ia_os[MAX_OS_IDS];
+ 	u8 ia_modem[MAX_MODEM_IDS];
++	struct pti_device_info *pti_dev_info;
++#ifdef CONFIG_INTEL_PTI_STM
++	struct stm_dev stm;
++#endif
+ };
+ 
++static unsigned int stm_enabled;
++module_param(stm_enabled, uint, 0600);
++MODULE_PARM_DESC(stm_enabled, "set to 1 to enable stm");
++
+ /*
+  * This protects access to ia_app, ia_os, and ia_modem,
+  * which keeps track of channels allocated in
+@@ -849,6 +914,14 @@ static int pti_pci_probe(struct pci_dev *pdev,
+ 		goto err_rel_reg;
+ 	}
+ 
++#ifdef CONFIG_INTEL_PTI_STM
++	/* Initialize STM resources */
++	if ((stm_enabled) && (stm_dev_init(pdev, &drv_data->stm) != 0)) {
++		retval = -ENOMEM;
++		goto err_rel_reg;
++	}
++#endif
++
+ 	pci_set_drvdata(pdev, drv_data);
+ 
+ 	for (a = 0; a < PTITTY_MINOR_NUM; a++) {
+@@ -891,6 +964,10 @@ static void pti_pci_remove(struct pci_dev *pdev)
+ 		tty_port_destroy(&drv_data->port[a]);
+ 	}
+ 
++#ifdef CONFIG_INTEL_PTI_STM
++	if (stm_enabled)
++		stm_dev_clean(pdev, &drv_data->stm);
++#endif
+ 	iounmap(drv_data->pti_ioaddr);
+ 	pci_set_drvdata(pdev, NULL);
+ 	kfree(drv_data);
+diff --git a/drivers/misc/stm.c b/drivers/misc/stm.c
+new file mode 100644
+index 000000000000..58b35ef66502
+--- /dev/null
++++ b/drivers/misc/stm.c
+@@ -0,0 +1,470 @@
++/*
++ *  stm.c - MIPI STM Debug Unit driver
++ *
++ *  Copyright (C) Intel 2013
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ *
++ * The STM (Sytem Trace Macro) Unit driver configure trace output
++ * to the Intel Tangier PTI port and DWC3 USB xHCI controller
++ * out of the mobile device for analysis with a debugging tool
++ * (Lauterbach, Fido). This is part of a solution for the MIPI P1149.7,
++ * compact JTAG, standard and USB Debug-Class
++ *
++ * This header file will allow other parts of the OS to use the
++ * interface to write out it's contents for debugging a mobile system.
++ */
++
++#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
++
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/sdm.h>
++
++#include "stm.h"
++#include <asm/intel_soc_debug.h>
++#include "../usb/dwc3/core.h"
++
++/* STM Registers */
++#define STM_CTRL		0x0000
++#define STM_USB3DBGGTHR		0x0008
++#define STM_MASMSK		0x0010
++#define STM_CHMSK		0x0080
++#define STM_AGTBAR0		0x00C0
++#define STM_AGTBAR1		0x0140
++#define STM_AGTBAR2		0x01C0
++#define STM_AGTBAR3		0x0240
++#define STM_AGTBAR4		0x02C0
++#define STM_AGTBAR5		0x0340
++#define STM_AGTBAR6		0x03C0
++#define STM_AGTBAR7		0x0440
++#define STM_AGTBAR8		0x04C0
++#define STM_AGTBAR9		0x0540
++#define STM_AGTBAR10		0x05C0
++#define STM_AGTBAR11		0x0640
++
++/*
++ * STM registers
++ */
++#define STM_REG_BASE		0x0        /* registers base offset */
++#define STM_REG_LEN		0x20       /* address length */
++/*
++ * TRB buffers
++ */
++#define STM_TRB_BASE		0x400      /* TRB base offset */
++#define STM_TRB_LEN		0x100	   /* address length */
++#define STM_TRB_NUM		16         /* number of TRBs */
++
++/*
++ * This protects R/W to stm registers
++ */
++static DEFINE_MUTEX(stmlock);
++
++static struct stm_dev *_dev_stm;
++
++static inline u32 stm_readl(void __iomem *base, u32 offset)
++{
++	return readl(base + offset);
++}
++
++static inline void stm_writel(void __iomem *base, u32 offset, u32 value)
++{
++	writel(value, base + offset);
++}
++
++/**
++ * stm_kernel_set_out()-
++ * Kernel API function used to
++ * set STM output configuration to PTI or USB.
++ *
++ * @bus_type:
++ *	0 = PTI 4-bits legacy end user
++ *	1 = PTI 4-bits NiDnT
++ *	2 = PTI 16-bits
++ *	3 = PTI 12-bits
++ *	4 = PTI 8-bits
++ *	15 = USB Debug-Class (DvC.Trace)
++ *
++ */
++int stm_kernel_set_out(int bus_type)
++{
++
++	struct stm_dev *drv_stm = _dev_stm;
++
++	/*
++	 * since this function is exported, this is treated like an
++	 * API function, thus, all parameters should
++	 * be checked for validity.
++	 */
++	if (drv_stm == NULL)
++		return 0;
++
++	mutex_lock(&stmlock);
++
++	drv_stm->stm_ctrl_hwreg.reg_word =
++		stm_readl(drv_stm->stm_ioaddr, (u32)STM_CTRL);
++
++	switch (bus_type) {
++	case STM_PTI_4BIT_LEGACY:
++	case STM_PTI_4BIT_NIDNT:
++	case STM_PTI_16BIT:
++	case STM_PTI_12BIT:
++	case STM_PTI_8BIT:
++		drv_stm->stm_ctrl_hwreg.pti_out_en = true;
++		drv_stm->stm_ctrl_hwreg.usb_debug_en = false;
++		drv_stm->stm_ctrl_hwreg.pti_out_mode_sel = bus_type;
++		stm_writel(drv_stm->stm_ioaddr, (u32)STM_CTRL,
++			   drv_stm->stm_ctrl_hwreg.reg_word);
++		break;
++	case STM_USB:
++		drv_stm->stm_ctrl_hwreg.pti_out_en = false;
++		drv_stm->stm_ctrl_hwreg.usb_debug_en = true;
++		stm_writel(drv_stm->stm_ioaddr, (u32)STM_CTRL,
++			   drv_stm->stm_ctrl_hwreg.reg_word);
++		break;
++	default:
++		/* N/A */
++		break;
++	}
++	mutex_unlock(&stmlock);
++
++	return 1;
++}
++EXPORT_SYMBOL_GPL(stm_kernel_set_out);
++
++/**
++ * stm_kernel_get_out()-
++ * Kernel API function used to get
++ * STM output cofiguration PTI or USB.
++ *
++ */
++int stm_kernel_get_out(void)
++{
++	struct stm_dev *drv_stm = _dev_stm;
++	int ret = -EOPNOTSUPP;
++
++	if (drv_stm == NULL)
++		return -EOPNOTSUPP;
++
++	mutex_lock(&stmlock);
++
++	drv_stm->stm_ctrl_hwreg.reg_word =
++		stm_readl(drv_stm->stm_ioaddr, (u32)STM_CTRL);
++
++	if (!drv_stm->stm_ctrl_hwreg.usb_debug_en) {
++		if (drv_stm->stm_ctrl_hwreg.pti_out_en)
++			ret = (int)drv_stm->stm_ctrl_hwreg.pti_out_mode_sel;
++	} else {
++		ret = (int)STM_USB;
++	}
++	mutex_unlock(&stmlock);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(stm_kernel_get_out);
++
++/**
++ * stm_set_out() - 'out' parameter set function from 'STM' module
++ *
++ * called when writing to 'out' parameter from 'STM' module in sysfs
++ */
++static int stm_set_out(const char *val, struct kernel_param *kp)
++{
++	int bus_type_value;
++	int ret = -EINVAL;
++
++	if (sscanf(val, "%2d", &bus_type_value) != 1)
++		return ret;
++
++	return stm_kernel_set_out(bus_type_value);
++}
++
++/**
++ * stm_get_out() - 'out' parameter get function from 'STM' module
++ *
++ * called when reading 'out' parameter from 'STM' module in sysfs
++ */
++static int stm_get_out(char *buffer, struct kernel_param *kp)
++{
++	int i;
++
++	i = stm_kernel_get_out();
++	if (i == -EOPNOTSUPP) {
++		buffer[0] = '\0';
++		return 0;
++	}
++
++	return sprintf(buffer, "%2d", i);
++}
++
++/**
++ * stm_init() - initialize stmsub3dbgthr register
++ *
++ * @return - 0 on Success
++ */
++static int stm_init(void)
++{
++	struct stm_dev *stm = _dev_stm;
++	struct stm_usb3_ctrl *usb3dbg;
++
++	if (!stm)
++		return -ENODEV;
++
++	usb3dbg = &stm->stm_usb3_hwreg;
++	usb3dbg->reg_word = stm_readl(stm->stm_ioaddr, (u32)STM_USB3DBGGTHR);
++
++	usb3dbg->reg_word = 0xFF;
++
++	stm_writel(stm->stm_ioaddr, (u32)STM_USB3DBGGTHR, usb3dbg->reg_word);
++
++	return 0;
++}
++
++/**
++ * stm_alloc_static_trb_pool() - set stm trb pool dma_addr and return
++ * trb_pool
++ *
++ * @dma_addr - trb pool dma physical address to set
++ * @return - trb pool address ioremaped pointer
++ */
++static void *stm_alloc_static_trb_pool(dma_addr_t *dma_addr)
++{
++	struct stm_dev *stm = _dev_stm;
++	if (!stm)
++		return NULL;
++
++	*dma_addr = stm->stm_trb_base;
++	return stm->trb_ioaddr;
++}
++
++static void ebc_io_free_static_trb_pool(void)
++{
++	/* Nothing to do, HW TRB */
++}
++
++static int stm_xfer_start(void)
++{
++	struct stm_dev *stm = _dev_stm;
++	struct stm_ctrl *stm_ctrl;
++
++	if (!stm)
++		return -ENODEV;
++
++	stm_ctrl = &stm->stm_ctrl_hwreg;
++	stm_ctrl->reg_word = stm_readl(stm->stm_ioaddr, (u32)STM_CTRL);
++
++	stm_ctrl->usb_debug_en = true;
++	stm_ctrl->pti_out_en = false;
++
++	stm_writel(stm->stm_ioaddr, (u32)STM_CTRL, stm_ctrl->reg_word);
++	pr_info("%s\n switch STM output to DvC.Trace ", __func__);
++
++	return 0;
++}
++
++static int stm_xfer_stop(void)
++{
++	struct stm_dev *stm = _dev_stm;
++	struct stm_ctrl *stm_ctrl;
++
++	if (!stm)
++		return -ENODEV;
++
++	stm_ctrl = &stm->stm_ctrl_hwreg;
++	stm_ctrl->reg_word = stm_readl(stm->stm_ioaddr, (u32)STM_CTRL);
++
++	stm_ctrl->usb_debug_en = false;
++	stm_ctrl->pti_out_en = true;
++
++	stm_writel(stm->stm_ioaddr, (u32)STM_CTRL, stm_ctrl->reg_word);
++	pr_info("%s\n switch STM to 4bits MIPI PTI (default)", __func__);
++
++	return 0;
++}
++
++static struct ebc_io stm_ebc_io_ops = {
++	.name = "stmbuf4kB",
++	.epname = "ep1in",
++	.epnum = 3,
++	.is_ondemand = 1,
++	.static_trb_pool_size = 4,
++	.init = stm_init,
++	.alloc_static_trb_pool = stm_alloc_static_trb_pool,
++	.free_static_trb_pool = ebc_io_free_static_trb_pool,
++	.xfer_start = stm_xfer_start,
++	.xfer_stop = stm_xfer_stop,
++};
++
++#define EXI_IN_TRB_POOL_OFFSET (4*16)
++static void *exi_inbound_alloc_static_trb_pool(dma_addr_t *dma_addr)
++{
++	struct stm_dev *stm = _dev_stm;
++	if (!stm)
++		return NULL;
++
++	*dma_addr = stm->stm_trb_base + EXI_IN_TRB_POOL_OFFSET;
++	return stm->trb_ioaddr + EXI_IN_TRB_POOL_OFFSET;
++}
++
++static struct ebc_io exi_in_ebc_io_ops = {
++	.name = "exi-inbound",
++	.epname = "ep8in",
++	.epnum = 17,
++	.is_ondemand = 0,
++	.static_trb_pool_size = 4,
++	.alloc_static_trb_pool = exi_inbound_alloc_static_trb_pool,
++	.free_static_trb_pool = ebc_io_free_static_trb_pool,
++};
++
++#define EXI_OUT_TRB_POOL_OFFSET (8*16)
++static void *exi_outbound_alloc_static_trb_pool(dma_addr_t *dma_addr)
++{
++	struct stm_dev *stm = _dev_stm;
++	if (!stm)
++		return NULL;
++
++	*dma_addr = stm->stm_trb_base + EXI_OUT_TRB_POOL_OFFSET;
++	return stm->trb_ioaddr + EXI_OUT_TRB_POOL_OFFSET;
++}
++
++static struct ebc_io exi_out_ebc_io_ops = {
++	.name = "exi-outbound",
++	.epname = "ep8out",
++	.epnum = 16,
++	.is_ondemand = 0,
++	.static_trb_pool_size = 2,
++	.alloc_static_trb_pool = exi_outbound_alloc_static_trb_pool,
++	.free_static_trb_pool = ebc_io_free_static_trb_pool,
++};
++
++int stm_is_enabled()
++{
++	return (_dev_stm != NULL);
++}
++EXPORT_SYMBOL_GPL(stm_is_enabled);
++
++/**
++ * stm_dev_init()- Used to setup STM resources on the pci bus.
++ *
++ * @pdev- pci_dev struct values for pti device.
++ * @stm- stm_dev struct managing stm resources
++ *
++ * Returns:
++ *	0 for success
++ *	otherwise, error
++ */
++int stm_dev_init(struct pci_dev *pdev,
++		 struct stm_dev *stm)
++{
++	int retval = 0;
++	int pci_bar = 0;
++
++	if (!cpu_has_debug_feature(DEBUG_FEATURE_PTI))
++		return -ENODEV;
++
++	dev_dbg(&pdev->dev, "%s %s(%d): STM PCI ID %04x:%04x\n", __FILE__,
++		__func__, __LINE__, pdev->vendor, pdev->device);
++
++	stm->stm_addr = pci_resource_start(pdev, pci_bar);
++
++	retval = pci_request_region(pdev, pci_bar, dev_name(&pdev->dev));
++	if (retval != 0) {
++		dev_err(&pdev->dev,
++			"%s(%d): pci_request_region() returned error %d\n",
++			__func__, __LINE__, retval);
++		return retval;
++	}
++	pr_info("stm add %x\n", stm->stm_addr);
++
++	stm->stm_reg_base = stm->stm_addr+STM_REG_BASE;
++	stm->stm_ioaddr = ioremap_nocache((u32)stm->stm_reg_base,
++					  STM_REG_LEN);
++	if (!stm->stm_ioaddr) {
++		retval = -ENOMEM;
++		goto out_release_region;
++	}
++
++	stm->stm_trb_base = stm->stm_addr+STM_TRB_BASE;
++	stm->trb_ioaddr = ioremap_nocache((u32)stm->stm_trb_base,
++					  STM_TRB_LEN);
++	if (!stm->trb_ioaddr) {
++		retval = -ENOMEM;
++		goto out_iounmap_stm_ioaddr;
++	}
++
++	stm->stm_ctrl_hwreg.reg_word = stm_readl(stm->stm_ioaddr,
++						 (u32)STM_CTRL);
++	stm->stm_usb3_hwreg.reg_word = stm_readl(stm->stm_ioaddr,
++						 (u32)STM_USB3DBGGTHR);
++
++	_dev_stm = stm;
++
++	dwc3_register_io_ebc(&stm_ebc_io_ops);
++	dwc3_register_io_ebc(&exi_in_ebc_io_ops);
++	dwc3_register_io_ebc(&exi_out_ebc_io_ops);
++
++	pr_info("successfully registered ebc io ops\n");
++
++	return retval;
++
++out_iounmap_stm_ioaddr:
++	pci_iounmap(pdev, stm->stm_ioaddr);
++
++out_release_region:
++	pci_release_region(pdev, pci_bar);
++
++	_dev_stm = NULL;
++	return retval;
++
++}
++EXPORT_SYMBOL_GPL(stm_dev_init);
++
++/**
++ * stm_dev_clean()- Driver exit method to free STM resources from
++ *		   PCI bus.
++ * @pdev: variable containing pci info of STM.
++ * @dev_stm: stm_dev resources to clean.
++ */
++void stm_dev_clean(struct pci_dev *pdev,
++		   struct stm_dev *dev_stm)
++{
++	int pci_bar = 0;
++
++	/* If STM driver was not initialized properly,
++	 * there is nothing to do.
++	 */
++	if (_dev_stm == NULL)
++		return;
++
++	dwc3_unregister_io_ebc(&stm_ebc_io_ops);
++	dwc3_unregister_io_ebc(&exi_in_ebc_io_ops);
++	dwc3_unregister_io_ebc(&exi_out_ebc_io_ops);
++
++	if (dev_stm != NULL) {
++		pci_iounmap(pdev, dev_stm->stm_ioaddr);
++		pci_iounmap(pdev, dev_stm->trb_ioaddr);
++	}
++
++	pci_release_region(pdev, pci_bar);
++
++	_dev_stm = NULL;
++}
++EXPORT_SYMBOL_GPL(stm_dev_clean);
++
++module_param_call(stm_out, stm_set_out, stm_get_out, NULL, 0644);
++MODULE_PARM_DESC(stm_out, "configure System Trace Macro output");
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Florent Pirou");
++MODULE_DESCRIPTION("STM Driver");
+diff --git a/drivers/misc/stm.h b/drivers/misc/stm.h
+new file mode 100644
+index 000000000000..1fb2d2e544fe
+--- /dev/null
++++ b/drivers/misc/stm.h
+@@ -0,0 +1,114 @@
++/*
++ * stm.h
++ *
++ *  Copyright (C) Intel 2011
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ *
++ * The STM (Sytem Trace Macro) Unit driver configure trace output
++ * to the Intel Tangier PTI port and DWC3 USB xHCI controller
++ * out of the mobile device for analysis with a debugging tool
++ * (Lauterbach, Fido). This is part of a solution for the MIPI P1149.7,
++ * compact JTAG, standard and USB Debug-Class
++ *
++ * This header file will allow other parts of the OS to use the
++ * interface to write out it's contents for debugging a mobile system.
++ */
++
++#ifndef _STM_H
++#define _STM_H
++
++#include <linux/pci.h>
++
++/* STM_CTRL register bitmap */
++/**
++ * struct stm_ctrl - STM control block
++ * @usb_debug_en : STM needs to redirece the trace packet to the USB3
++ * @pti_io_idle_threshold : threshold for disabling the IO clock.
++ * @pkt_transfer_size : asserts the *buff_avail signal after it has
++ * 1 or 2 KB of data in buffer
++ * @dis_dcu7_use : disables the useage of DCU7 instead of PTI_Disable
++ * @en_sw_ms : enables software master usage
++ * @mst_id_en : enables the PTI unit to suppress sending the Master Command
++ * @d64_cmd_en : PTI unit to use the D64 commands
++ * @pti_out_mode_sel
++ *	0 = PTI 4-bits legacy end user
++ *	1 = PTI 4-bits NiDnT
++ *	2 = PTI 16-bits
++ *	3 = PTI 12-bits
++ *	4 = PTI 8-bits
++ * @pti_out_en : PTI output enable muxselects that propagate
++ * to the FLIS to be enabled
++ * @lossy_mode_enable : Output Agent will continue to accept writes,
++ * even if the queuese are full. The data will be dropped and the
++ * dropped packet indicator will be incremented
++ * @time_stamp_enable : Enable time stamping the final packet in trace record.
++ */
++struct stm_ctrl {
++	union {
++		struct {
++			u32             time_stamp_enable:1;
++			u32             lossy_mode_enable:1;
++			u32             pti_out_en:1;
++			u32             reserved:1;
++			u32             pti_out_mode_sel:4;
++			u32             d64_cmd_en:1;
++			u32             mst_id_en:1;
++			u32             en_sw_ms:1;
++			u32             dis_dcu7_use:1;
++			u32             pkt_transfer_size:1;
++			u32             pti_io_idle_threshold:5;
++			u32             usb_debug_en:1;
++			u32             reserved31_19:13;
++		};
++		u32 reg_word;
++	};
++} __packed;
++
++/**
++ * struct stm_usb3_ctrl - STM buffer USB3 hardware EBC
++ * @region_closure_threshold : This is the threshold for closing
++ * the 1KB region in the debug trace buffer. STM will wait for the
++ * configured time as specified in this field and then closes the region.
++ * The unit of this field is in 64 us. Eg when this field value is set
++ * to 0xffff, then it indicates 2 ms
++ * @empty_packets_threshold : When STM does not have data to send,
++ * it can send empty packets to keep the USB3 alive. This is useful
++ * in case of ISOC traffic, because in this mode the wake up latency
++ * is high. STM will send the configured number of empty packets as
++ * specified in this field.
++ */
++struct stm_usb3_ctrl {
++	union {
++		struct {
++			u32             region_closure_threshold:15;
++			u32             empty_packets_threshold:6;
++			u32             reserved31_21:11;
++		};
++		u32 reg_word;
++	};
++} __packed;
++
++struct stm_dev {
++	unsigned long stm_addr;
++	unsigned long stm_reg_base;
++	unsigned long stm_trb_base;
++	void __iomem *stm_ioaddr;
++	void __iomem *trb_ioaddr;
++	struct stm_ctrl stm_ctrl_hwreg;
++	struct stm_usb3_ctrl stm_usb3_hwreg;
++};
++
++int stm_dev_init(struct pci_dev *pdev, struct stm_dev *dev_stm);
++void stm_dev_clean(struct pci_dev *pdev, struct stm_dev *dev_stm);
++
++#endif /* _STM_H */
+diff --git a/include/linux/sdm.h b/include/linux/sdm.h
+new file mode 100644
+index 000000000000..0a75ffbda522
+--- /dev/null
++++ b/include/linux/sdm.h
+@@ -0,0 +1,60 @@
++/*
++ *  Copyright (C) Intel 2011
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++ *
++ * The SDM (System Debug Monitor) directs trace data routed from
++ * various parts in the system out through the Intel Tangier PTI port and
++ * out of the mobile device for analysis with a debugging tool
++ * (Lauterbach, Fido). This is part of a solution for the MIPI P1149.7,
++ * compact JTAG, standard and USB Debug-Class
++ *
++ * This header file will allow other parts of the OS to use the
++ * interface to write out it's contents for debugging a mobile system.
++ */
++
++#ifndef SDM_H_
++#define SDM_H_
++
++#ifdef CONFIG_INTEL_PTI_STM
++/* the following functions are defined in drivers/misc/stm.c */
++int stm_kernel_get_out(void);
++int stm_kernel_set_out(int bus_type);
++int stm_is_enabled(void);
++#else
++static inline int stm_kernel_get_out(void) { return -EOPNOTSUPP; };
++static inline int stm_kernel_set_out(int bus_type) { return -EOPNOTSUPP; };
++static inline int stm_is_enabled(void) { return 0; };
++#endif
++
++/* Temporary : To be replace later with dynamic*/
++#define STM_NB_IN_PINS                  0
++
++/* STM output configurations */
++#define STM_PTI_4BIT_LEGACY                    0
++#define STM_PTI_4BIT_NIDNT                     1
++#define STM_PTI_16BIT                          2
++#define STM_PTI_12BIT                          3
++#define STM_PTI_8BIT                           4
++#define STM_USB                                15
++
++/* Buffer configurations */
++#define DFX_BULK_BUFFER_SIZE		64 /* for Tangier A0 */
++#define DFX_BULK_OUT_BUFFER_ADDR	0xF90B0000
++#define DFX_BULK_IN_BUFFER_ADDR		0xF90B0000
++#define DFX_BULK_IN_BUFFER_ADDR_2	0xF90B0400
++
++#define TRACE_BULK_BUFFER_SIZE		65536 /* revision */
++#define TRACE_BULK_IN_BUFFER_ADDR	0xF90A0000 /* revision */
++
++#endif /*SDM_H_*/
++
+-- 
+2.37.3
+

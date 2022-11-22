@@ -1,0 +1,140 @@
+From a8f0748f8e7ecfbc6a1e3f0e765665bd0e1b73d9 Mon Sep 17 00:00:00 2001
+From: Shimin Zhou <shimingx.zhou@intel.com>
+Date: Fri, 11 Dec 2015 13:57:10 +0800
+Subject: [PATCH 421/429] spi: fix freeze issue when spi transferring special
+ length of data
+
+Fix DMA mode will freeze when transfering
+8 bytes/8 bits,16 bytes/16 bits, 32 bytes/32 bits.
+and enable DMA mode in spi transferring.
+
+Signed-off-by: Shimin Zhou <shimingx.zhou@intel.com>
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ .../intel-mid/device_libs/platform_spidev.c   |  2 +-
+ drivers/spi/intel_mid_ssp_spi.c               | 24 +++++--------------
+ drivers/spi/spidev.c                          |  6 ++++-
+ 3 files changed, 12 insertions(+), 20 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+index cc7512943a2f..40827d640115 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_spidev.c
+@@ -26,7 +26,7 @@ static struct intel_mid_ssp_spi_chip chip = {
+ 	.burst_size = DFLT_FIFO_BURST_SIZE,
+ 	.timeout = DFLT_TIMEOUT_VAL,
+ 	/* SPI DMA is currently usable on Tangier */
+-	.dma_enabled = false,
++	.dma_enabled = true,
+ 	.cs_control = tng_ssp_spi_cs_control,
+ 	.platform_pinmux = tng_ssp_spi_platform_pinmux,
+ };
+diff --git a/drivers/spi/intel_mid_ssp_spi.c b/drivers/spi/intel_mid_ssp_spi.c
+index 2b5801fcec93..cbc993abd418 100644
+--- a/drivers/spi/intel_mid_ssp_spi.c
++++ b/drivers/spi/intel_mid_ssp_spi.c
+@@ -544,7 +544,7 @@ static void dma_transfer(struct ssp_drv_context *sspc)
+ 
+ 		/* In Rx direction, TRAIL Bytes are handled by memcpy */
+ 		if (sspc->rx_dma &&
+-			(sspc->len_dma_rx >
++			(sspc->len_dma_rx >=
+ 				sspc->rx_fifo_threshold * sspc->n_bytes))
+ 		{
+ 			sspc->len_dma_rx = TRUNCATE(sspc->len_dma_rx,
+@@ -961,7 +961,6 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 	u32 mask = 0;
+ 	int bits_per_word, saved_bits_per_word;
+ 	unsigned long flags;
+-	u8 normal_enabled = 0;
+ 
+ 	chip = spi_get_ctldata(msg->spi);
+ 
+@@ -1054,28 +1053,16 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			sspc->n_bytes = 1;
+ 			sspc->read = u8_reader;
+ 			sspc->write = u8_writer;
+-			/* It maybe has some unclear issue in dma mode, as workaround,
+-			use normal mode to transfer when len equal 8 bytes */
+-			if (transfer->len == 8)
+-				normal_enabled = 1;
+ 		} else if (bits_per_word <= 16) {
+ 			sspc->n_bytes = 2;
+ 			sspc->read = u16_reader;
+ 			sspc->write = u16_writer;
+-			/* It maybe has some unclear issue in dma mode, as workaround,
+-			use normal mode to transfer when len equal 16 bytes */
+-			if (transfer->len == 16)
+-				normal_enabled = 1;
+ 		} else if (bits_per_word <= 32) {
+ 			if (!ssp_timing_wr)
+ 				cr0 |= SSCR0_EDSS;
+ 			sspc->n_bytes = 4;
+ 			sspc->read = u32_reader;
+ 			sspc->write = u32_writer;
+-			/* It maybe has some unclear issue in dma mode, as workaround,
+-			use normal mode to transfer when len equal 32 bytes */
+-			if (transfer->len == 32)
+-				normal_enabled = 1;
+ 		}
+ 
+ 		sspc->tx  = (void *)transfer->tx_buf;
+@@ -1114,7 +1101,7 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 			/* value. The RX fifo threshold must be aligned with the DMA */
+ 			/* RX transfer size, which may be limited to a multiple of 4 */
+ 			/* bytes due to 32bits DDR access.                           */
+-			if  (sspc->len / sspc->n_bytes <= sspc->rx_fifo_threshold) {
++			if  (sspc->len / sspc->n_bytes < sspc->rx_fifo_threshold) {
+ 				u32 rx_fifo_threshold;
+ 
+ 				rx_fifo_threshold = (sspc->len & ~(4 - 1)) /
+@@ -1176,7 +1163,7 @@ static int handle_message(struct ssp_drv_context *sspc)
+ 		if (sspc->cs_control)
+ 			sspc->cs_control(sspc->cs_assert);
+ 
+-		if (likely(dma_enabled) && (!normal_enabled)) {
++		if (likely(dma_enabled)) {
+ 			if (unlikely(sspc->quirks & QUIRKS_USE_PM_QOS))
+ 				pm_qos_update_request(&sspc->pm_qos_req,
+ 						MIN_EXIT_LATENCY);
+@@ -1252,9 +1239,10 @@ static int setup(struct spi_device *spi)
+ 	if (!spi->bits_per_word)
+ 		spi->bits_per_word = DFLT_BITS_PER_WORD;
+ 
+-	if ((spi->bits_per_word < MIN_BITS_PER_WORD
+-		|| spi->bits_per_word > MAX_BITS_PER_WORD)) {
++	if ((spi->bits_per_word != 8) && (spi->bits_per_word != 16)
++		&& (spi->bits_per_word != 32)) {
+ 		spin_unlock_irqrestore(&sspc->lock, flags);
++		dev_warn(&spi->dev, "invalid wordsize, system only support 8,16,32 bits per word.\n");
+ 		return -EINVAL;
+ 	}
+ 
+diff --git a/drivers/spi/spidev.c b/drivers/spi/spidev.c
+index a08f923b9925..12112a1f3edc 100644
+--- a/drivers/spi/spidev.c
++++ b/drivers/spi/spidev.c
+@@ -438,7 +438,8 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+ 		break;
+ 
+ 	default:
+-		/* segmented and/or full-duplex I/O request */
++		/* segmented and/or full-duplex I/O request.
++		   Note: Maximum support 511 n_ioc at a time */
+ 		if (_IOC_NR(cmd) != _IOC_NR(SPI_IOC_MESSAGE(0))
+ 				|| _IOC_DIR(cmd) != _IOC_WRITE) {
+ 			retval = -ENOTTY;
+@@ -452,7 +453,10 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+ 		}
+ 		n_ioc = tmp / sizeof(struct spi_ioc_transfer);
+ 		if (n_ioc == 0)
++		{
++			dev_err(&spi->dev, "Value of n_ioc is out of range( 1 ~ 511 ).\n");
+ 			break;
++		}
+ 
+ 		/* copy into scratch area */
+ 		ioc = kmalloc(tmp, GFP_KERNEL);
+-- 
+2.37.3
+

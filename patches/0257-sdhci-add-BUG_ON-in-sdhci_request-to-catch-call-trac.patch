@@ -1,0 +1,88 @@
+From d0d33c7ea6e62425272cf574f4e4c9f29e84c444 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Thu, 18 Jul 2013 16:15:56 +0800
+Subject: [PATCH 257/429] sdhci: add BUG_ON() in sdhci_request to catch call
+ trace
+
+Add BUG_ON() to catch the error trace if accessing host before host
+is resumed
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci.c  | 18 ++++++++++++++++++
+ include/linux/mmc/sdhci.h |  1 +
+ 2 files changed, 19 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index de608c763edf..f3b7283882ba 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1571,6 +1571,12 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 
+ 	spin_lock_irqsave(&host->lock, flags);
+ 
++	if (host->suspended) {
++		pr_err("%s: %s: host is in suspend state\n",
++				__func__, mmc_hostname(mmc));
++		BUG_ON(1);
++	}
++
+ 	WARN_ON(host->mrq != NULL);
+ 
+ #ifndef SDHCI_USE_LEDS_CLASS
+@@ -3489,6 +3495,7 @@ EXPORT_SYMBOL_GPL(sdhci_disable_irq_wakeups);
+ int sdhci_suspend_host(struct sdhci_host *host)
+ {
+ 	int ret;
++	unsigned long flags;
+ 
+ 	if (host->ops->platform_suspend)
+ 		host->ops->platform_suspend(host);
+@@ -3524,6 +3531,12 @@ int sdhci_suspend_host(struct sdhci_host *host)
+ 		enable_irq_wake(host->irq);
+ 	}
+ 
++	/* Card succesfully suspended. Tell information to SCU */
++	sdhci_set_emmc_state(host, DEKKER_EMMC_CHIP_SUSPENDED);
++
++	spin_lock_irqsave(&host->lock, flags);
++	host->suspended = true;
++	spin_unlock_irqrestore(&host->lock, flags);
+ out:
+ 	sdhci_release_ownership(host->mmc);
+ 	return ret;
+@@ -3534,6 +3547,7 @@ EXPORT_SYMBOL_GPL(sdhci_suspend_host);
+ int sdhci_resume_host(struct sdhci_host *host)
+ {
+ 	int ret;
++	unsigned long flags;
+ 
+ 	sdhci_acquire_ownership(host->mmc);
+ 
+@@ -3564,6 +3578,10 @@ int sdhci_resume_host(struct sdhci_host *host)
+ 		mmiowb();
+ 	}
+ 
++	spin_lock_irqsave(&host->lock, flags);
++	host->suspended = false;
++	spin_unlock_irqrestore(&host->lock, flags);
++
+ 	ret = mmc_resume_host(host->mmc);
+ 	sdhci_enable_card_detection(host);
+ 
+diff --git a/include/linux/mmc/sdhci.h b/include/linux/mmc/sdhci.h
+index 1c4e1987c5fd..4dcb2f3a90df 100644
+--- a/include/linux/mmc/sdhci.h
++++ b/include/linux/mmc/sdhci.h
+@@ -180,6 +180,7 @@ struct sdhci_host {
+ 	u8 pwr;			/* Current voltage */
+ 
+ 	bool runtime_suspended;	/* Host is runtime suspended */
++	bool suspended;		/* Host is suspended */
+ 
+ 	struct mmc_request *mrq;	/* Current request */
+ 	struct mmc_command *cmd;	/* Current command */
+-- 
+2.37.3
+

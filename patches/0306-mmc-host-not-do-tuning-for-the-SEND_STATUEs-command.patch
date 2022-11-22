@@ -1,0 +1,31 @@
+From 52dadb2f83669f9505ac63a1d4d5ef93f7925832 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Wed, 31 Jul 2013 16:53:50 +0800
+Subject: [PATCH 306/429] mmc: host: not do tuning for the SEND_STATUEs command
+
+tuning timeout because of the secure erase operation lasts too long
+so not to do tuning for the send status command.
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index a2f927008612..b1122f13e8ad 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1625,7 +1625,8 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 		 * tuning procedure before sending command.
+ 		 */
+ 		if ((host->flags & SDHCI_NEEDS_RETUNING) &&
+-		    !(present_state & (SDHCI_DOING_WRITE | SDHCI_DOING_READ))) {
++		    !(present_state & (SDHCI_DOING_WRITE | SDHCI_DOING_READ)) &&
++			mrq->cmd->opcode != MMC_SEND_STATUS) {
+ 			if (mmc->card) {
+ 				/* eMMC uses cmd21 but sd and sdio use cmd19 */
+ 				tuning_opcode =
+-- 
+2.37.3
+

@@ -1,0 +1,34 @@
+From db18a1ea81e939831dd86fba06d49fbd5ee735a2 Mon Sep 17 00:00:00 2001
+From: roberto crippa <roberto.crippa@intel.com>
+Date: Wed, 28 May 2014 16:47:27 +0200
+Subject: [PATCH 325/429] bluetooth: enter low power mode
+
+Currently the bcm_bt_lpm module driver doesn't enter low power mode
+when lpm timer elapses.
+Fix is to trigger disable UART on enter_lpm routine (the lpm timer
+callback).
+The whole lpm mechanism will work if bcm_bt_lpm_wake_peer is
+correctly called in the hsu serial context.
+This is fixed in gerrit 5019 that implements wake_peer mechanism.
+
+Signed-off-by: roberto crippa <roberto.crippa@intel.com>
+---
+ drivers/misc/bcm-lpm/bcm_bt_lpm.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/misc/bcm-lpm/bcm_bt_lpm.c b/drivers/misc/bcm-lpm/bcm_bt_lpm.c
+index 859ef6ee666a..335a9258df57 100644
+--- a/drivers/misc/bcm-lpm/bcm_bt_lpm.c
++++ b/drivers/misc/bcm-lpm/bcm_bt_lpm.c
+@@ -204,6 +204,8 @@ static enum hrtimer_restart enter_lpm(struct hrtimer *timer)
+ {
+ 	pr_debug("%s\n", __func__);
+ 
++	set_wake_locked(0);
++
+ 	return HRTIMER_NORESTART;
+ }
+ 
+-- 
+2.37.3
+

@@ -1,0 +1,44 @@
+From 23b9037633db9e3c8814b65ddc0aa0c499afad64 Mon Sep 17 00:00:00 2001
+From: Dyut Kumar Sil <dyut.k.sil@intel.com>
+Date: Wed, 23 Oct 2013 16:27:25 +0530
+Subject: [PATCH 096/429] intel-soc_mrfld: Add more debug info. when S3 is
+ blocked by some device
+
+Before attempting final mwait for S3, we check whether all south complex
+and north complex devices are in required power state. If not, we put a
+debug print whether SC or NC devices is in improper state. This patch add
+more debug info by printing the current status of all the devices.
+
+Signed-off-by: Dyut Kumar Sil <dyut.k.sil@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_mrfld.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.c b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+index 1de4e57b22d1..0ead68802ec9 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+@@ -168,6 +168,9 @@ static bool mrfld_nc_sc_status_check(void)
+ 					 (S0IX_TARGET_SSS3)))) {
+ 		sc_status = false;
+ 		pr_warn("SC device/devices not in d0i3!!\n");
++		for (i = 0; i < 4; i++)
++			pr_warn("pmu2_states[%d] = %08lX\n", i,
++					cur_pmsss.pmu2_states[i]);
+ 	}
+ 
+ 	if (sc_status) {
+@@ -181,7 +184,9 @@ static bool mrfld_nc_sc_status_check(void)
+ 			val = nc_pwr_sts & 3;
+ 			if (val != 3) {
+ 				nc_status = false;
+-				pr_warn("NC device/devices is not in D0i3!!\n");
++				pr_warn("NC device (%s) is not in d0i3!!\n",
++							mrfl_nc_devices[i]);
++				pr_warn("nc_pm_sss = %08X\n", nc_pwr_sts);
+ 				break;
+ 			}
+ 			nc_pwr_sts >>= BITS_PER_LSS;
+-- 
+2.37.3
+

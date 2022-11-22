@@ -1,0 +1,76 @@
+From 7221323dbf7e0d89af2f89498bcf6bcaf9662530 Mon Sep 17 00:00:00 2001
+From: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+Date: Wed, 11 Dec 2013 22:08:46 +0530
+Subject: [PATCH 125/429] intel-mid: Use for_each_pci_dev where possible
+
+Use for_each_pci_dev instead of reinventing it.
+
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_pm_debug.c | 8 +++-----
+ arch/x86/platform/intel-mid/intel_soc_pmu.c      | 2 +-
+ arch/x86/platform/intel-mid/intel_soc_pmu.h      | 2 --
+ 3 files changed, 4 insertions(+), 8 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+index e517201a8028..95c3445bde32 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+@@ -820,8 +820,7 @@ static int pmu_devices_state_show(struct seq_file *s, void *unused)
+ 	pmu_stat_seq_printf(s, SYS_STATE_S0I3, "s0i3");
+ 	pmu_stat_seq_printf(s, SYS_STATE_S3, "s3");
+ 
+-	while ((pdev = pci_get_device(PCI_ID_ANY, PCI_ID_ANY, pdev)) != NULL) {
+-
++	for_each_pci_dev(pdev) {
+ 		/* find the base class info */
+ 		base_class = pdev->class >> 16;
+ 
+@@ -993,8 +992,7 @@ static int show_pmu_dev_stats(struct seq_file *s, void *unused)
+ 	seq_printf(s,
+ 	"==================================================================\n");
+ 
+-	while ((pdev = pci_get_device(PCI_ID_ANY, PCI_ID_ANY, pdev)) != NULL) {
+-
++	for_each_pci_dev(pdev) {
+ 		/* find the base class info */
+ 		base_class = pdev->class >> 16;
+ 
+@@ -1509,7 +1507,7 @@ static int pmu_devices_state_show(struct seq_file *s, void *unused)
+ 
+ 	seq_printf(s, "\nSOUTH COMPLEX DEVICES :\n\n");
+ 
+-	while ((pdev = pci_get_device(PCI_ID_ANY, PCI_ID_ANY, pdev)) != NULL) {
++	for_each_pci_dev(pdev) {
+ 		/* find the base class info */
+ 		base_class = pdev->class >> 16;
+ 
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 8beadb493a6d..346ba3e0c07f 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -703,7 +703,7 @@ static void pmu_enumerate(void)
+ 	struct pci_dev *pdev = NULL;
+ 	unsigned int base_class;
+ 
+-	while ((pdev = pci_get_device(PCI_ID_ANY, PCI_ID_ANY, pdev)) != NULL) {
++	for_each_pci_dev(pdev) {
+ 		if (platform_is(INTEL_ATOM_MRFLD) &&
+ 			pdev->device == MID_MRFL_HDMI_DRV_DEV_ID)
+ 			continue;
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.h b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+index 5adb014bb867..243ae4748570 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.h
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+@@ -65,8 +65,6 @@
+ #define HSU1_PCI_ID				0x81b
+ #define HSI_PCI_ID				0x833
+ 
+-#define PCI_ID_ANY	(~0)
+-
+ #define MODE_ID_MAGIC_NUM			1
+ 
+ #define   LOG_ID_MASK				0x7F
+-- 
+2.37.3
+

@@ -1,0 +1,40 @@
+From d0e38ee4458a7c3c6c779bf8f71456f8cd40fb70 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Mon, 4 Nov 2013 16:28:06 +0800
+Subject: [PATCH 199/429] dwc3-host-intel: Clear HCD state during start_host.
+
+Due to primary HCD is create during probe. So after create, the
+hcd->flags is 0 by default. But base on dwc3-host-intel driver design,
+the initial flags depend on last time setting.
+
+So if last time, xHCI met something wrong and flags set HCD_FLAG_DEAD.
+Then after start_host, driver will miss all interrupts. Because if HCD
+is dead, then USB core will return IRQ_NONE directly without interrupt
+handling. Controller will continue generate interrupts for this case, so
+USB3 IRQ will be disable by kernel due to nobody handle it.
+
+This patch will reset hcd->flags during host start process.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/dwc3-host-intel.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/usb/dwc3/dwc3-host-intel.c b/drivers/usb/dwc3/dwc3-host-intel.c
+index 75c80beff6fa..a757e2b3152f 100644
+--- a/drivers/usb/dwc3/dwc3-host-intel.c
++++ b/drivers/usb/dwc3/dwc3-host-intel.c
+@@ -304,6 +304,10 @@ static int dwc3_start_host(struct usb_hcd *hcd)
+ 	 * To prevent incorrect flags set during last time. */
+ 	hcd->flags = 0;
+ 
++	/* Clear the hcd->flags.
++	 * To prevent incorrect flags set during last time. */
++	hcd->flags = 0;
++
+ 	ret = usb_add_hcd(hcd, otg_irqnum, IRQF_SHARED);
+ 	if (ret)
+ 		return -EINVAL;
+-- 
+2.37.3
+

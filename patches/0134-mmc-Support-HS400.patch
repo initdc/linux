@@ -1,0 +1,489 @@
+From 17bf2faffa691e351ceb0b1c1fd447b5fa3eada4 Mon Sep 17 00:00:00 2001
+From: yisun1 <yi.y.sun@intel.com>
+Date: Mon, 28 Oct 2013 11:44:56 +0800
+Subject: [PATCH 134/429] mmc: Support HS400
+
+Implement HS400 defined in eMMC 5.0.
+
+Signed-off-by: yisun1 <yi.y.sun@intel.com>
+---
+ drivers/mmc/core/bus.c       |   3 +-
+ drivers/mmc/core/debugfs.c   |   3 +
+ drivers/mmc/core/mmc.c       | 161 +++++++++++++++++++++++++++++++----
+ drivers/mmc/host/sdhci-pci.c |  12 +++
+ drivers/mmc/host/sdhci.c     |   8 +-
+ drivers/mmc/host/sdhci.h     |   4 +-
+ include/linux/mmc/card.h     |   4 +
+ include/linux/mmc/host.h     |  12 +++
+ include/linux/mmc/mmc.h      |   5 ++
+ 9 files changed, 194 insertions(+), 18 deletions(-)
+
+diff --git a/drivers/mmc/core/bus.c b/drivers/mmc/core/bus.c
+index e219c97a02a4..73c2bc581c10 100644
+--- a/drivers/mmc/core/bus.c
++++ b/drivers/mmc/core/bus.c
+@@ -309,11 +309,12 @@ int mmc_add_card(struct mmc_card *card)
+ 			mmc_card_ddr_mode(card) ? "DDR " : "",
+ 			type);
+ 	} else {
+-		pr_info("%s: new %s%s%s%s%s card at address %04x\n",
++		pr_info("%s: new %s%s%s%s%s%s card at address %04x\n",
+ 			mmc_hostname(card->host),
+ 			mmc_card_uhs(card) ? "ultra high speed " :
+ 			(mmc_card_highspeed(card) ? "high speed " : ""),
+ 			(mmc_card_hs200(card) ? "HS200 " : ""),
++			(mmc_card_hs400(card) ? "HS400 " : ""),
+ 			mmc_card_ddr_mode(card) ? "DDR " : "",
+ 			uhs_bus_speed_mode, type, card->rca);
+ 	}
+diff --git a/drivers/mmc/core/debugfs.c b/drivers/mmc/core/debugfs.c
+index 35c2f85b1956..a0cb347a56f5 100644
+--- a/drivers/mmc/core/debugfs.c
++++ b/drivers/mmc/core/debugfs.c
+@@ -138,6 +138,9 @@ static int mmc_ios_show(struct seq_file *s, void *data)
+ 	case MMC_TIMING_MMC_HS200:
+ 		str = "mmc high-speed SDR200";
+ 		break;
++	case MMC_TIMING_MMC_HS400:
++		str = "mmc high-speed DDR200";
++		break;
+ 	default:
+ 		str = "invalid";
+ 		break;
+diff --git a/drivers/mmc/core/mmc.c b/drivers/mmc/core/mmc.c
+index 0cbd1effe960..89d60824aaa6 100644
+--- a/drivers/mmc/core/mmc.c
++++ b/drivers/mmc/core/mmc.c
+@@ -239,7 +239,8 @@ static int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd)
+ static void mmc_select_card_type(struct mmc_card *card)
+ {
+ 	struct mmc_host *host = card->host;
+-	u8 card_type = card->ext_csd.raw_card_type & EXT_CSD_CARD_TYPE_MASK;
++	u8 card_type = card->ext_csd.raw_card_type &
++			EXT_CSD_CARD_TYPE_MASK_FULL;
+ 	u32 caps = host->caps, caps2 = host->caps2;
+ 	unsigned int hs_max_dtr = 0;
+ 
+@@ -262,6 +263,12 @@ static void mmc_select_card_type(struct mmc_card *card)
+ 			card_type & EXT_CSD_CARD_TYPE_SDR_1_2V))
+ 		hs_max_dtr = MMC_HS200_MAX_DTR;
+ 
++	if ((caps2 & MMC_CAP2_HS400_1_8V_DDR &&
++			card_type & EXT_CSD_CARD_TYPE_HS400_1_8V) ||
++	    (caps2 & MMC_CAP2_HS400_1_2V_DDR &&
++			card_type & EXT_CSD_CARD_TYPE_HS400_1_2V))
++		hs_max_dtr = MMC_HS400_MAX_DTR;
++
+ 	card->ext_csd.hs_max_dtr = hs_max_dtr;
+ 	card->ext_csd.card_type = card_type;
+ }
+@@ -707,8 +714,12 @@ static int mmc_select_powerclass(struct mmc_card *card,
+ 			index = (bus_width <= EXT_CSD_BUS_WIDTH_8) ?
+ 				EXT_CSD_PWR_CL_52_195 :
+ 				EXT_CSD_PWR_CL_DDR_52_195;
+-		else if (host->ios.clock <= 200000000)
+-			index = EXT_CSD_PWR_CL_200_195;
++		else if (host->ios.clock <= 200000000) {
++			if (mmc_card_hs400(card))
++				index = EXT_CSD_PWR_CL_200_DDR_195;
++			else
++				index = EXT_CSD_PWR_CL_200_195;
++		}
+ 		break;
+ 	case MMC_VDD_27_28:
+ 	case MMC_VDD_28_29:
+@@ -754,6 +765,81 @@ static int mmc_select_powerclass(struct mmc_card *card,
+ 	return err;
+ }
+ 
++/*
++ * Support HS400:
++ * This function should be called after HS200 tuning.
++ */
++static int mmc_select_hs400_start(struct mmc_card *card)
++{
++	int err = -EINVAL;
++	struct mmc_host *host;
++	static unsigned ext_csd_bit = EXT_CSD_DDR_BUS_WIDTH_8;
++	static unsigned bus_width = MMC_BUS_WIDTH_8;
++
++	BUG_ON(!card);
++
++	host = card->host;
++	/* HS400 mode only supports 8bit bus.*/
++	if (!(host->caps & MMC_CAP_8_BIT_DATA)) {
++		pr_err("HS400: MMC host does not support 8bit bus, error!\n");
++		goto err;
++	}
++
++	/* Must set HS_TIMING to 1 after tuning completion. */
++	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
++			EXT_CSD_HS_TIMING, 1, 0);
++	if (!err) {
++		/* Set timing to DDR50 first */
++		mmc_set_timing(card->host, MMC_TIMING_UHS_DDR50);
++		/* Then, set clock to 50MHz */
++		mmc_set_clock(host, MMC_HIGH_DDR_MAX_DTR);
++	} else {
++		goto err;
++	}
++
++	/*
++	 * Host is capable of 8bit transfer, switch
++	 * the device to work in 8bit transfer mode.
++	 * On success set 8bit bus width on the host.
++	 */
++	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
++			EXT_CSD_BUS_WIDTH,
++			ext_csd_bit,
++			card->ext_csd.generic_cmd6_time);
++	if (err)
++		goto err;
++
++	/* Bus test */
++	mmc_set_bus_width(card->host, bus_width);
++	if (!(host->caps & MMC_CAP_BUS_WIDTH_TEST))
++		err = mmc_compare_ext_csds(card, bus_width);
++	else
++		err = mmc_bus_test(card, bus_width);
++	if (err)
++		goto err;
++
++err:
++	return err;
++}
++
++static int mmc_select_hs400_end(struct mmc_card *card, unsigned int max_dtr)
++{
++	int err = -EINVAL;
++
++	/* Switch timing to HS400 now. */
++	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
++			EXT_CSD_HS_TIMING, 3, 0);
++	if (!err) {
++		mmc_set_timing(card->host, MMC_TIMING_MMC_HS400);
++		/*
++		 * After enablig HS400 mode, we should restore
++		 * frequency to 200MHz.
++		 */
++		mmc_set_clock(card->host, max_dtr);
++	}
++	return err;
++}
++
+ /*
+  * Selects the desired buswidth and switch to the HS200 mode
+  * if bus width set without error
+@@ -775,12 +861,16 @@ static int mmc_select_hs200(struct mmc_card *card)
+ 
+ 	host = card->host;
+ 
+-	if (card->ext_csd.card_type & EXT_CSD_CARD_TYPE_SDR_1_2V &&
+-			host->caps2 & MMC_CAP2_HS200_1_2V_SDR)
++	if ((card->ext_csd.card_type & EXT_CSD_CARD_TYPE_SDR_1_2V &&
++			host->caps2 & MMC_CAP2_HS200_1_2V_SDR) ||
++	    (card->ext_csd.card_type & EXT_CSD_CARD_TYPE_HS400_1_2V &&
++			host->caps2 & MMC_CAP2_HS400_1_2V_DDR))
+ 		err = __mmc_set_signal_voltage(host, MMC_SIGNAL_VOLTAGE_120);
+ 
+-	if (err && card->ext_csd.card_type & EXT_CSD_CARD_TYPE_SDR_1_8V &&
+-			host->caps2 & MMC_CAP2_HS200_1_8V_SDR)
++	if (err && ((card->ext_csd.card_type & EXT_CSD_CARD_TYPE_SDR_1_8V &&
++			host->caps2 & MMC_CAP2_HS200_1_8V_SDR) ||
++	    (card->ext_csd.card_type & EXT_CSD_CARD_TYPE_HS400_1_8V &&
++			host->caps2 & MMC_CAP2_HS400_1_8V_DDR)))
+ 		err = __mmc_set_signal_voltage(host, MMC_SIGNAL_VOLTAGE_180);
+ 
+ 	/* If fails try again during next card power cycle */
+@@ -1038,8 +1128,10 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
+ 	 */
+ 	if (card->ext_csd.hs_max_dtr != 0) {
+ 		err = 0;
++		/* Support HS400: set to HS200 before tuning complete. */
+ 		if (card->ext_csd.hs_max_dtr > 52000000 &&
+-		    host->caps2 & MMC_CAP2_HS200)
++		    (host->caps2 & MMC_CAP2_HS200 ||
++		    host->caps2 & MMC_CAP2_HS400))
+ 			err = mmc_select_hs200(card);
+ 		else if	(host->caps & MMC_CAP_MMC_HIGHSPEED)
+ 			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+@@ -1055,6 +1147,15 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
+ 			err = 0;
+ 		} else {
+ 			if (card->ext_csd.hs_max_dtr > 52000000 &&
++			    host->caps2 & MMC_CAP2_HS400 &&
++			    (card->ext_csd.card_type &
++				EXT_CSD_CARD_TYPE_HS400_1_8V ||
++			    card->ext_csd.card_type &
++				EXT_CSD_CARD_TYPE_HS400_1_2V)) {
++				mmc_card_set_hs400(card);
++				mmc_set_timing(card->host,
++						MMC_TIMING_MMC_HS200);
++			} else if (card->ext_csd.hs_max_dtr > 52000000 &&
+ 			    host->caps2 & MMC_CAP2_HS200) {
+ 				mmc_card_set_hs200(card);
+ 				mmc_set_timing(card->host,
+@@ -1071,7 +1172,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
+ 	 */
+ 	max_dtr = (unsigned int)-1;
+ 
+-	if (mmc_card_highspeed(card) || mmc_card_hs200(card)) {
++	if (mmc_card_highspeed(card) ||
++	    mmc_card_hs200(card) ||
++	    mmc_card_hs400(card)) {
+ 		if (max_dtr > card->ext_csd.hs_max_dtr)
+ 			max_dtr = card->ext_csd.hs_max_dtr;
+ 		if (mmc_card_highspeed(card) && (max_dtr > 52000000))
+@@ -1099,9 +1202,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
+ 	}
+ 
+ 	/*
+-	 * Indicate HS200 SDR mode (if supported).
++	 * Indicate HS200 SDR mode or HS400 DDR mode (if supported).
+ 	 */
+-	if (mmc_card_hs200(card)) {
++	if (mmc_card_hs200(card) || mmc_card_hs400(card)) {
+ 		u32 ext_csd_bits;
+ 		u32 bus_width = card->host->ios.bus_width;
+ 
+@@ -1116,7 +1219,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
+ 		 * 3. set the clock to > 52Mhz <=200MHz and
+ 		 * 4. execute tuning for HS200
+ 		 */
+-		if ((host->caps2 & MMC_CAP2_HS200) &&
++		/* Support HS400: tuning under HS200 mode. */
++		if ((host->caps2 & MMC_CAP2_HS200 ||
++		    host->caps2 & MMC_CAP2_HS400) &&
+ 		    card->host->ops->execute_tuning) {
+ 			mmc_host_clk_hold(card->host);
+ 			err = card->host->ops->execute_tuning(card->host,
+@@ -1129,19 +1234,45 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
+ 			goto err;
+ 		}
+ 
+-		ext_csd_bits = (bus_width == MMC_BUS_WIDTH_8) ?
++		/* Support HS400 */
++		if (mmc_card_hs400(card)) {
++			/*
++			 * Per spec 5.0, follow below sequence to enable HS400:
++			 * 1. Set HS_TIMING to 1 after HS200 tuning.
++			 * 2. Set frequency below 52MHz.
++			 * 3. Set bus width to DDR 8bit.
++			 * 4. Set HS_TIMING to 3 as HS400.
++			 */
++			err = mmc_select_hs400_start(card);
++			if (err) {
++				pr_warn("%s: hs400_start err=0x%x.\n",
++					mmc_hostname(card->host), err);
++				goto free_card;
++			}
++			ext_csd_bits = EXT_CSD_DDR_BUS_WIDTH_8;
++		} else {
++			ext_csd_bits = (bus_width == MMC_BUS_WIDTH_8) ?
+ 				EXT_CSD_BUS_WIDTH_8 : EXT_CSD_BUS_WIDTH_4;
++		}
+ 		err = mmc_select_powerclass(card, ext_csd_bits, ext_csd);
+ 		if (err)
+-			pr_warning("%s: power class selection to bus width %d"
++			pr_warn("%s: power class selection to bus width %d"
+ 				   " failed\n", mmc_hostname(card->host),
+ 				   1 << bus_width);
++		if (mmc_card_hs400(card)) {
++			err = mmc_select_hs400_end(card, max_dtr);
++			if (err) {
++				pr_warn("%s: hs400_end err=0x%x.\n",
++					mmc_hostname(card->host), err);
++				goto free_card;
++			}
++		}
+ 	}
+ 
+ 	/*
+ 	 * Activate wide bus and DDR (if supported).
+ 	 */
+-	if (!mmc_card_hs200(card) &&
++	if ((!mmc_card_hs200(card) && !mmc_card_hs400(card)) &&
+ 	    (card->csd.mmca_vsn >= CSD_SPEC_VER_4) &&
+ 	    (host->caps & (MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA))) {
+ 		static unsigned ext_csd_bits[][2] = {
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 6a605dbe385e..6b9fd841cbc9 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -477,10 +477,22 @@ static int intel_moor_emmc_probe_slot(struct sdhci_pci_slot *slot)
+ 	slot->host->mmc->caps2 |= MMC_CAP2_POLL_R1B_BUSY |
+ 				MMC_CAP2_INIT_CARD_SYNC;
+ 
++	/* Enable HS200 and HS400 */
++	slot->host->mmc->caps2 |= MMC_CAP2_HS200_1_8V_SDR;
++
++	if (slot->chip->pdev->revision == 0x1) { /* B0 stepping */
++		slot->host->mmc->caps2 |= MMC_CAP2_HS400_1_8V_DDR;
++	}
++
+ 	if (slot->data)
+ 		if (slot->data->platform_quirks & PLFM_QUIRK_NO_HIGH_SPEED) {
+ 			slot->host->quirks2 |= SDHCI_QUIRK2_DISABLE_HIGH_SPEED;
+ 			slot->host->mmc->caps &= ~MMC_CAP_1_8V_DDR;
++			slot->host->mmc->caps2 &= ~MMC_CAP2_HS200_1_8V_SDR;
++			if (slot->chip->pdev->revision == 0x1) {
++				slot->host->mmc->caps2 &=
++					~MMC_CAP2_HS400_1_8V_DDR;
++			}
+ 		}
+ 
+ 	if (slot->data)
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index 18aac246179c..0d23c3567e2e 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1105,6 +1105,9 @@ static u16 sdhci_get_preset_value(struct sdhci_host *host)
+ 	case SDHCI_CTRL_UHS_DDR50:
+ 		preset = sdhci_readw(host, SDHCI_PRESET_FOR_DDR50);
+ 		break;
++	case SDHCI_CTRL_HS_DDR200:
++		preset = sdhci_readw(host, SDHCI_PRESET_FOR_HS400);
++		break;
+ 	default:
+ 		pr_warn("%s: Invalid UHS-I mode selected\n",
+ 			mmc_hostname(host->mmc));
+@@ -1496,6 +1499,7 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
+ 
+ 		/* In case of UHS-I modes, set High Speed Enable */
+ 		if ((ios->timing == MMC_TIMING_MMC_HS200) ||
++		    (ios->timing == MMC_TIMING_MMC_HS400) ||
+ 		    (ios->timing == MMC_TIMING_UHS_SDR50) ||
+ 		    (ios->timing == MMC_TIMING_UHS_SDR104) ||
+ 		    (ios->timing == MMC_TIMING_UHS_DDR50) ||
+@@ -1547,7 +1551,9 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
+ 			ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
+ 			/* Select Bus Speed Mode for host */
+ 			ctrl_2 &= ~SDHCI_CTRL_UHS_MASK;
+-			if (ios->timing == MMC_TIMING_MMC_HS200)
++			if (ios->timing == MMC_TIMING_MMC_HS400)
++				ctrl_2 |= SDHCI_CTRL_HS_DDR200;
++			else if (ios->timing == MMC_TIMING_MMC_HS200)
+ 				ctrl_2 |= SDHCI_CTRL_HS_SDR200;
+ 			else if (ios->timing == MMC_TIMING_UHS_SDR12)
+ 				ctrl_2 |= SDHCI_CTRL_UHS_SDR12;
+diff --git a/drivers/mmc/host/sdhci.h b/drivers/mmc/host/sdhci.h
+index ebc0cb7cbc45..8fcc7c0180e3 100644
+--- a/drivers/mmc/host/sdhci.h
++++ b/drivers/mmc/host/sdhci.h
+@@ -160,7 +160,8 @@
+ #define   SDHCI_CTRL_UHS_SDR50		0x0002
+ #define   SDHCI_CTRL_UHS_SDR104		0x0003
+ #define   SDHCI_CTRL_UHS_DDR50		0x0004
+-#define   SDHCI_CTRL_HS_SDR200		0x0005 /* reserved value in SDIO spec */
++#define   SDHCI_CTRL_HS_SDR200		SDHCI_CTRL_UHS_SDR104
++#define   SDHCI_CTRL_HS_DDR200		0x0005
+ #define  SDHCI_CTRL_VDD_180		0x0008
+ #define  SDHCI_CTRL_DRV_TYPE_MASK	0x0030
+ #define   SDHCI_CTRL_DRV_TYPE_B		0x0000
+@@ -234,6 +235,7 @@
+ #define SDHCI_PRESET_FOR_SDR50 0x6A
+ #define SDHCI_PRESET_FOR_SDR104        0x6C
+ #define SDHCI_PRESET_FOR_DDR50 0x6E
++#define SDHCI_PRESET_FOR_HS400 0x74
+ #define SDHCI_PRESET_DRV_MASK  0xC000
+ #define SDHCI_PRESET_DRV_SHIFT  14
+ #define SDHCI_PRESET_CLKGEN_SEL_MASK   0x400
+diff --git a/include/linux/mmc/card.h b/include/linux/mmc/card.h
+index f31725ba49f3..5dfa7722e66f 100644
+--- a/include/linux/mmc/card.h
++++ b/include/linux/mmc/card.h
+@@ -67,6 +67,7 @@ struct mmc_ext_csd {
+ #define MMC_HIGH_52_MAX_DTR	52000000
+ #define MMC_HIGH_DDR_MAX_DTR	52000000
+ #define MMC_HS200_MAX_DTR	200000000
++#define MMC_HS400_MAX_DTR	200000000
+ 	unsigned int		sectors;
+ 	unsigned int		card_type;
+ 	unsigned int		hc_erase_size;		/* In sectors */
+@@ -248,6 +249,7 @@ struct mmc_card {
+ #define MMC_CARD_SDXC		(1<<6)		/* card is SDXC */
+ #define MMC_CARD_REMOVED	(1<<7)		/* card has been removed */
+ #define MMC_STATE_HIGHSPEED_200	(1<<8)		/* card is in HS200 mode */
++#define MMC_STATE_HIGHSPEED_400	(1<<9)		/* card is in HS400 mode */
+ #define MMC_STATE_DOING_BKOPS	(1<<10)		/* card is doing BKOPS */
+ 	unsigned int		quirks; 	/* card quirks */
+ #define MMC_QUIRK_LENIENT_FN0	(1<<0)		/* allow SDIO FN0 writes outside of the VS CCCR range */
+@@ -409,6 +411,7 @@ static inline void __maybe_unused remove_quirk(struct mmc_card *card, int data)
+ #define mmc_card_readonly(c)	((c)->state & MMC_STATE_READONLY)
+ #define mmc_card_highspeed(c)	((c)->state & MMC_STATE_HIGHSPEED)
+ #define mmc_card_hs200(c)	((c)->state & MMC_STATE_HIGHSPEED_200)
++#define mmc_card_hs400(c)	((c)->state & MMC_STATE_HIGHSPEED_400)
+ #define mmc_card_blockaddr(c)	((c)->state & MMC_STATE_BLOCKADDR)
+ #define mmc_card_ddr_mode(c)	((c)->state & MMC_STATE_HIGHSPEED_DDR)
+ #define mmc_card_uhs(c)		((c)->state & MMC_STATE_ULTRAHIGHSPEED)
+@@ -421,6 +424,7 @@ static inline void __maybe_unused remove_quirk(struct mmc_card *card, int data)
+ #define mmc_card_set_readonly(c) ((c)->state |= MMC_STATE_READONLY)
+ #define mmc_card_set_highspeed(c) ((c)->state |= MMC_STATE_HIGHSPEED)
+ #define mmc_card_set_hs200(c)	((c)->state |= MMC_STATE_HIGHSPEED_200)
++#define mmc_card_set_hs400(c)	((c)->state |= MMC_STATE_HIGHSPEED_400)
+ #define mmc_card_set_blockaddr(c) ((c)->state |= MMC_STATE_BLOCKADDR)
+ #define mmc_card_set_ddr_mode(c) ((c)->state |= MMC_STATE_HIGHSPEED_DDR)
+ #define mmc_card_set_uhs(c) ((c)->state |= MMC_STATE_ULTRAHIGHSPEED)
+diff --git a/include/linux/mmc/host.h b/include/linux/mmc/host.h
+index e326ae2882a0..e808ae71e85e 100644
+--- a/include/linux/mmc/host.h
++++ b/include/linux/mmc/host.h
+@@ -59,6 +59,7 @@ struct mmc_ios {
+ #define MMC_TIMING_UHS_SDR104	6
+ #define MMC_TIMING_UHS_DDR50	7
+ #define MMC_TIMING_MMC_HS200	8
++#define MMC_TIMING_MMC_HS400	9
+ 
+ #define MMC_SDR_MODE		0
+ #define MMC_1_2V_DDR_MODE	1
+@@ -281,6 +282,17 @@ struct mmc_host {
+ #define MMC_CAP2_PACKED_CMD	(MMC_CAP2_PACKED_RD | \
+ 				 MMC_CAP2_PACKED_WR)
+ #define MMC_CAP2_NO_PRESCAN_POWERUP (1 << 14)	/* Don't power up before scan */
++#define MMC_CAP2_INIT_CARD_SYNC	(1 << 15)	/* init card in sync mode */
++#define MMC_CAP2_POLL_R1B_BUSY	(1 << 16)	/* host poll R1B busy*/
++#define MMC_CAP2_RPMBPART_NOACC	(1 << 17)	/* RPMB partition no access */
++#define MMC_CAP2_LED_SUPPORT	(1 << 18)	/* led support */
++#define MMC_CAP2_PWCTRL_POWER	(1 << 19)	/* power control card power */
++#define MMC_CAP2_FIXED_NCRC	(1 << 20)	/* fixed NCRC */
++#define MMC_CAP2_HS200_WA	(1 << 21)	/* WA: 100MHz clock in HS200 */
++#define MMC_CAP2_HS400_1_8V_DDR	(1 << 22)	/* support HS400 */
++#define MMC_CAP2_HS400_1_2V_DDR	(1 << 23)	/* support HS400 */
++#define MMC_CAP2_HS400		(MMC_CAP2_HS400_1_8V_DDR | \
++				MMC_CAP2_HS400_1_2V_DDR)
+ 
+ 	mmc_pm_flag_t		pm_caps;	/* supported pm features */
+ 
+diff --git a/include/linux/mmc/mmc.h b/include/linux/mmc/mmc.h
+index 50bcde3677ca..363313377c58 100644
+--- a/include/linux/mmc/mmc.h
++++ b/include/linux/mmc/mmc.h
+@@ -325,6 +325,7 @@ struct _mmc_csd {
+ #define EXT_CSD_POWER_OFF_LONG_TIME	247	/* RO */
+ #define EXT_CSD_GENERIC_CMD6_TIME	248	/* RO */
+ #define EXT_CSD_CACHE_SIZE		249	/* RO, 4 bytes */
++#define EXT_CSD_PWR_CL_200_DDR_195	253	/* RO, support HS400 */
+ #define EXT_CSD_TAG_UNIT_SIZE		498	/* RO */
+ #define EXT_CSD_DATA_TAG_SUPPORT	499	/* RO */
+ #define EXT_CSD_MAX_PACKED_WRITES	500	/* RO */
+@@ -357,6 +358,7 @@ struct _mmc_csd {
+ #define EXT_CSD_CARD_TYPE_26	(1<<0)	/* Card can run at 26MHz */
+ #define EXT_CSD_CARD_TYPE_52	(1<<1)	/* Card can run at 52MHz */
+ #define EXT_CSD_CARD_TYPE_MASK	0x3F	/* Mask out reserved bits */
++#define EXT_CSD_CARD_TYPE_MASK_FULL	0xFF	/* Support HS400 */
+ #define EXT_CSD_CARD_TYPE_DDR_1_8V  (1<<2)   /* Card can run at 52MHz */
+ 					     /* DDR mode @1.8V or 3V I/O */
+ #define EXT_CSD_CARD_TYPE_DDR_1_2V  (1<<3)   /* Card can run at 52MHz */
+@@ -366,6 +368,9 @@ struct _mmc_csd {
+ #define EXT_CSD_CARD_TYPE_SDR_1_8V	(1<<4)	/* Card can run at 200MHz */
+ #define EXT_CSD_CARD_TYPE_SDR_1_2V	(1<<5)	/* Card can run at 200MHz */
+ 						/* SDR mode @1.2V I/O */
++#define EXT_CSD_CARD_TYPE_HS400_1_8V	(1<<6)	/* Card can run at 200MHz */
++#define EXT_CSD_CARD_TYPE_HS400_1_2V	(1<<7)	/* Card can run at 200MHz */
++						/* DDR mode @1.8/1.2v I/O */
+ 
+ #define EXT_CSD_BUS_WIDTH_1	0	/* Card is in 1 bit mode */
+ #define EXT_CSD_BUS_WIDTH_4	1	/* Card is in 4 bit mode */
+-- 
+2.37.3
+

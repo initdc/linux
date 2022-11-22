@@ -1,0 +1,60 @@
+From f81249f11e71353f62b05e430ba6ba2b348c83ee Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Wed, 4 Sep 2013 17:32:07 +0800
+Subject: [PATCH 291/429] otg: adding a common interface for
+ otg_get_chrg_status
+
+otg_get_chrg_status is one interface required by EM
+driver communication, so adding it to a common interface.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/power/power_supply_charger.c |  2 +-
+ include/linux/usb/phy.h              | 13 +++++++++++++
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/power_supply_charger.c b/drivers/power/power_supply_charger.c
+index 953ac027301d..9ed83bd2ebca 100644
+--- a/drivers/power/power_supply_charger.c
++++ b/drivers/power/power_supply_charger.c
+@@ -253,7 +253,7 @@ static void init_charger_cables(struct charger_cable *cable_lst, int count)
+ 		}
+ 	}
+ 
+-	if (!otg_get_chr_status(otg_xceiver, &cap))
++	if (!otg_get_chrg_status(otg_xceiver, &cap))
+ 		process_cable_props(&cap);
+ 
+ }
+diff --git a/include/linux/usb/phy.h b/include/linux/usb/phy.h
+index 3bc11e8841a6..fe5cb1e39806 100644
+--- a/include/linux/usb/phy.h
++++ b/include/linux/usb/phy.h
+@@ -108,6 +108,9 @@ struct usb_phy {
+ 			enum usb_device_speed speed);
+ 	int	(*notify_disconnect)(struct usb_phy *x,
+ 			enum usb_device_speed speed);
++
++	/* check charger status */
++	int	(*get_chrg_status)(struct usb_phy *x, void *data);
+ };
+ 
+ /**
+@@ -298,4 +301,14 @@ static inline const char *usb_phy_type_string(enum usb_phy_type type)
+ 		return "UNKNOWN PHY TYPE";
+ 	}
+ }
++
++static inline int
++otg_get_chrg_status(struct usb_phy *x, void *data)
++{
++	if (x && x->get_chrg_status)
++		return x->get_chrg_status(x, data);
++
++	return -ENOTSUPP;
++}
++
+ #endif /* __LINUX_USB_PHY_H */
+-- 
+2.37.3
+

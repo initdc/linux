@@ -1,0 +1,33 @@
+From 1f5d15054577e8c4de93cf1e5d3a3dd33812d0f7 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Tue, 27 Aug 2013 14:31:24 +0800
+Subject: [PATCH 273/429] dwc-host: Disable auto-resume feature for USB2 PHY.
+
+Disable auto-resume feature for USB2 PHY both on host and device mode.
+Just enable it if there have valid connection for host mode during
+hibernation suspend flow. To ensure that when device resume, host does
+resume reflect within 900 usec as in USB spec.
+
+And revert the old workaround which reset USB2 PHY after resume from
+D0i3hot for host mode.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/otg.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/usb/dwc3/otg.h b/drivers/usb/dwc3/otg.h
+index b89b89d132e0..a448e6e9dccb 100644
+--- a/drivers/usb/dwc3/otg.h
++++ b/drivers/usb/dwc3/otg.h
+@@ -86,6 +86,7 @@ struct dwc_device_par {
+ #define GUSB2PHYCFG0				0xc200
+ #define GUSB2PHYCFG_SUS_PHY                     0x40
+ #define GUSB2PHYCFG_PHYSOFTRST (1 << 31)
++#define GUSB2PHYCFG_ULPI_AUTO_RESUME (1 << 15)
+ 
+ #define EXTEND_ULPI_REGISTER_ACCESS_MASK	0xC0
+ #define GUSB2PHYACC0	0xc280
+-- 
+2.37.3
+

@@ -1,0 +1,30 @@
+From 40151d7e0d4fc8e38a30805ec5b779b584f27509 Mon Sep 17 00:00:00 2001
+From: Dan O'Donovan <danielx.o'donovan@intel.com>
+Date: Fri, 23 May 2014 10:48:28 +0200
+Subject: [PATCH 317/429] gpio: enable gpio-pca953x driver
+
+Enabled gpio-pca953x driver in kernel image, to support PCAL9555A/PCAL9535A
+GPIO expanders on the Edison Arduino board
+
+Signed-off-by: Dan O'Donovan <danielx.o'donovan@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 0554980bf763..748a9bfed065 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -1646,7 +1646,8 @@ CONFIG_GPIODEBUG=y
+ #
+ # CONFIG_GPIO_MAX7300 is not set
+ # CONFIG_GPIO_MAX732X is not set
+-# CONFIG_GPIO_PCA953X is not set
++CONFIG_GPIO_PCA953X=y
++CONFIG_GPIO_PCA953X_IRQ=y
+ # CONFIG_GPIO_PCF857X is not set
+ # CONFIG_GPIO_SX150X is not set
+ # CONFIG_GPIO_WM8994 is not set
+-- 
+2.37.3
+

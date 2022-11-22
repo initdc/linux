@@ -1,0 +1,39 @@
+From a39e0047070844e383a4a3abfb373c5d7b537a2f Mon Sep 17 00:00:00 2001
+From: jianqian <jianqiang.tang@intel.com>
+Date: Mon, 28 Oct 2013 16:14:20 +0800
+Subject: [PATCH 192/429] Change OTG RTPM state and suspend state to D3Hot.
+
+Change to D3hot power state for BYT OTG(RTPM and S3) since
+BYT OTG do not support D3Cold.
+
+Signed-off-by: jianqian <jianqiang.tang@intel.com>
+---
+ drivers/usb/dwc3/dwc3-intel-byt.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-intel-byt.c b/drivers/usb/dwc3/dwc3-intel-byt.c
+index d57a53806d33..1791a1c46aa6 100644
+--- a/drivers/usb/dwc3/dwc3-intel-byt.c
++++ b/drivers/usb/dwc3/dwc3-intel-byt.c
+@@ -716,15 +716,13 @@ int dwc3_intel_byt_prepare_start_peripheral(struct dwc_otg2 *otg)
+ 
+ int dwc3_intel_byt_suspend(struct dwc_otg2 *otg)
+ {
+-	struct pci_dev *pci_dev = to_pci_dev(otg->dev);
+-	pci_power_t state = PCI_D3cold;
++	struct pci_dev *pci_dev;
++	pci_power_t state = PCI_D3hot;
+ 
+ 	if (!otg)
+ 		return 0;
+ 
+-	if (otg->state == DWC_STATE_B_PERIPHERAL ||
+-			otg->state == DWC_STATE_A_HOST)
+-		state = PCI_D3hot;
++	pci_dev = to_pci_dev(otg->dev);
+ 
+ 	set_sus_phy(otg, 1);
+ 
+-- 
+2.37.3
+

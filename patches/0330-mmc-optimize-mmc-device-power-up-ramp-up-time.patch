@@ -1,0 +1,38 @@
+From f3faf4414695b432c91f0de40bfecd534e8bcc3b Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Wed, 21 Aug 2013 18:06:52 +0800
+Subject: [PATCH 330/429] mmc: optimize mmc device power up ramp up time
+
+Replace msleep() with usleep_range() to reduce
+the mmc device power up ramp up time.
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/core/core.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/mmc/core/core.c b/drivers/mmc/core/core.c
+index 2263788131a6..1d6e2987fcfc 100644
+--- a/drivers/mmc/core/core.c
++++ b/drivers/mmc/core/core.c
+@@ -1500,7 +1500,7 @@ static void mmc_power_up(struct mmc_host *host)
+ 	 * This delay should be sufficient to allow the power supply
+ 	 * to reach the minimum voltage.
+ 	 */
+-	mmc_delay(10);
++	usleep_range(10000, 11000);
+ 
+ 	host->ios.clock = host->f_init;
+ 
+@@ -1511,7 +1511,7 @@ static void mmc_power_up(struct mmc_host *host)
+ 	 * This delay must be at least 74 clock sizes, or 1 ms, or the
+ 	 * time required to reach a stable voltage.
+ 	 */
+-	mmc_delay(10);
++	usleep_range(5000, 6000);
+ 
+ 	mmc_host_clk_release(host);
+ }
+-- 
+2.37.3
+

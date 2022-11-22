@@ -1,0 +1,87 @@
+From e3bbca56804386feaf60179d0d43b9f3d8012fea Mon Sep 17 00:00:00 2001
+From: Liu ShuoX <shuox.liu@intel.com>
+Date: Thu, 10 Oct 2013 02:40:52 +0530
+Subject: [PATCH 077/429] cpuidle: demote s0ix when display ON
+
+s0ix will corrupt GFX PCI config when it's power on.
+So, demote to low C-states.
+
+Signed-off-by: Zhang Yanmin <yanmin.zhang@intel.com>
+Signed-off-by: Liu ShuoX <shuox.liu@intel.com>
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_mrfld.c | 23 +++++++++++++++++++
+ arch/x86/platform/intel-mid/intel_soc_mrfld.h |  1 +
+ .../platform/intel-mid/intel_soc_pm_debug.c   |  4 +++-
+ 3 files changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.c b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+index 0014e3e5ff4c..9e987f2c38f0 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+@@ -401,6 +401,29 @@ void s0ix_complete(void)
+ 	}
+ }
+ 
++bool could_do_s0ix(void)
++{
++	bool ret = false;
++	if (unlikely(!pmu_initialized))
++		goto ret;
++
++	/* dont do s0ix if suspend in progress */
++	if (unlikely(mid_pmu_cxt->suspend_started))
++		goto ret;
++
++	/* dont do s0ix if shutdown in progress */
++	if (unlikely(mid_pmu_cxt->shutdown_started))
++		goto ret;
++
++	if (nc_device_state())
++		goto ret;
++
++	ret = true;
++ret:
++	return ret;
++}
++EXPORT_SYMBOL(could_do_s0ix);
++
+ struct platform_pmu_ops mrfld_pmu_ops = {
+ 	.init	 = mrfld_pmu_init,
+ 	.enter	 = mrfld_pmu_enter,
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.h b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+index ad2780ee134a..8d377b573cf0 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.h
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.h
+@@ -154,5 +154,6 @@ extern int mrfl_no_of_nc_devices;
+ extern int intel_scu_ipc_simple_command(int, int);
+ extern void log_wakeup_irq(void);
+ extern void s0ix_complete(void);
++extern bool could_do_s0ix(void);
+ 
+ #endif
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+index b86f4bb443dc..6e7c9f1bc43f 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pm_debug.c
+@@ -2242,7 +2242,7 @@ unsigned int pmu_get_new_cstate(unsigned int cstate, int *index)
+ 	unsigned int new_cstate = cstate;
+ 	u32 local_cstate = (u32)(cstate);
+ 	u32 local_cstate_allowed = ~mid_pmu_cxt->cstate_ignore;
+-	u32 cstate_mask;
++	u32 cstate_mask, cstate_no_s0ix_mask = (u32)((1 << 6) - 1);
+ 
+ 	if (platform_is(INTEL_ATOM_MRFLD)) {
+ 		/* cstate is 7 for C8 and C9 so correct */
+@@ -2255,6 +2255,8 @@ unsigned int pmu_get_new_cstate(unsigned int cstate, int *index)
+ 		cstate_mask	= (u32)((1 << local_cstate)-1);
+ 		local_cstate_allowed	&= ((1<<CPUIDLE_STATE_MAX)-1);
+ 		local_cstate_allowed	&= cstate_mask;
++		if (!could_do_s0ix())
++			local_cstate_allowed &= cstate_no_s0ix_mask;
+ 		new_cstate	= fls(local_cstate_allowed);
+ 
+ 		if (likely(new_cstate))
+-- 
+2.37.3
+

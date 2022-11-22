@@ -1,0 +1,33 @@
+From b4d848f76ba030ed75528bfba97356428f4134a8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Fri, 4 Apr 2014 11:49:30 +0200
+Subject: [PATCH 295/429] config: add HSU serial support in Edison defconfig
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This patch updates the i386_edison_defconfig file to build the HSU
+driver.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 6114300cb149..6c0dff2ad224 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -1718,7 +1718,8 @@ CONFIG_FIX_EARLYCON_MEM=y
+ # CONFIG_SERIAL_MAX3100 is not set
+ # CONFIG_SERIAL_MAX310X is not set
+ CONFIG_SERIAL_MRST_MAX3110=y
+-# CONFIG_SERIAL_MFD_HSU is not set
++CONFIG_SERIAL_MFD_HSU=y
++CONFIG_SERIAL_MFD_HSU_CONSOLE=y
+ CONFIG_SERIAL_CORE=y
+ CONFIG_SERIAL_CORE_CONSOLE=y
+ # CONFIG_SERIAL_JSM is not set
+-- 
+2.37.3
+

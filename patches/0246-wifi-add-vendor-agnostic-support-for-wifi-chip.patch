@@ -1,0 +1,47 @@
+From 42517077a243c68c01c0478b41ca5ee07fb8639e Mon Sep 17 00:00:00 2001
+From: Jonathan DE CESCO <jonathan.de.cesco@intel.com>
+Date: Mon, 3 Jun 2013 18:19:19 +0200
+Subject: [PATCH 246/429] wifi: add vendor agnostic support for wifi chip
+
+Vendor agnostic framework for wlan chip vendor scalability
+Attach regulator to SDIO slot. Fill it with WLAN enable gpio number
+Use ACPI or SFI to get GPIO num
+Clean wifi platform data file to remove any vendor specific code
+Add BRCM43241 in ACPI scan list
+
+Signed-off-by: Jonathan DE CESCO <jonathan.de.cesco@intel.com>
+Signed-off-by: Frode Isaksen <frodex.isaksen@intel.com>
+---
+ .../platform/intel-mid/device_libs/pci/platform_sdhci_pci.c  | 5 +++++
+ arch/x86/platform/intel-mid/device_libs/platform_wifi.h      | 1 -
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+index 3b22e3b775cb..e32e78733deb 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_sdhci_pci.c
+@@ -298,6 +298,11 @@ static int mrfl_flis_check(void *data, unsigned int clk)
+ 	return ret;
+ }
+ 
++/* Board specific cleanup related to SDIO goes here */
++static void mrfl_sdio_cleanup(struct sdhci_pci_data *data)
++{
++}
++
+ /* Board specific setup related to eMMC goes here */
+ static int mrfl_emmc_setup(struct sdhci_pci_data *data)
+ {
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_wifi.h b/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
+index 29920a781fbb..7f1f710ca693 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
++++ b/arch/x86/platform/intel-mid/device_libs/platform_wifi.h
+@@ -18,5 +18,4 @@
+ extern void __init *wifi_platform_data(void *info) __attribute__((weak));
+ extern void wifi_platform_data_fastirq(struct sfi_device_table_entry *pe,
+ 				       struct devs_id *dev) __attribute__((weak));
+-
+ #endif
+-- 
+2.37.3
+

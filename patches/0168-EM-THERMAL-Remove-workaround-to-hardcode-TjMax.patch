@@ -1,0 +1,41 @@
+From 6d3e6066d92df3ceac967a72e045ddbf25b4e973 Mon Sep 17 00:00:00 2001
+From: Durgadoss R <durgadoss.r@intel.com>
+Date: Fri, 6 Sep 2013 13:44:43 +0530
+Subject: [PATCH 168/429] EM/THERMAL: Remove workaround to hardcode TjMax
+
+The coretemp driver had a workaround to hardcode
+TjMax as 90C for all TNG/BYT platforms. This was
+added since the TjMax register had a wrong value.
+
+With latest Firmware versions, this is fixed. All
+TNG/VLV2 platforms have the right TjMax values.
+So, this patch removes the workaround.
+
+Category: feature differentiation
+Domain: ThermalManagement-Common
+Origin: internal
+Upstream-Canditate: yes
+
+Signed-off-by: Durgadoss R <durgadoss.r@intel.com>
+---
+ drivers/hwmon/coretemp.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/drivers/hwmon/coretemp.c b/drivers/hwmon/coretemp.c
+index 160b22673d67..cdc60a28c28e 100644
+--- a/drivers/hwmon/coretemp.c
++++ b/drivers/hwmon/coretemp.c
+@@ -458,10 +458,6 @@ static int __cpuinit get_tjmax(struct cpuinfo_x86 *c, u32 id,
+ 		 * If the TjMax is not plausible, an assumption
+ 		 * will be used
+ 		 */
+-		/* TODO: Remove the below workaround in TNG/VLV2 B0 stepping */
+-		if (c->x86_model == 0x4a || c->x86_model == 0x37) {
+-			return 90000;
+-		}
+ 		if (val) {
+ 			dev_dbg(dev, "TjMax is %d degrees C\n", val);
+ 			return val * 1000;
+-- 
+2.37.3
+

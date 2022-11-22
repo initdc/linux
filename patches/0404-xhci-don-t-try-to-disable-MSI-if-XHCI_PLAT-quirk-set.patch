@@ -1,0 +1,36 @@
+From 97557b8c5375f8bb72158888624f75b086d6fea2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Thu, 12 Mar 2015 16:27:44 +0100
+Subject: [PATCH 404/429] xhci: don't try to disable MSI if XHCI_PLAT quirk set
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With XHCI_PLAT set, when stop_xhci is called, driver tries to disable
+MSI. This will cause a kernel panic due to NULL pointer access.
+
+So if XHCI_PLAT quirk is set, then there's no need to disable MSI, because the
+current controller doesn't support MSI.
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ drivers/usb/host/xhci.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/usb/host/xhci.c b/drivers/usb/host/xhci.c
+index 507677b9bdc7..ec50d099c263 100644
+--- a/drivers/usb/host/xhci.c
++++ b/drivers/usb/host/xhci.c
+@@ -321,6 +321,9 @@ static void xhci_cleanup_msix(struct xhci_hcd *xhci)
+ 
+ 	xhci_free_irq(xhci);
+ 
++	if (xhci->quirks & XHCI_PLAT)
++		return;
++
+ 	if (xhci->msix_entries) {
+ 		pci_disable_msix(pdev);
+ 		kfree(xhci->msix_entries);
+-- 
+2.37.3
+

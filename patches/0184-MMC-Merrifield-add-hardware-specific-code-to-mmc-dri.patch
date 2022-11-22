@@ -1,0 +1,140 @@
+From cb2020d3597696f7438e921cf12e04e62d977dca Mon Sep 17 00:00:00 2001
+From: Fei Yang <fei.yang@intel.com>
+Date: Tue, 9 Jul 2013 14:31:44 -0700
+Subject: [PATCH 184/429] MMC:Merrifield: add hardware specific code to mmc
+ driver
+
+Minimum driver changes needed for Intel's Merrifield SoC.
+
+Signed-off-by: Fei Yang <fei.yang@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c       | 48 ++++++++++++++++++++++++++++++
+ include/linux/mmc/sdhci-pci-data.h | 11 +++++++
+ include/linux/mmc/sdhci.h          | 23 ++++++++++++++
+ 3 files changed, 82 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 6b9fd841cbc9..8ba09ae1390b 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -1140,6 +1140,54 @@ static const struct pci_device_id pci_ids[] = {
+ 		.driver_data	= (kernel_ulong_t)&sdhci_intel_byt_sd,
+ 	},
+ 
++	{
++		.vendor		= PCI_VENDOR_ID_INTEL,
++		.device		= PCI_DEVICE_ID_INTEL_CLV_SDIO0,
++		.subvendor	= PCI_ANY_ID,
++		.subdevice	= PCI_ANY_ID,
++		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_sd,
++	},
++
++	{
++		.vendor		= PCI_VENDOR_ID_INTEL,
++		.device		= PCI_DEVICE_ID_INTEL_CLV_SDIO1,
++		.subvendor	= PCI_ANY_ID,
++		.subdevice	= PCI_ANY_ID,
++		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_sdio,
++	},
++
++	{
++		.vendor		= PCI_VENDOR_ID_INTEL,
++		.device		= PCI_DEVICE_ID_INTEL_CLV_SDIO2,
++		.subvendor	= PCI_ANY_ID,
++		.subdevice	= PCI_ANY_ID,
++		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_sdio,
++	},
++
++	{
++		.vendor		= PCI_VENDOR_ID_INTEL,
++		.device		= PCI_DEVICE_ID_INTEL_CLV_EMMC0,
++		.subvendor	= PCI_ANY_ID,
++		.subdevice	= PCI_ANY_ID,
++		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc,
++	},
++
++	{
++		.vendor		= PCI_VENDOR_ID_INTEL,
++		.device		= PCI_DEVICE_ID_INTEL_CLV_EMMC1,
++		.subvendor	= PCI_ANY_ID,
++		.subdevice	= PCI_ANY_ID,
++		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc,
++	},
++
++	{
++		.vendor		= PCI_VENDOR_ID_INTEL,
++		.device		= PCI_DEVICE_ID_INTEL_MRFL_MMC,
++		.subvendor	= PCI_ANY_ID,
++		.subdevice	= PCI_ANY_ID,
++		.driver_data	= (kernel_ulong_t)&sdhci_intel_mrfl_mmc,
++	},
++
+ 	{
+ 		.vendor		= PCI_VENDOR_ID_O2,
+ 		.device		= PCI_DEVICE_ID_O2_8120,
+diff --git a/include/linux/mmc/sdhci-pci-data.h b/include/linux/mmc/sdhci-pci-data.h
+index d1cace208fec..0b9b411e011a 100644
+--- a/include/linux/mmc/sdhci-pci-data.h
++++ b/include/linux/mmc/sdhci-pci-data.h
+@@ -8,6 +8,8 @@ struct sdhci_pci_data {
+ 	int		slotno;
+ 	int		rst_n_gpio; /* Set to -EINVAL if unused */
+ 	int		cd_gpio;    /* Set to -EINVAL if unused */
++	int		quirks;
++	int		platform_quirks; /* Platform related quirks */
+ 	int		(*setup)(struct sdhci_pci_data *data);
+ 	void		(*cleanup)(struct sdhci_pci_data *data);
+ 	int		(*power_up)(void *data);
+@@ -16,6 +18,15 @@ struct sdhci_pci_data {
+ 	int		(*flis_check)(void *data, unsigned int clk);
+ };
+ 
++/* Some Pre-Silicon platform not support all SDHCI HCs of the SoC */
++#define PLFM_QUIRK_NO_HOST_CTRL_HW	(1<<0)
++/* Some Pre-Silicon platform do not support eMMC boot partition access */
++#define PLFM_QUIRK_NO_EMMC_BOOT_PART	(1<<1)
++/* Some Pre-Silicon platform do not support eMMC or SD High Speed */
++#define PLFM_QUIRK_NO_HIGH_SPEED	(1<<2)
++/* For the platform which don't have the SD card slot */
++#define PLFM_QUIRK_NO_SDCARD_SLOT	(1<<3)
++
+ extern struct sdhci_pci_data *(*sdhci_pci_get_data)(struct pci_dev *pdev,
+ 				int slotno);
+ 
+diff --git a/include/linux/mmc/sdhci.h b/include/linux/mmc/sdhci.h
+index b838ffc49e4a..7f948641707a 100644
+--- a/include/linux/mmc/sdhci.h
++++ b/include/linux/mmc/sdhci.h
+@@ -96,6 +96,29 @@ struct sdhci_host {
+ #define SDHCI_QUIRK2_NO_1_8_V				(1<<2)
+ #define SDHCI_QUIRK2_PRESET_VALUE_BROKEN		(1<<3)
+ 
++/* Intel private quirk2 starts on 15 */
++
++/* V2.0 host controller support DDR50 */
++#define SDHCI_QUIRK2_V2_0_SUPPORT_DDR50			(1<<15)
++/* Controller has bug when enabling Auto CMD23 */
++#define SDHCI_QUIRK2_BROKEN_AUTO_CMD23			(1<<16)
++/* HC Reg High Speed must be set later than HC2 Reg 1.8v Signaling Enable */
++#define SDHCI_QUIRK2_HIGH_SPEED_SET_LATE		(1<<17)
++/* BRCM voltage support: advertise 2.0v support and force using 1.8v instead */
++#define SDHCI_QUIRK2_ADVERTISE_2V0_FORCE_1V8		(1<<18)
++/* to allow mmc_detect to detach the bus */
++#define SDHCI_QUIRK2_DISABLE_MMC_CAP_NONREMOVABLE	(1<<19)
++/* avoid detect/rescan/poweoff operations on suspend/resume. */
++#define SDHCI_QUIRK2_ENABLE_MMC_PM_IGNORE_PM_NOTIFY	(1<<20)
++/* Disable eMMC/SD card High speed feature. */
++#define SDHCI_QUIRK2_DISABLE_HIGH_SPEED			(1<<21)
++#define SDHCI_QUIRK2_CAN_VDD_300			(1<<22)
++#define SDHCI_QUIRK2_CAN_VDD_330			(1<<23)
++#define SDHCI_QUIRK2_2MS_DELAY				(1<<24)
++#define SDHCI_QUIRK2_WAIT_FOR_IDLE			(1<<25)
++/* BAD sd cd in HOST IC. This will cause system hang when removing SD */
++#define SDHCI_QUIRK2_BAD_SD_CD				(1<<26)
++
+ 	int irq;		/* Device IRQ */
+ 	void __iomem *ioaddr;	/* Mapped address */
+ 
+-- 
+2.37.3
+

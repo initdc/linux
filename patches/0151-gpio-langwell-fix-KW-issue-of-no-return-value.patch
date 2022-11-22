@@ -1,0 +1,38 @@
+From 011d8b5f5e35d00cfcaa2697fe12c2b078b2dcb4 Mon Sep 17 00:00:00 2001
+From: "Li, Ning" <ning.li@intel.com>
+Date: Wed, 13 Nov 2013 08:53:23 +0800
+Subject: [PATCH 151/429] gpio-langwell: fix KW issue of no return value
+
+lnw_gpio_set_pull() doesn't have return value if it passes all
+error condition. Fix this KW issue.
+
+Signed-off-by: Li, Ning <ning.li@intel.com>
+---
+ drivers/gpio/gpio-langwell.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpio/gpio-langwell.c b/drivers/gpio/gpio-langwell.c
+index ae50e931dbf7..9ebfb511fd26 100644
+--- a/drivers/gpio/gpio-langwell.c
++++ b/drivers/gpio/gpio-langwell.c
+@@ -410,7 +410,7 @@ static int lnw_gpio_set_pull(struct gpio_chip *chip, unsigned gpio, int value)
+ 
+ 	flis_offset = lnw->get_flis_offset(gpio);
+ 	if (WARN(flis_offset == -EINVAL, "invalid pin %d\n", gpio))
+-		return -1;
++		return -EINVAL;
+ 	if (flis_offset >= I2C_FLIS_START && flis_offset <= I2C_FLIS_END)
+ 		return 0;
+ 	flis_value = get_flis_value(flis_offset);
+@@ -423,6 +423,8 @@ static int lnw_gpio_set_pull(struct gpio_chip *chip, unsigned gpio, int value)
+ 	}
+ 	flis_value |= PUPD_VAL_50K;
+ 	set_flis_value(flis_value, flis_offset);
++
++	return 0;
+ }
+ 
+ static void lnw_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+-- 
+2.37.3
+

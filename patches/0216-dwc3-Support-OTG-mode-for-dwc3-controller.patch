@@ -1,0 +1,76 @@
+From 08298f3044f47e2a13acd638e15f11bf3e96fb55 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Tue, 20 Aug 2013 18:22:28 +0800
+Subject: [PATCH 216/429] dwc3: Support OTG mode for dwc3 controller
+
+This patch implement one OTG framework for DWC3 controller. And it is
+base one PCI device driver. Will also support platform driver in the
+future.
+
+This OTG mode implements USB role switch between host and device mode.
+And also support USB charger detection feature. The Battery/Charger
+driver and register notifier to monitor the USB charger capability
+events.
+
+The OTG mode must be work with platform relevant OTG driver support.
+Because the hardware design are different between every vendor.
+
+Provide API dwc3_otg_register for vendor to register relevant callback.
+and enable OTG mode for their DWC3 controller.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/Makefile | 7 +++++++
+ drivers/usb/dwc3/otg.h    | 5 ++---
+ 2 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/usb/dwc3/Makefile b/drivers/usb/dwc3/Makefile
+index 36a070136ee2..23c0cd930c0e 100644
+--- a/drivers/usb/dwc3/Makefile
++++ b/drivers/usb/dwc3/Makefile
+@@ -43,5 +43,12 @@ endif
+ obj-$(CONFIG_USB_DWC3)		+= dwc3-omap.o
+ obj-$(CONFIG_USB_DWC3)		+= dwc3-exynos.o
+ 
++<<<<<<< HEAD
+ obj-$(CONFIG_USB_DWC3_PCI)		+= dwc3-pci.o
++=======
++ifneq ($(CONFIG_PCI),)
++	obj-$(CONFIG_USB_DWC3_OTG)	+= otg.o
++	obj-$(CONFIG_USB_DWC3)		+= dwc3-pci.o
++endif
++>>>>>>> 9bc9aec5... dwc3: Support OTG mode for dwc3 controller
+ 
+diff --git a/drivers/usb/dwc3/otg.h b/drivers/usb/dwc3/otg.h
+index 1723057c385d..5c0d0185252f 100644
+--- a/drivers/usb/dwc3/otg.h
++++ b/drivers/usb/dwc3/otg.h
+@@ -98,6 +98,8 @@ struct dwc_device_par {
+ #define GUSB2PHYACC0_VCTRL(v)  ((v & 0xFF) << 8)
+ #define GUSB2PHYACC0_REGDATA(v)  (v & 0xFF)
+ #define GUSB2PHYACC0_REGDATA_MASK  0xFF
++#define DATACON_TIMEOUT		750
++#define DATACON_INTERVAL	10
+ 
+ #define GUSB3PIPECTL0                           0xc2c0
+ #define GUSB3PIPECTL_SUS_EN                     0x20000
+@@ -120,8 +122,6 @@ struct dwc_device_par {
+ #define GCTL_PRT_CAP_DIR_OTG 3
+ #define GCTL_GBL_HIBERNATION_EN 0x2
+ #define GCTL_CORESOFTRESET (1 << 11)
+-#define GCTL_PWRDNSCALE(x) (x << 19)
+-#define GCTL_PWRDNSCALE_MASK (0x1fff << 19)
+ 
+ #define OCFG					0xcc00
+ #define OCFG_SRP_CAP				0x01
+@@ -405,7 +405,6 @@ struct dwc_otg2 {
+ 
+ #define VBUS_TIMEOUT	300
+ #define PCI_DEVICE_ID_DWC 0x119E
+-#define PCI_DEVICE_ID_DWC_VLV 0x0F37
+ 
+ enum dwc3_otg_mode {
+ 	DWC3_DEVICE_ONLY,
+-- 
+2.37.3
+

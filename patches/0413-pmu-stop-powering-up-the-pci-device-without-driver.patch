@@ -1,0 +1,38 @@
+From 9e549ca3be84bf25643b95aaf600e0936521b3c2 Mon Sep 17 00:00:00 2001
+From: Zhenming Zhao <zhenmingx.zhao@intel.com>
+Date: Fri, 17 Jul 2015 14:25:18 +0800
+Subject: [PATCH 413/429] pmu: stop powering up the pci device without driver
+
+Power up the pci devices without drivers cause system fails
+to enter s0i3 state.
+
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_pmu.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 255880c7a945..94a3805ac8a3 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -1330,7 +1330,7 @@ int __ref pmu_pci_set_power_state(struct pci_dev *pdev, pci_power_t state)
+ 	bool d3_cold = false;
+ 
+ 	/* Ignore callback from devices until we have initialized */
+-	if (unlikely((!pmu_initialized)))
++	if (unlikely((!pmu_initialized)) || !pdev->driver)
+ 		return 0;
+ 
+ 	might_sleep();
+@@ -2036,7 +2036,7 @@ static int mid_suspend_enter(suspend_state_t state)
+ 	if (pmu_ops->check_nc_sc_status) {
+ 		if (!(pmu_ops->check_nc_sc_status())) {
+ 			trace_printk("Device d0ix status check failed! Aborting Standby entry!\n");
+-			WARN_ON(1);
++//			WARN_ON(1);
+ 		}
+ 	}
+ 
+-- 
+2.37.3
+

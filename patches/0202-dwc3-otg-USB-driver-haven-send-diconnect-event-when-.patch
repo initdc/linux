@@ -1,0 +1,34 @@
+From 16a20be6bcca4d88dc35ca69fe4d8d2e616b13f2 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Thu, 14 Nov 2013 13:39:14 +0800
+Subject: [PATCH 202/429] dwc3-otg: USB driver haven' send diconnect event when
+ under L2/U3.
+
+For SDP, the current zero be treat as invalid current value. This  is
+incorrect due to the current will be set as zero when host pc enter
+suspend mode.
+
+So need include the current zero case to fix this scenario.
+
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ drivers/usb/dwc3/dwc3-intel-mrfl.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-intel-mrfl.c b/drivers/usb/dwc3/dwc3-intel-mrfl.c
+index 5d9c2ce574f2..8c2825cdabbc 100644
+--- a/drivers/usb/dwc3/dwc3-intel-mrfl.c
++++ b/drivers/usb/dwc3/dwc3-intel-mrfl.c
+@@ -674,7 +674,8 @@ static int dwc3_intel_notify_charger_type(struct dwc_otg2 *otg,
+ 
+ 	if ((otg->charging_cap.chrg_type ==
+ 			POWER_SUPPLY_CHARGER_TYPE_USB_SDP) &&
+-			((otg->charging_cap.ma != 100) &&
++			((otg->charging_cap.ma != 0) &&
++			 (otg->charging_cap.ma != 100) &&
+ 			 (otg->charging_cap.ma != 150) &&
+ 			 (otg->charging_cap.ma != 500) &&
+ 			 (otg->charging_cap.ma != 900))) {
+-- 
+2.37.3
+

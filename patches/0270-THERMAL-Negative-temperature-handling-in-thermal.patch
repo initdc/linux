@@ -1,0 +1,85 @@
+From edb65fbc14f84e68b6b71612970e55153a72305b Mon Sep 17 00:00:00 2001
+From: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+Date: Fri, 25 Oct 2013 16:18:39 +0530
+Subject: [PATCH 270/429] THERMAL: Negative temperature handling in thermal.
+
+[Description of issue]
+Negative temperature changes not present in thermal core driver.
+
+[Implemented Solution]
+This patch makes changes to thermal framework to
+handle negative temperature.
+
+Category: feature differentiation
+Domain: EM.ThermalManagement-commmon
+Origin: internal
+Upstream-Candidate: yes
+
+Signed-off-by: Sumeet Pawnikar <sumeet.r.pawnikar@intel.com>
+---
+ drivers/thermal/thermal_core.c |  4 ++--
+ include/linux/thermal.h        | 16 ++++++----------
+ 2 files changed, 8 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/thermal/thermal_core.c b/drivers/thermal/thermal_core.c
+index 29f533a65a3a..94d9b0b500bd 100644
+--- a/drivers/thermal/thermal_core.c
++++ b/drivers/thermal/thermal_core.c
+@@ -563,7 +563,7 @@ trip_point_temp_store(struct device *dev, struct device_attribute *attr,
+ {
+ 	struct thermal_zone_device *tz = to_thermal_zone(dev);
+ 	int trip, ret;
+-	unsigned long temperature;
++	long temperature;
+ 
+ 	if (!tz->ops->set_trip_temp)
+ 		return -EPERM;
+@@ -1138,7 +1138,7 @@ thermal_add_hwmon_sysfs(struct thermal_zone_device *tz)
+ 		goto free_temp_mem;
+ 
+ 	if (tz->ops->get_crit_temp) {
+-		unsigned long temperature;
++		long temperature;
+ 		if (!tz->ops->get_crit_temp(tz, &temperature)) {
+ 			snprintf(temp->temp_crit.name,
+ 				 sizeof(temp->temp_crit.name),
+diff --git a/include/linux/thermal.h b/include/linux/thermal.h
+index 509b23b47485..04b08a696727 100644
+--- a/include/linux/thermal.h
++++ b/include/linux/thermal.h
+@@ -110,26 +110,22 @@ struct thermal_zone_device_ops {
+ 		     struct thermal_cooling_device *);
+ 	int (*unbind) (struct thermal_zone_device *,
+ 		       struct thermal_cooling_device *);
+-	int (*get_temp) (struct thermal_zone_device *, unsigned long *);
++	int (*get_temp) (struct thermal_zone_device *, long *);
+ 	int (*get_mode) (struct thermal_zone_device *,
+ 			 enum thermal_device_mode *);
+ 	int (*set_mode) (struct thermal_zone_device *,
+ 		enum thermal_device_mode);
+ 	int (*get_trip_type) (struct thermal_zone_device *, int,
+ 		enum thermal_trip_type *);
+-	int (*get_trip_temp) (struct thermal_zone_device *, int,
+-			      unsigned long *);
+-	int (*set_trip_temp) (struct thermal_zone_device *, int,
+-			      unsigned long);
+-	int (*get_trip_hyst) (struct thermal_zone_device *, int,
+-			      unsigned long *);
+-	int (*set_trip_hyst) (struct thermal_zone_device *, int,
+-			      unsigned long);
++	int (*get_trip_temp) (struct thermal_zone_device *, int, long *);
++	int (*set_trip_temp) (struct thermal_zone_device *, int, long);
++	int (*get_trip_hyst) (struct thermal_zone_device *, int, long *);
++	int (*set_trip_hyst) (struct thermal_zone_device *, int, long);
+ 	int (*get_slope) (struct thermal_zone_device *, long *);
+ 	int (*set_slope) (struct thermal_zone_device *, long);
+ 	int (*get_intercept) (struct thermal_zone_device *, long *);
+ 	int (*set_intercept) (struct thermal_zone_device *, long);
+-	int (*get_crit_temp) (struct thermal_zone_device *, unsigned long *);
++	int (*get_crit_temp) (struct thermal_zone_device *, long *);
+ 	int (*set_emul_temp) (struct thermal_zone_device *, unsigned long);
+ 	int (*get_trend) (struct thermal_zone_device *, int,
+ 			  enum thermal_trend *);
+-- 
+2.37.3
+

@@ -1,0 +1,45 @@
+From 07ddcb9210ef88a5dcb6c7f9bcaeafc1b94962bf Mon Sep 17 00:00:00 2001
+From: Illyas Mansoor <illyas.mansoor@intel.com>
+Date: Thu, 6 Jun 2013 21:35:30 +0530
+Subject: [PATCH 160/429] smpboot: fix mwait substate code for tng and baytrail
+ cpus
+
+Native_cpuid gives the mwait_substates max value, OS while translating the
+substate to mwait code it sets wrong value for Merrifield and Baytrail,
+it would work for C6 but now it wont since the max substate returned for C6
+is 3 and OS sets 0x5|(3-1) = 0x52 for C6,
+
+Now the same logic doesn't work for C7 = 0x6 | (3-1) gives = 0x62 which is s0i2
+and not s0i3
+
+Signed-off-by: Illyas Mansoor <illyas.mansoor@intel.com>
+Signed-off-by: Souvik Kumar Chakravarty <souvik.k.chakravarty@intel.com>
+---
+ arch/x86/kernel/smpboot.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/kernel/smpboot.c b/arch/x86/kernel/smpboot.c
+index 71ba527eab08..ff290caead00 100644
+--- a/arch/x86/kernel/smpboot.c
++++ b/arch/x86/kernel/smpboot.c
+@@ -1408,8 +1408,15 @@ static inline void mwait_play_dead(void)
+ 				highest_subcstate = edx & MWAIT_SUBSTATE_MASK;
+ 			}
+ 		}
+-		eax = (highest_cstate << MWAIT_SUBSTATE_SIZE) |
+-			(highest_subcstate - 1);
++
++		if (highest_cstate < 6) {
++			eax = (highest_cstate << MWAIT_SUBSTATE_SIZE) |
++				(highest_subcstate - 1);
++		} else {
++			/* For s0i3 substate code is 4 */
++			eax = (highest_cstate << MWAIT_SUBSTATE_SIZE) |
++				((highest_subcstate - 1) * 2);
++		}
+ 	}
+ 
+ 	/*
+-- 
+2.37.3
+

@@ -1,0 +1,57 @@
+From b88e2f57398c7d883c5f5e78489988bb5691f7b1 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Thu, 18 Jul 2013 16:03:11 +0800
+Subject: [PATCH 238/429] mmc:host: fix Klocwork issue in sdhci-pci.c
+
+Break the probe function instead of using BUG_ON().
+
+Also include bug#64077:
+slots needs to be check again to make sure it won't larger than its
+maxmum value
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index ea00b996c2e4..fa266360dbe4 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -2117,7 +2117,10 @@ static int sdhci_pci_probe(struct pci_dev *pdev,
+ 	if (slots == 0)
+ 		return -ENODEV;
+ 
+-	BUG_ON(slots > MAX_SLOTS);
++	if (slots > MAX_SLOTS) {
++		dev_err(&pdev->dev, "Invalid number of the slots. Aborting.\n");
++		return -ENODEV;
++	}
+ 
+ 	ret = pci_read_config_byte(pdev, PCI_SLOT_INFO, &first_bar);
+ 	if (ret)
+@@ -2125,7 +2128,7 @@ static int sdhci_pci_probe(struct pci_dev *pdev,
+ 
+ 	first_bar &= PCI_SLOT_INFO_FIRST_BAR_MASK;
+ 
+-	if (first_bar > 5) {
++	if (first_bar > 4) {
+ 		dev_err(&pdev->dev, "Invalid first BAR. Aborting.\n");
+ 		return -ENODEV;
+ 	}
+@@ -2158,6 +2161,11 @@ static int sdhci_pci_probe(struct pci_dev *pdev,
+ 	}
+ 
+ 	slots = chip->num_slots;	/* Quirk may have changed this */
++	/* slots maybe changed again, so check again */
++	if (slots > MAX_SLOTS) {
++		dev_err(&pdev->dev, "Invalid number of the slots. Aborting.\n");
++		goto free;
++	}
+ 
+ 	for (i = 0; i < slots; i++) {
+ 		slot = sdhci_pci_probe_slot(pdev, chip, first_bar, i);
+-- 
+2.37.3
+

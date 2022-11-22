@@ -1,0 +1,32 @@
+From d48c457dcd6b1ddd1db47b57234d8cabd626aaa0 Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Fri, 25 Oct 2013 13:57:08 +0800
+Subject: [PATCH 250/429] mmc: host: add tuning poll quirk for Merrifield
+
+Merrifield also has the tuning failure issue, and after changing
+to polling mode, this issue cannot be observed.
+Will keep this workaround until SoC team can help to root cause
+this issue
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci-pci.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/host/sdhci-pci.c b/drivers/mmc/host/sdhci-pci.c
+index 9c946aa2e856..9c4a6783f125 100644
+--- a/drivers/mmc/host/sdhci-pci.c
++++ b/drivers/mmc/host/sdhci-pci.c
+@@ -664,7 +664,8 @@ static int intel_mrfl_mmc_probe_slot(struct sdhci_pci_slot *slot)
+ 			slot->host->mmc->caps2 |= MMC_CAP2_HS200_1_8V_SDR;
+ 			/* WA for async abort silicon issue */
+ 			slot->host->quirks2 |= SDHCI_QUIRK2_CARD_CD_DELAY |
+-					SDHCI_QUIRK2_WAIT_FOR_IDLE;
++					SDHCI_QUIRK2_WAIT_FOR_IDLE |
++					SDHCI_QUIRK2_TUNING_POLL;
+ 		}
+ 		mrfl_ioapic_rte_reg_addr_map(slot);
+ 		break;
+-- 
+2.37.3
+

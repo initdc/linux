@@ -1,0 +1,45 @@
+From e25404356d7d07fced47c0dca29eb96e721db1de Mon Sep 17 00:00:00 2001
+From: zhenhan <zhen.han@intel.com>
+Date: Tue, 22 Oct 2013 11:23:41 +0800
+Subject: [PATCH 094/429] ioapic: Add callback "ioapic_set_wake()"
+
+In this BZ, the warning call trace "Unbalanced IRQ 68 wake disable"
+is always printed because the failure of calling "enable_irq_wake()
+/disable_irq_wake()" in "psh_byt_suspend()/psh_byt_resume()".
+
+Currently, in K3.10, if calling "enable_irq_wake()/disable_irq_wake()"
+in xx_suspend()/xx_resume(), it will meet "Unbalanced IRQ xx wake disable".
+Porting this callback will make "enable_irq_wake()/disable_irq_wake()"
+effective.
+
+Signed-off-by: Han Zhen <zhen.han@intel.com>
+---
+ arch/x86/kernel/apic/io_apic.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/x86/kernel/apic/io_apic.c b/arch/x86/kernel/apic/io_apic.c
+index 5aa143822d86..a5a072c47e0b 100644
+--- a/arch/x86/kernel/apic/io_apic.c
++++ b/arch/x86/kernel/apic/io_apic.c
+@@ -2373,6 +2373,10 @@ int native_ioapic_set_affinity(struct irq_data *data,
+ 	return ret;
+ }
+ 
++static int ioapic_set_wake(struct irq_data *data, unsigned int on)
++{
++	return 0;
++}
+ static void ack_apic_edge(struct irq_data *data)
+ {
+ 	irq_complete_move(data->chip_data);
+@@ -2537,6 +2541,7 @@ static struct irq_chip ioapic_chip __read_mostly = {
+ 	.irq_ack		= ack_apic_edge,
+ 	.irq_eoi		= ack_apic_level,
+ 	.irq_set_affinity	= native_ioapic_set_affinity,
++	.irq_set_wake		= ioapic_set_wake,
+ 	.irq_retrigger		= ioapic_retrigger_irq,
+ };
+ 
+-- 
+2.37.3
+

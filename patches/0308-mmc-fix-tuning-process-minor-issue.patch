@@ -1,0 +1,35 @@
+From 86f32e53ed29d5cf62d6046466adbd1f1a84aa70 Mon Sep 17 00:00:00 2001
+From: Rodriguez Fabien <fabienx.rodriguez@intel.com>
+Date: Wed, 16 Apr 2014 11:39:55 +0200
+Subject: [PATCH 308/429] mmc: fix tuning process minor issue
+
+Add mmiowb() after sending the command to make sure there is no IO
+barrier issue.
+
+Check the tuning loop counter and timeout value before minus 1, other
+wise the tuning loop will never stop in some cases
+
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index e1545e07ad2c..595c8f1954f4 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -2167,6 +2167,11 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
+ 	ier = sdhci_readl(host, SDHCI_INT_ENABLE);
+ 	sdhci_clear_set_irqs(host, ier, SDHCI_INT_DATA_AVAIL);
+ 
++	/*
++	 * set the data timeout register to be max value
++	 */
++	sdhci_writeb(host, 0xe, SDHCI_TIMEOUT_CONTROL);
++
+ 	/*
+ 	 * Issue CMD19 repeatedly till Execute Tuning is set to 0 or the number
+ 	 * of loops reaches 40 times or a timeout of 150ms occurs.
+-- 
+2.37.3
+

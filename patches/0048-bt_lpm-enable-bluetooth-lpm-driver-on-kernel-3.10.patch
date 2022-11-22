@@ -1,0 +1,178 @@
+From 75c6b2a5b3395fc6fae04f0a1bae601434e3bb5b Mon Sep 17 00:00:00 2001
+From: Aymen Zayet <aymen.zayet@intel.com>
+Date: Thu, 18 Jul 2013 01:50:12 +0200
+Subject: [PATCH 048/429] bt_lpm: enable bluetooth lpm driver on kernel 3.10.
+
+This patch add the platform data initialization of BT broadcom driver.
+Ported from the kernel 3.4 including the following commits :
+9be181426ed432109a36ef4d99d1ace541b8a237 [BT] Move uart wake/sleep callbacks to bcm_bt_lpm driver
+1821f6a885fb7ea13ab411d7696863cfbf4cb33a VLV2 BT_LPM: use 'gpio_to_irq' to get the IRQ number
+167217c8a4f5cb28d151e0aab3d299d5e392d2ea VLV2 BT_LPM: Correct the GPIO pin number for BT_Wakeup_Host
+52c0586198d1842af2e9b0b17d55fdbe588cf161 BT LPM: Enable BT on BYT with partial ACPI support
+4806d7bef742456112545ed2803e66d6f47b5d67 bcm433x: enable bluetooth Low Power Mode
+5a7c62b998dfe70a1f8cfb6c96c0749a2b0a0002 Broadcom chip baseporting: added platform device and driver
+
+Signed-off-by: Aymen Zayet <aymen.zayet@intel.com>
+---
+ arch/x86/include/asm/bcm_bt_lpm.h             | 46 +++++++++++
+ .../platform/intel-mid/device_libs/Makefile   |  3 +
+ .../intel-mid/device_libs/platform_btlpm.c    | 80 +++++++++++++++++++
+ 3 files changed, 129 insertions(+)
+ create mode 100644 arch/x86/include/asm/bcm_bt_lpm.h
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_btlpm.c
+
+diff --git a/arch/x86/include/asm/bcm_bt_lpm.h b/arch/x86/include/asm/bcm_bt_lpm.h
+new file mode 100644
+index 000000000000..d6d0557371f7
+--- /dev/null
++++ b/arch/x86/include/asm/bcm_bt_lpm.h
+@@ -0,0 +1,46 @@
++/*
++ * Copyright (C) 2009 Google, Inc.
++*
++* This software is licensed under the terms of the GNU General Public
++* License version 2, as published by the Free Software Foundation, and
++* may be copied, distributed, and modified under those terms.
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++* GNU General Public License for more details.
++*/
++
++#ifndef BCM_BT_LMP_H
++#define BCM_BT_LMP_H
++
++#include <linux/serial_core.h>
++#include <net/bluetooth/bluetooth.h>
++#include <net/bluetooth/hci_core.h>
++
++/* Uart driver must call this every time it beings TX, to ensure
++* this driver keeps WAKE asserted during TX. Called with uart
++* spinlock held. */
++extern void bcm_bt_lpm_exit_lpm_locked(struct device *dev,
++							struct hci_dev *hdev);
++
++struct bcm_bt_lpm_platform_data {
++	int gpio_wake;		/* CPU -> BCM wakeup gpio */
++	int gpio_host_wake;	/* BCM -> CPU wakeup gpio */
++	int int_host_wake;	/* BCM -> CPU wakeup irq */
++	int gpio_enable;	/* GPIO enable/disable BT/FM */
++
++	int port;			/* UART port to use with BT/FM */
++	/*
++	 * Callback to request the uart driver to clock off.
++	 * Called with uart spinlock held.
++	 */
++	void (*uart_disable)(struct device *tty);
++	/*
++	 * Callback to request the uart driver to clock on.
++	 * Called with uart spinlock held.
++	 */
++	void (*uart_enable)(struct device *tty);
++};
++
++#endif
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index 943872279245..6801d8ac9489 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -29,6 +29,9 @@ obj-$(subst m,y,$(CONFIG_IIO_BASINCOVE_GPADC))	+= platform_bcove_adc.o
+ obj-$(subst m,y,$(CONFIG_SERIAL_MFD_HSU_EXT)) += platform_hsu.o
+ # SD Devices
+ obj-$(subst m,y,$(CONFIG_WILINK_PLATFORM_DATA)) += platform_wl12xx.o
++ifndef CONFIG_ACPI
++obj-$(subst m,y,$(CONFIG_BCM_BT_LPM)) += platform_btlpm.o
++endif
+ #I2C Devices
+ ifdef CONFIG_BATTERY_MAX17042
+ obj-$(subst m,y,$(CONFIG_BATTERY_MAX17042)) += platform_max17042.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_btlpm.c b/arch/x86/platform/intel-mid/device_libs/platform_btlpm.c
+new file mode 100644
+index 000000000000..084452d7613c
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_btlpm.c
+@@ -0,0 +1,80 @@
++/*
++ * platform_btlpm: btlpm platform data initialization file
++ *
++ * (C) Copyright 2008 Intel Corporation
++ * Author:
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++#include <linux/init.h>
++#include <linux/pm_runtime.h>
++#include <asm/bcm_bt_lpm.h>
++#include <asm/intel-mid.h>
++#include <linux/gpio.h>
++
++#define UART_PORT_NO 0 /* Bluetooth is using UART port number 0 */
++
++#define LPM_ON
++
++static struct bcm_bt_lpm_platform_data bcm_bt_lpm_pdata = {
++	.gpio_wake = -EINVAL,
++	.gpio_host_wake = -EINVAL,
++	.int_host_wake = -EINVAL,
++	.gpio_enable = -EINVAL,
++	.port = UART_PORT_NO,
++};
++
++struct platform_device bcm_bt_lpm_device = {
++	.name = "bcm_bt_lpm",
++	.id = 0,
++	.dev = {
++		.platform_data = &bcm_bt_lpm_pdata,
++	},
++};
++
++static int __init bluetooth_init(void)
++{
++
++	int error_reg;
++
++	/* Get the GPIO numbers from the SFI table */
++
++	bcm_bt_lpm_pdata.gpio_enable = get_gpio_by_name("BT-reset");
++	if (!gpio_is_valid(bcm_bt_lpm_pdata.gpio_enable)) {
++		pr_err("%s: gpio %s not found\n", __func__, "BT-reset");
++		return -ENODEV;
++	}
++
++#ifdef LPM_ON
++	bcm_bt_lpm_pdata.gpio_host_wake = get_gpio_by_name("bt_uart_enable");
++	if (!gpio_is_valid(bcm_bt_lpm_pdata.gpio_host_wake)) {
++		pr_err("%s: gpio %s not found\n", __func__, "bt_uart_enable");
++		return -ENODEV;
++	}
++
++	bcm_bt_lpm_pdata.int_host_wake =
++				gpio_to_irq(bcm_bt_lpm_pdata.gpio_host_wake);
++
++	bcm_bt_lpm_pdata.gpio_wake = get_gpio_by_name("bt_wakeup");
++	if (!gpio_is_valid(bcm_bt_lpm_pdata.gpio_wake)) {
++		pr_err("%s: gpio %s not found\n", __func__, "bt_wakeup");
++		return -ENODEV;
++	}
++
++	pr_debug("%s: gpio_wake %d, gpio_host_wake %d\n", __func__,
++		bcm_bt_lpm_pdata.gpio_wake, bcm_bt_lpm_pdata.gpio_host_wake);
++#endif
++
++	error_reg = platform_device_register(&bcm_bt_lpm_device);
++	if (error_reg < 0) {
++		pr_err("%s: platform_device_register for %s failed\n",
++					__func__, bcm_bt_lpm_device.name);
++		return -ENODEV;
++	}
++	return 0;
++}
++
++device_initcall(bluetooth_init);
+-- 
+2.37.3
+

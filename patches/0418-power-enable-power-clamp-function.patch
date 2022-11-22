@@ -1,0 +1,46 @@
+From a10fc93f48870fc9993d7d614cd4fae2167c0c70 Mon Sep 17 00:00:00 2001
+From: Shimin Zhou <shimingx.zhou@intel.com>
+Date: Thu, 10 Sep 2015 09:04:55 +0800
+Subject: [PATCH 418/429] power: enable power clamp function
+
+Enable intel powerclamp driver in kernel, and it
+will be registered to the generic thermal layer
+as a cooling device. Through injecting idle time
+to the system according to user-selected idle ratio,
+it helps reducing over-temperature issue.
+
+Signed-off-by: Shimin Zhou <shimingx.zhou@intel.com>
+Signed-off-by: Zhenming Zhao <zhenmingx.zhao@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 2 +-
+ drivers/thermal/intel_powerclamp.c     | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index 86ee544ecc89..4e68b91e3486 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -1852,7 +1852,7 @@ CONFIG_THERMAL_GOV_STEP_WISE=y
+ # CONFIG_THERMAL_GOV_USER_SPACE is not set
+ # CONFIG_CPU_THERMAL is not set
+ # CONFIG_THERMAL_EMULATION is not set
+-# CONFIG_INTEL_POWERCLAMP is not set
++CONFIG_INTEL_POWERCLAMP=y
+ CONFIG_SENSORS_THERMAL_MRFLD=y
+ CONFIG_SOC_THERMAL=y
+ CONFIG_WATCHDOG=y
+diff --git a/drivers/thermal/intel_powerclamp.c b/drivers/thermal/intel_powerclamp.c
+index b40b37cd25e0..cb604a1d486a 100644
+--- a/drivers/thermal/intel_powerclamp.c
++++ b/drivers/thermal/intel_powerclamp.c
+@@ -675,6 +675,7 @@ static const struct x86_cpu_id intel_powerclamp_ids[] = {
+ 	{ X86_VENDOR_INTEL, 6, 0x2e},
+ 	{ X86_VENDOR_INTEL, 6, 0x2f},
+ 	{ X86_VENDOR_INTEL, 6, 0x3a},
++	{ X86_VENDOR_INTEL, 6, 0x4a},
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(x86cpu, intel_powerclamp_ids);
+-- 
+2.37.3
+

@@ -1,0 +1,53 @@
+From 52606ecd604d081f15dd3e6785e017a4b6f1400f Mon Sep 17 00:00:00 2001
+From: Guillaume Betous <guillaumex.betous@intel.com>
+Date: Tue, 10 Dec 2013 11:05:48 +0100
+Subject: [PATCH 140/429] Do not trigger watchdog on open()
+
+A CTS test is reading every file in /sys. When opening the watchdog/trigger
+file, the watchdog is triggered which makes the CTS test fail.
+
+Modify trigger to react on the write() command in both watchdog and
+watchdog_evo drivers. Also mark file write-only.
+
+Signed-off-by: Guillaume Betous <guillaumex.betous@intel.com>
+---
+ drivers/watchdog/intel_scu_watchdog_evo.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/watchdog/intel_scu_watchdog_evo.c b/drivers/watchdog/intel_scu_watchdog_evo.c
+index 6572a5e472c8..d33933d9097d 100644
+--- a/drivers/watchdog/intel_scu_watchdog_evo.c
++++ b/drivers/watchdog/intel_scu_watchdog_evo.c
+@@ -580,14 +580,18 @@ static const struct file_operations security_watchdog_fops = {
+ 	.open = open_security,
+ };
+ 
+-static int kwd_trigger_open(struct inode *inode, struct file *file)
++static int kwd_trigger_write(struct file *file, const char __user *buff,
++			     size_t count, loff_t *ppos)
+ {
++	pr_debug("kwd_trigger_write\n");
+ 	BUG();
+ 	return 0;
+ }
+ 
+ static const struct file_operations kwd_trigger_fops = {
+-	.open		= kwd_trigger_open,
++	.open		= nonseekable_open,
++	.write		= kwd_trigger_write,
++	.llseek		= no_llseek,
+ };
+ 
+ static int kwd_reset_type_release(struct inode *inode, struct file *file)
+@@ -761,7 +765,7 @@ static int create_debugfs_entries(void)
+ 
+ 	/* /sys/kernel/debug/watchdog/kernel_watchdog/trigger */
+ 	dev->dfs_kwd_trigger = debugfs_create_file("trigger",
+-				    S_IFREG | S_IRUGO | S_IWUSR | S_IWGRP,
++				    S_IFREG | S_IWUSR | S_IWGRP,
+ 				    dev->dfs_kwd, NULL,
+ 				    &kwd_trigger_fops);
+ 
+-- 
+2.37.3
+

@@ -1,0 +1,41 @@
+From 0b62603c8f88001f0be0b1b8881e0137b52b2d6d Mon Sep 17 00:00:00 2001
+From: Dong Chuanxiao <chuanxiao.dong@intel.com>
+Date: Wed, 31 Jul 2013 17:22:51 +0800
+Subject: [PATCH 307/429] mmc: host: ignore tuning after switch to RPMB
+ partition
+
+After switch to RPMB partition, always timeout waiting for Buffer Read Ready
+interrupt during tuning process. Ignore tuning after swtich to RPMB partition
+
+Signed-off-by: Ning Feiyi <feiyix.ning@intel.com>
+Signed-off-by: Chuanxiao Dong <chuanxiao.dong@intel.com>
+---
+ drivers/mmc/host/sdhci.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/host/sdhci.c b/drivers/mmc/host/sdhci.c
+index b1122f13e8ad..e1545e07ad2c 100644
+--- a/drivers/mmc/host/sdhci.c
++++ b/drivers/mmc/host/sdhci.c
+@@ -1628,6 +1628,9 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 		    !(present_state & (SDHCI_DOING_WRITE | SDHCI_DOING_READ)) &&
+ 			mrq->cmd->opcode != MMC_SEND_STATUS) {
+ 			if (mmc->card) {
++				if ((mmc->card->ext_csd.part_config & 0x07) ==
++					EXT_CSD_PART_CONFIG_ACC_RPMB)
++					goto end_tuning;
+ 				/* eMMC uses cmd21 but sd and sdio use cmd19 */
+ 				tuning_opcode =
+ 					mmc->card->type == MMC_TYPE_MMC ?
+@@ -1636,7 +1639,7 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 				spin_unlock_irqrestore(&host->lock, flags);
+ 				sdhci_execute_tuning(mmc, tuning_opcode);
+ 				spin_lock_irqsave(&host->lock, flags);
+-
++end_tuning:
+ 				/* Restore original mmc_request structure */
+ 				host->mrq = mrq;
+ 			}
+-- 
+2.37.3
+

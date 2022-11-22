@@ -1,0 +1,60 @@
+From d37c46be48145071f73d6a95e8fec82c8e625979 Mon Sep 17 00:00:00 2001
+From: "Wang, Yu" <yu.y.wang@intel.com>
+Date: Mon, 21 Oct 2013 18:34:17 +0800
+Subject: [PATCH 093/429] dwc3-intel-mrfl: Read SMIP flag for MERR platform.
+
+Need read SMIP flag to determine if follow USB spec. If SMIP flag set,
+then DUT should be charing even host enter suspended mode.
+Signed-off-by: Wang, Yu <yu.y.wang@intel.com>
+---
+ .../device_libs/pci/platform_usb_otg.c        | 30 ++++++++++++++++++-
+ 1 file changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+index 5a943edf7ae7..cdf73d9b5c2a 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+@@ -18,11 +18,39 @@
+ #ifdef CONFIG_USB_DWC3_OTG
+ #include <linux/usb/dwc3-intel-mid.h>
+ static struct intel_dwc_otg_pdata dwc_otg_pdata;
++
++static bool dwc_otg_get_usbspecoverride(void)
++{
++	void __iomem *usb_comp_iomap;
++	bool usb_spec_override;
++
++	/* Read MISCFLAGS byte from offset 0x717 */
++	usb_comp_iomap = ioremap_nocache(0xFFFCE717, 4);
++	/* MISCFLAGS.BIT[6] indicates USB spec override */
++	usb_spec_override = ioread8(usb_comp_iomap) & 0x40;
++	iounmap(usb_comp_iomap);
++
++	return usb_spec_override;
++}
++
+ static struct intel_dwc_otg_pdata *get_otg_platform_data(struct pci_dev *pdev)
+ {
+ 	switch (pdev->device) {
+ 	case PCI_DEVICE_ID_INTEL_MRFL_DWC3_OTG:
+-		if (intel_mid_identify_sim() == INTEL_MID_CPU_SIMULATION_HVP)
++		if (INTEL_MID_BOARD(1, PHONE, MOOR)) {
++			dwc_otg_pdata.pmic_type = SHADY_COVE;
++			dwc_otg_pdata.charger_detect_enable = 0;
++
++		} else if (INTEL_MID_BOARD(1, PHONE, MRFL)) {
++			dwc_otg_pdata.pmic_type = BASIN_COVE;
++			dwc_otg_pdata.charger_detect_enable = 1;
++
++			dwc_otg_pdata.charging_compliance =
++				dwc_otg_get_usbspecoverride();
++
++		} else if (intel_mid_identify_sim() ==
++				INTEL_MID_CPU_SIMULATION_HVP) {
++			dwc_otg_pdata.pmic_type = NO_PMIC;
+ 			dwc_otg_pdata.is_hvp = 1;
+ 			dwc_otg_pdata.charger_detect_enable = 0;
+ 		}
+-- 
+2.37.3
+

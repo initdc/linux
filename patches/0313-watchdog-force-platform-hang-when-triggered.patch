@@ -1,0 +1,29 @@
+From 8013dd1427f64385ff35f0a369b703e0d0772418 Mon Sep 17 00:00:00 2001
+From: Simon Desfarges <simonx.desfarges@intel.com>
+Date: Mon, 12 May 2014 15:52:47 +0200
+Subject: [PATCH 313/429] watchdog: force platform hang when triggered
+
+The watchdog trigger shall hang the kernel in order to verify the HW watchdog
+reset the board.
+
+Signed-off-by: Simon Desfarges <simonx.desfarges@intel.com>
+---
+ drivers/watchdog/intel_scu_watchdog_evo.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/watchdog/intel_scu_watchdog_evo.c b/drivers/watchdog/intel_scu_watchdog_evo.c
+index 981bf9634b6a..7b92247ed308 100644
+--- a/drivers/watchdog/intel_scu_watchdog_evo.c
++++ b/drivers/watchdog/intel_scu_watchdog_evo.c
+@@ -579,7 +579,7 @@ static int kwd_trigger_write(struct file *file, const char __user *buff,
+ 			     size_t count, loff_t *ppos)
+ {
+ 	pr_debug("kwd_trigger_write\n");
+-	BUG();
++	panic("Kernel watchdog triggered\n");
+ 	return 0;
+ }
+ 
+-- 
+2.37.3
+

@@ -1,0 +1,247 @@
+From 3393d531932a16ef41d4bb1e74c9e2ab671168ce Mon Sep 17 00:00:00 2001
+From: "Han, He" <he.han@intel.com>
+Date: Thu, 14 Nov 2013 02:44:30 +0800
+Subject: [PATCH 157/429] Enable Button LED of Redhookbay in Kernel 3.10
+
+Enable Button LED of Redhookbay in Kernel 3.10
+
+Note for EDISON: this could be re-used as a generic PWM driver.
+
+Signed-off-by: Han, He <he.han@intel.com>
+---
+ arch/x86/include/asm/intel_mid_pwm.h          |  30 +++++
+ .../platform/intel-mid/device_libs/Makefile   |   1 +
+ .../intel-mid/device_libs/platform_mid_pwm.c  | 127 ++++++++++++++++++
+ .../intel-mid/device_libs/platform_mid_pwm.h  |  21 +++
+ arch/x86/platform/intel-mid/intel_mid_scu.c   |   4 +-
+ 5 files changed, 182 insertions(+), 1 deletion(-)
+ create mode 100644 arch/x86/include/asm/intel_mid_pwm.h
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c
+ create mode 100644 arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.h
+
+diff --git a/arch/x86/include/asm/intel_mid_pwm.h b/arch/x86/include/asm/intel_mid_pwm.h
+new file mode 100644
+index 000000000000..fdd522108c66
+--- /dev/null
++++ b/arch/x86/include/asm/intel_mid_pwm.h
+@@ -0,0 +1,30 @@
++#ifndef __INTEL_MID_PWM_H__
++#define __INTEL_MID_PWM_H__
++
++#define MAX_DUTYCYCLE_PERCENTAGE 100
++
++enum {
++	PWM_LED = 0,
++	PWM_VIBRATOR,
++	PWM_LCD_BACKLIGHT,
++	PWM_NUM,
++};
++
++struct intel_mid_pwm_device_data {
++	u16 reg_clkdiv0;
++	u16 reg_clkdiv1;
++	u16 reg_dutycyc;
++	u8 val_clkdiv0;
++	u8 val_clkdiv1;
++};
++
++struct intel_mid_pwm_platform_data {
++	int pwm_num;
++	struct intel_mid_pwm_device_data *ddata;
++	u16 reg_clksel;
++	u8 val_clksel;
++};
++
++int intel_mid_pwm(int id, int value);
++#endif
++
+diff --git a/arch/x86/platform/intel-mid/device_libs/Makefile b/arch/x86/platform/intel-mid/device_libs/Makefile
+index 751f7996d247..c4a51eec5eb3 100644
+--- a/arch/x86/platform/intel-mid/device_libs/Makefile
++++ b/arch/x86/platform/intel-mid/device_libs/Makefile
+@@ -14,6 +14,7 @@ obj-y += pci/
+ obj-$(subst m,y,$(CONFIG_BATTERY_INTEL_MDF)) += platform_msic_battery.o
+ obj-$(subst m,y,$(CONFIG_INTEL_MID_POWER_BUTTON)) += platform_msic_power_btn.o
+ obj-$(subst m,y,$(CONFIG_GPIO_INTEL_PMIC)) += platform_pmic_gpio.o
++obj-$(subst m,y,$(CONFIG_MID_PWM)) += platform_mid_pwm.o
+ obj-$(subst m,y,$(CONFIG_INTEL_MFLD_THERMAL)) += platform_msic_thermal.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_MID_VDD)) += platform_msic_vdd.o
+ obj-$(subst m,y,$(CONFIG_SENSORS_MRFL_OCD)) += platform_mrfl_ocd.o
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c b/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c
+new file mode 100644
+index 000000000000..4ea3fab5334c
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c
+@@ -0,0 +1,127 @@
++/*
++ * platform_mid_pwm.c: mid_pwm platform data initilization file
++ *
++ * (C) Copyright 2008 Intel Corporation
++ * Author:
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/input.h>
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/gpio.h>
++#include <linux/platform_device.h>
++#include <linux/lnw_gpio.h>
++
++#include <asm/intel-mid.h>
++#include <asm/intel_mid_pwm.h>
++#include <asm/intel_mid_remoteproc.h>
++
++#include "platform_mid_pwm.h"
++
++static struct intel_mid_pwm_device_data mfld_pwms[] = {
++	[PWM_LED] = {
++		.reg_clkdiv0 = 0x62,
++		.reg_clkdiv1 = 0x61,
++		.reg_dutycyc = 0x67,
++		.val_clkdiv1 = 0x00,
++		.val_clkdiv0 = 0x03,
++	},
++	[PWM_VIBRATOR] = {
++		.reg_clkdiv0 = 0x64,
++		.reg_clkdiv1 = 0x63,
++		.reg_dutycyc = 0x68,
++		.val_clkdiv1 = 0x00,
++		.val_clkdiv0 = 0x03,
++	},
++	[PWM_LCD_BACKLIGHT] = {
++		.reg_clkdiv0 = 0x66,
++		.reg_clkdiv1 = 0x65,
++		.reg_dutycyc = 0x69,
++		.val_clkdiv1 = 0x00,
++		.val_clkdiv0 = 0x03,
++	},
++};
++
++static struct intel_mid_pwm_device_data ctp_pwms[] = {
++	[PWM_LED] = {
++		.reg_clkdiv0 = 0x62,
++		.reg_clkdiv1 = 0x61,
++		.reg_dutycyc = 0x67,
++		.val_clkdiv1 = 0x00,
++		.val_clkdiv0 = 0x00,
++	},
++	[PWM_VIBRATOR] = {
++		.reg_clkdiv0 = 0x64,
++		.reg_clkdiv1 = 0x63,
++		.reg_dutycyc = 0x68,
++		.val_clkdiv1 = 0x00,
++		.val_clkdiv0 = 0x03,
++	},
++	[PWM_LCD_BACKLIGHT] = {
++		.reg_clkdiv0 = 0x66,
++		.reg_clkdiv1 = 0x65,
++		.reg_dutycyc = 0x69,
++		.val_clkdiv1 = 0x00,
++		.val_clkdiv0 = 0x03,
++	},
++};
++
++static struct intel_mid_pwm_platform_data pdata[] = {
++	[mfld_pwm] = {
++		.pwm_num = PWM_NUM,
++		.ddata = mfld_pwms,
++		.reg_clksel = 0x38F,
++		.val_clksel = 0x01,
++	},
++	[ctp_pwm] = {
++		.pwm_num = PWM_NUM,
++		.ddata = ctp_pwms,
++		.reg_clksel = 0x38F,
++		.val_clksel = 0x00,
++	},
++};
++
++static void *get_pwm_platform_data(void)
++{
++	if (INTEL_MID_BOARD(1, PHONE, CLVTP) ||
++		(INTEL_MID_BOARD(1, TABLET, CLVT))) {
++		pr_info("%s, CLV board detected\n", __func__);
++		return &pdata[ctp_pwm];
++	} else {
++		pr_info("%s, MFLD board detected\n", __func__);
++		return &pdata[mfld_pwm];
++	}
++}
++
++static int __init intel_mid_pwm_init(void)
++{
++	struct platform_device *pdev = NULL;
++	int ret = 0;
++
++	pdev = platform_device_alloc(DEVICE_NAME, -1);
++
++	if (!pdev) {
++		pr_err("out of memory for platform dev %s\n",
++					DEVICE_NAME);
++		return -1;
++	}
++
++	pdev->dev.platform_data = get_pwm_platform_data();
++
++	ret = platform_device_add(pdev);
++	if (ret) {
++		pr_err("failed to add platform device %s\n",
++					DEVICE_NAME);
++		platform_device_put(pdev);
++		return -1;
++	}
++
++	return 0;
++}
++
++fs_initcall(intel_mid_pwm_init);
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.h b/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.h
+new file mode 100644
+index 000000000000..fb9a26c9241c
+--- /dev/null
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.h
+@@ -0,0 +1,21 @@
++/*
++ * platform_mid_pwm.h: mid_pwm platform data header file
++ *
++ * (C) Copyright 2008 Intel Corporation
++ * Author:
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++#ifndef _PLATFORM_MID_PWM_H_
++#define _PLATFORM_MID_PWM_H_
++
++#define DEVICE_NAME "intel_mid_pwm"
++
++enum {
++	mfld_pwm,
++	ctp_pwm,
++};
++#endif
+diff --git a/arch/x86/platform/intel-mid/intel_mid_scu.c b/arch/x86/platform/intel-mid/intel_mid_scu.c
+index ed40fd381a5f..a8e633c33391 100644
+--- a/arch/x86/platform/intel-mid/intel_mid_scu.c
++++ b/arch/x86/platform/intel-mid/intel_mid_scu.c
+@@ -79,7 +79,9 @@ int intel_mid_rproc_init(void)
+ 	register_rpmsg_service("rpmsg_kpd_led", RPROC_SCU,
+ 				RP_MSIC_KPD_LED);
+ 	register_rpmsg_service("rpmsg_modem_nvram", RPROC_SCU,
+-					RP_IPC_SIMPLE_COMMAND);
++					RP_IPC_RAW_COMMAND);
++	register_rpmsg_service("rpmsg_mid_pwm", RPROC_SCU,
++				RP_MSIC_PWM);
+ 
+ 	err = platform_device_register(&intel_scu_device);
+ 	if (err < 0)
+-- 
+2.37.3
+

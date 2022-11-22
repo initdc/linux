@@ -1,0 +1,99 @@
+From 4c0559198a7f8056b64bff712abd3177baf21420 Mon Sep 17 00:00:00 2001
+From: Ananth Krishna <ananth.krishna.r@intel.com>
+Date: Thu, 19 Sep 2013 14:51:43 +0530
+Subject: [PATCH 075/429] Set IE bit in PM ICS register in S3/Standby flow
+
+During S3/Standby flow (even after going through suspend sequence),
+there is a possibility that S0ix abort happens. But due to lack of
+feedback mechanism the platform remains in unknown state until power
+button or USB is connected.
+
+Proposed solution: SCU to send MSI only if there is a S0ix aborts
+and Interrupt Enable (IE) is bit set in PM ICS register. PMU driver
+will set this bit just before C7 request in standby flow.
+
+This patch add required changes to PMU driver to set IE bit in S3 flow.
+
+Signed-off-by: Ananth Krishna <ananth.krishna.r@intel.com>
+Signed-off-by: Illyas Mansoor <illyas.mansoor@intel.com>
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ arch/x86/platform/intel-mid/intel_soc_mrfld.c | 11 ++++++++++-
+ arch/x86/platform/intel-mid/intel_soc_pmu.c   |  4 ++--
+ arch/x86/platform/intel-mid/intel_soc_pmu.h   |  1 +
+ 3 files changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.c b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+index 575c57ad387d..0014e3e5ff4c 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+@@ -111,6 +111,9 @@ static int mrfld_pmu_init(void)
+ 		mid_pmu_cxt->os_sss[0] |= SSMSK(D0I3_MASK, PMU_PSH_LSS_00);
+ 	}
+ 
++	/* Disable the Interrupt Enable bit in PM ICS register */
++	pmu_clear_interrupt_enable();
++
+ 	return PMU_SUCCESS;
+ 
+ err3:
+@@ -264,8 +267,10 @@ void platform_update_all_lss_states(struct pmu_ss_states *pmu_config,
+ static bool mrfld_pmu_enter(int s0ix_state)
+ {
+ 	mid_pmu_cxt->s0ix_entered = s0ix_state;
+-	if (s0ix_state == MID_S3_STATE)
++	if (s0ix_state == MID_S3_STATE) {
+ 		mid_pmu_cxt->pmu_current_state = SYS_STATE_S3;
++		pmu_set_interrupt_enable();
++	}
+ 
+ 	return true;
+ }
+@@ -387,6 +392,10 @@ void s0ix_complete(void)
+ {
+ 	if (mid_pmu_cxt->s0ix_entered) {
+ 		log_wakeup_irq();
++
++		if (mid_pmu_cxt->s0ix_entered == SYS_STATE_S3)
++			pmu_clear_interrupt_enable();
++
+ 		mid_pmu_cxt->pmu_current_state	=
+ 		mid_pmu_cxt->s0ix_entered	= 0;
+ 	}
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.c b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+index 154e8b6cc2a3..3f5769bd32a8 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.c
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.c
+@@ -272,7 +272,7 @@ void log_wakeup_irq(void)
+ 	return;
+ }
+ 
+-static int pmu_interrupt_pending(void)
++static inline int pmu_interrupt_pending(void)
+ {
+ 	u32 temp;
+ 	union pmu_pm_ics result;
+@@ -314,7 +314,7 @@ void pmu_set_interrupt_enable(void)
+ 	writel(temp, &mid_pmu_cxt->pmu_reg->pm_ics);
+ }
+ 
+-static inline void pmu_clear_interrupt_enable(void)
++void pmu_clear_interrupt_enable(void)
+ {
+ 	u32 temp;
+ 	union pmu_pm_ics result;
+diff --git a/arch/x86/platform/intel-mid/intel_soc_pmu.h b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+index bb498e2ebc6d..de786abd44c9 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_pmu.h
++++ b/arch/x86/platform/intel-mid/intel_soc_pmu.h
+@@ -409,6 +409,7 @@ extern int get_extended_cstate_mode(char *buffer, struct kernel_param *kp);
+ extern int byt_pmu_nc_set_power_state(int islands, int state_type, int reg);
+ extern int byt_pmu_nc_get_power_state(int islands, int reg);
+ extern void pmu_set_interrupt_enable(void);
++extern void pmu_clear_interrupt_enable(void);
+ 
+ #ifdef LOG_PMU_EVENTS
+ extern void pmu_log_pmu_irq(int status);
+-- 
+2.37.3
+

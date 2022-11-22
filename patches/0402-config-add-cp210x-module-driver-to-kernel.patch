@@ -1,0 +1,29 @@
+From 9944d8db92e8a2c680c037d91354be8b9584289f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Lo=C3=AFc=20Akue?= <loicx.akue@intel.com>
+Date: Thu, 12 Feb 2015 16:41:34 +0100
+Subject: [PATCH 402/429] config: add cp210x module driver to kernel
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Loïc Akue <loicx.akue@intel.com>
+---
+ arch/x86/configs/i386_edison_defconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/configs/i386_edison_defconfig b/arch/x86/configs/i386_edison_defconfig
+index b1ed708a94cb..02cd5fe5b256 100644
+--- a/arch/x86/configs/i386_edison_defconfig
++++ b/arch/x86/configs/i386_edison_defconfig
+@@ -2626,7 +2626,7 @@ CONFIG_USB_SERIAL=y
+ # CONFIG_USB_SERIAL_CH341 is not set
+ # CONFIG_USB_SERIAL_WHITEHEAT is not set
+ # CONFIG_USB_SERIAL_DIGI_ACCELEPORT is not set
+-# CONFIG_USB_SERIAL_CP210X is not set
++CONFIG_USB_SERIAL_CP210X=m
+ # CONFIG_USB_SERIAL_CYPRESS_M8 is not set
+ # CONFIG_USB_SERIAL_EMPEG is not set
+ # CONFIG_USB_SERIAL_FTDI_SIO is not set
+-- 
+2.37.3
+

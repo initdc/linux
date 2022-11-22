@@ -1,0 +1,100 @@
+From 8052ba0d4ff5919ac64476fa5e06e3b1967784d1 Mon Sep 17 00:00:00 2001
+From: Jiebing Li <jiebing.li@intel.com>
+Date: Thu, 5 Dec 2013 14:59:42 +0800
+Subject: [PATCH 208/429] usb/dwc3-device: fix SuperSpeed transfer issue for
+ DvC.Trace
+
+Currently DvC.Trace super speed transfer is not stable if U1/U2
+is enabled. This patch disable U1/U2 as a workaround.
+
+Signed-off-by: Jiebing Li <jiebing.li@intel.com>
+---
+ drivers/usb/dwc3/core.h   |  2 ++
+ drivers/usb/dwc3/ep0.c    | 15 ++++++++++++---
+ drivers/usb/dwc3/gadget.c |  9 ++++++---
+ 3 files changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/usb/dwc3/core.h b/drivers/usb/dwc3/core.h
+index 49d949e36fb4..c4a5d68d03d2 100644
+--- a/drivers/usb/dwc3/core.h
++++ b/drivers/usb/dwc3/core.h
+@@ -792,6 +792,8 @@ struct dwc3 {
+ 	/* delayed work for handling Link State Change */
+ 	struct delayed_work	link_work;
+ 
++	u8			is_ebc;
++
+ 	struct dwc3_scratchpad_array	*scratch_array;
+ 	dma_addr_t		scratch_array_dma;
+ 	void			*scratch_buffer[DWC3_MAX_HIBER_SCRATCHBUFS];
+diff --git a/drivers/usb/dwc3/ep0.c b/drivers/usb/dwc3/ep0.c
+index 27040a6314d4..308daa53dfaa 100644
+--- a/drivers/usb/dwc3/ep0.c
++++ b/drivers/usb/dwc3/ep0.c
+@@ -417,6 +417,9 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
+ 			if (dwc->speed != DWC3_DSTS_SUPERSPEED)
+ 				return -EINVAL;
+ 
++			if (dwc->is_ebc)
++				break;
++
+ 			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+ 			if (set)
+ 				reg |= DWC3_DCTL_INITU1ENA;
+@@ -431,6 +434,9 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
+ 			if (dwc->speed != DWC3_DSTS_SUPERSPEED)
+ 				return -EINVAL;
+ 
++			if (dwc->is_ebc)
++				break;
++
+ 			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+ 			if (set)
+ 				reg |= DWC3_DCTL_INITU2ENA;
+@@ -562,9 +568,12 @@ static int dwc3_ep0_set_config(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
+ 			 * Enable transition to U1/U2 state when
+ 			 * nothing is pending from application.
+ 			 */
+-			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+-			reg |= (DWC3_DCTL_ACCEPTU1ENA | DWC3_DCTL_ACCEPTU2ENA);
+-			dwc3_writel(dwc->regs, DWC3_DCTL, reg);
++			if (!dwc->is_ebc) {
++				reg = dwc3_readl(dwc->regs, DWC3_DCTL);
++				reg |= (DWC3_DCTL_ACCEPTU1ENA
++					| DWC3_DCTL_ACCEPTU2ENA);
++				dwc3_writel(dwc->regs, DWC3_DCTL, reg);
++			}
+ 
+ 			dwc->resize_fifos = true;
+ 			dev_dbg(dwc->dev, "resize fifos flag SET\n");
+diff --git a/drivers/usb/dwc3/gadget.c b/drivers/usb/dwc3/gadget.c
+index bd4e4b317be0..86ba48e6619e 100644
+--- a/drivers/usb/dwc3/gadget.c
++++ b/drivers/usb/dwc3/gadget.c
+@@ -697,9 +697,12 @@ static int __dwc3_gadget_ep_disable(struct dwc3_ep *dep)
+ 	struct ebc_io		*ebc = dep->ebc;
+         u32			reg;
+ 
++	if (ebc) {
++		dwc->is_ebc = 0;
+ 
+-	if (ebc && ebc->is_ondemand && ebc->xfer_stop)
+-		ebc->xfer_stop();
++		if (ebc->is_ondemand && ebc->xfer_stop)
++			ebc->xfer_stop();
++	}
+ 
+ 	dwc3_remove_requests(dwc, dep);
+ 
+@@ -1328,7 +1331,7 @@ static int __dwc3_gadget_ep_queue(struct dwc3_ep *dep, struct dwc3_request *req)
+ 		}
+ 
+ 		if (dep->flags & DWC3_EP_BUSY) {
+-			dwc3_stop_active_transfer(dwc, dep->number);
++			dwc3_stop_active_transfer(dwc, dep->number, 1);
+ 			dep->flags = DWC3_EP_ENABLED;
+ 		}
+ 
+-- 
+2.37.3
+

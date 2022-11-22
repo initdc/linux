@@ -1,0 +1,60 @@
+From e47d481697816e90a0b3820ae43256edee67d432 Mon Sep 17 00:00:00 2001
+From: Saikat <saikat.roychowdhury@intel.com>
+Date: Fri, 8 Nov 2013 18:47:04 +0530
+Subject: [PATCH 116/429] EM/THERMAL: Remove CPU DTS interrupt filtering for
+ mrfl
+
+[Description of issue]
+Thermal driver not clearing the bits as interrupt handler
+in coretemp driver is not called.This is because CPU DTS
+interrupts received within 300 seconds were getting filtered
+
+[Implemented Solution]
+The therm_throt.c has a filter for CPU DTS interrupts
+which considers only one event per 300 seconds. This was
+added to reduce/filter spurious interrupts due to CPU
+DTS temperature hovering around the thresholds.In
+platforms like MRFLD, BYT, the FW takes care of
+hysteresis and hence spurious interrupts are not
+expected. Hence, for these platforms (in which
+CONFIG_SENSORS_CORETEMP_INTERRUPT is defined)this
+check interval is reduced to 0. Otherwise,we are
+missing some events due to filtering.Patch from k3.4:
+http://android.intel.com:8080/#/c/125200/
+
+Category: feature differentiation
+Domain: EM.ThermalManagement-commmon
+Origin: internal
+Upstream-Candidate: yes
+
+Signed-off-by: adavidra <ajay.thomas.david.rajamanickam@intel.com>
+---
+ arch/x86/kernel/cpu/mcheck/therm_throt.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kernel/cpu/mcheck/therm_throt.c b/arch/x86/kernel/cpu/mcheck/therm_throt.c
+index b4f2344e8a0d..7ae5a4bab0b3 100644
+--- a/arch/x86/kernel/cpu/mcheck/therm_throt.c
++++ b/arch/x86/kernel/cpu/mcheck/therm_throt.c
+@@ -30,8 +30,17 @@
+ #include <asm/mce.h>
+ #include <asm/msr.h>
+ 
+-/* How long to wait between reporting thermal events */
++/*
++ * How long to wait between reporting thermal events ?
++ * If Interrupt is enabled for Coretemp driver, the BIOS
++ * takes care of hysteresis and thus there are no spurious
++ * interrupts expected. Hence making this interval to 0.
++ */
++#ifdef CONFIG_SENSORS_CORETEMP_INTERRUPT
++#define CHECK_INTERVAL         (0)
++#else
+ #define CHECK_INTERVAL		(300 * HZ)
++#endif
+ 
+ #define THERMAL_THROTTLING_EVENT	0
+ #define POWER_LIMIT_EVENT		1
+-- 
+2.37.3
+

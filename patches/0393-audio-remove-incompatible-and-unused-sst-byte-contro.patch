@@ -1,0 +1,33 @@
+From c9d5fca038ff95149178c7342b3361ce21b4ed2c Mon Sep 17 00:00:00 2001
+From: Michael Soares <michaelx.soares@intel.com>
+Date: Thu, 18 Dec 2014 02:42:10 +0100
+Subject: [PATCH 393/429] audio: remove incompatible and unused sst byte
+ control
+
+SST byte control is unused on Edison platform. Moreover, this
+control is not compatible with the Alsa legacy element control structure
+and causes write error when user space try to access it.
+
+This patch removes the SST byte control from the audio platform driver.
+
+Signed-off-by: Michael Soares <michaelx.soares@intel.com>
+---
+ sound/soc/intel/platform-libs/controls_v2_dpcm.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/sound/soc/intel/platform-libs/controls_v2_dpcm.c b/sound/soc/intel/platform-libs/controls_v2_dpcm.c
+index bc8ee99d88ec..290f220e9c86 100644
+--- a/sound/soc/intel/platform-libs/controls_v2_dpcm.c
++++ b/sound/soc/intel/platform-libs/controls_v2_dpcm.c
+@@ -1786,8 +1786,6 @@ int sst_dsp_init_v2_dpcm(struct snd_soc_platform *platform)
+ 			ARRAY_SIZE(sst_slot_controls));
+ 	snd_soc_add_platform_controls(platform, sst_mux_controls,
+ 			ARRAY_SIZE(sst_mux_controls));
+-	snd_soc_add_platform_controls(platform, sst_debug_controls,
+-			ARRAY_SIZE(sst_debug_controls));
+ 
+ 	/* initialize the names of the probe points */
+ 	for (i = 0; i < SST_NUM_PROBE_CONNECTION_PTS; i++)
+-- 
+2.37.3
+

@@ -1,0 +1,64 @@
+From 9066e1f94a43b55c1317e89e30b6c0dd21ba5457 Mon Sep 17 00:00:00 2001
+From: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+Date: Thu, 8 Aug 2013 12:02:05 +0530
+Subject: [PATCH 319/429] intel_idle: Do not check substates for any states
+ above C6
+
+This is again a partial pick of the earlier commit
+ d3a41b3 PMU: Enable PMU driver for Intel SoC
+
+Do not check number of substates for any states above C6
+as these are not real C states supported by the CPU, they
+are emulated c states for s0ix support.
+
+Orig-Change-ID: I5fc73e854be0e51a6931633fa2cd8e48bdb53b64
+Signed-off-by: Srinidhi Kasagar <srinidhi.kasagar@intel.com>
+---
+ drivers/idle/intel_idle.c | 22 ++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/idle/intel_idle.c b/drivers/idle/intel_idle.c
+index 87200f4a0a48..725d94e76fab 100644
+--- a/drivers/idle/intel_idle.c
++++ b/drivers/idle/intel_idle.c
+@@ -917,8 +917,17 @@ static int intel_idle_cpuidle_driver_init(void)
+ 		mwait_substate = MWAIT_HINT2SUBSTATE(mwait_hint);
+ 
+ 		/* does the state exist in CPUID.MWAIT? */
+-		num_substates = (mwait_substates >> ((mwait_cstate + 1) * 4))
++
++		/* FIXME: Do not check number of substates for any states above C6
++		 * as these are not real C states supported by the CPU, they
++		 * are emulated c states for s0ix support.
++		*/
++		if ((cstate + 1) < 6) {
++			num_substates = (mwait_substates >> ((mwait_cstate + 1) * 4))
+ 					& MWAIT_SUBSTATE_MASK;
++			if (num_substates == 0)
++				continue;
++		}
+ 
+ #if !defined(CONFIG_ATOM_SOC_POWER)
+ 		if (boot_cpu_data.x86_model != 0x37) {
+@@ -978,8 +987,17 @@ static int intel_idle_cpu_init(int cpu)
+ 		mwait_substate = MWAIT_HINT2SUBSTATE(mwait_hint);
+ 
+ 		/* does the state exist in CPUID.MWAIT? */
+-		num_substates = (mwait_substates >> ((mwait_cstate + 1) * 4))
++
++		/* FIXME: Do not check number of substates for any states above C6
++		 * as these are not real C states supported by the CPU, they
++		 * are emulated c states for s0ix support.
++		 */
++		if ((cstate + 1) < 6) {
++			num_substates = (mwait_substates >> ((mwait_cstate + 1) * 4))
+ 					& MWAIT_SUBSTATE_MASK;
++			if (num_substates == 0)
++				continue;
++		}
+ 
+ #if !defined(CONFIG_ATOM_SOC_POWER)
+ 		if (boot_cpu_data.x86_model != 0x37) {
+-- 
+2.37.3
+

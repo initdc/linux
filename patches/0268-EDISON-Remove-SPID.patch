@@ -1,0 +1,1351 @@
+From 94c7fe4cdf44d8fa2a51e71b0197411c7ad1833b Mon Sep 17 00:00:00 2001
+From: Saadi Maalem <saadi.maalem@intel.com>
+Date: Thu, 20 Feb 2014 20:50:43 +0100
+Subject: [PATCH 268/429] EDISON: Remove SPID
+
+The SPID mechanism is not needed for EDISON.
+Actually, better not to have it at all to simplify the code
+and avoid the need of provisionning SPID on manufacturing line.
+
+Remove the SPID implementation and all references to SPID macros in the code.
+---
+ arch/x86/include/asm/intel-mid.h              |  19 +-
+ arch/x86/include/asm/spid.h                   | 519 ------------------
+ arch/x86/platform/intel-mid/Makefile          |   3 -
+ .../device_libs/pci/platform_usb_otg.c        |  51 +-
+ .../intel-mid/device_libs/platform_hsu.c      |  25 +-
+ .../intel-mid/device_libs/platform_mid_pwm.c  |  10 +-
+ .../device_libs/platform_mrfl_thermal.c       |   6 +-
+ .../device_libs/platform_msic_gpio.c          |  36 +-
+ .../device_libs/platform_msic_power_btn.c     |  25 +-
+ .../device_libs/platform_msic_thermal.c       |  12 +-
+ .../intel-mid/device_libs/platform_scu_flis.c |  20 +-
+ .../device_libs/platform_soc_thermal.c        |   3 -
+ arch/x86/platform/intel-mid/intel_mid_sfi.c   |   4 -
+ arch/x86/platform/intel-mid/intel_soc_mrfld.c |  16 +-
+ arch/x86/platform/intel-mid/spid.c            | 372 -------------
+ 15 files changed, 64 insertions(+), 1057 deletions(-)
+ delete mode 100644 arch/x86/include/asm/spid.h
+ delete mode 100644 arch/x86/platform/intel-mid/spid.c
+
+diff --git a/arch/x86/include/asm/intel-mid.h b/arch/x86/include/asm/intel-mid.h
+index e6be1264bc38..c5860b48378a 100644
+--- a/arch/x86/include/asm/intel-mid.h
++++ b/arch/x86/include/asm/intel-mid.h
+@@ -16,7 +16,6 @@
+ #include <linux/sfi.h>
+ #include <linux/pci.h>
+ #include <linux/platform_device.h>
+-#include <asm/spid.h>
+ #include <asm/intel_mid_pcihelpers.h>
+ 
+ #ifdef CONFIG_SFI
+@@ -43,6 +42,24 @@ extern void *get_oem0_table(void);
+ extern void register_rpmsg_service(char *name, int id, u32 addr);
+ extern int sdhci_pci_request_regulators(void);
+ 
++/* Define soft platform ID to comply with the OEMB table format. But SPID is not supported */
++#define INTEL_PLATFORM_SSN_SIZE 32
++struct soft_platform_id {
++        u16 customer_id; /*Defines the final customer for the product */
++        u16 vendor_id; /* Defines who owns the final product delivery */
++        u16 manufacturer_id; /* Defines who build the hardware. This can be
++                              * different for the same product */
++        u16 platform_family_id; /* Defined by vendor and defines the family of
++                                 * the product with the same root components */
++        u16 product_line_id; /* Defined by vendor and defines the name of the
++                              * product. This can be used to differentiate the
++                              * feature set for the same product family (low
++                              * cost vs full feature). */
++        u16 hardware_id; /* Defined by vendor and defines the physical hardware
++                          * component set present on the PCB/FAB */
++        u8  fru[SPID_FRU_SIZE]; /* Field Replaceabl Unit */
++} __packed;
++
+ /* OEMB table */
+ struct sfi_table_oemb {
+ 	struct sfi_table_header header;
+diff --git a/arch/x86/include/asm/spid.h b/arch/x86/include/asm/spid.h
+deleted file mode 100644
+index 11c667313d72..000000000000
+--- a/arch/x86/include/asm/spid.h
++++ /dev/null
+@@ -1,519 +0,0 @@
+-/*
+- * spid.h: Intel software platform ID definitions
+- *
+- * (C) Copyright 2012 Intel Corporation
+- *
+- * This program is free software; you can redistribute it and/or
+- * modify it under the terms of the GNU General Public License
+- * as published by the Free Software Foundation; version 2
+- * of the License.
+- */
+-#ifndef _ASM_X86_SPID_H
+-#define _ASM_X86_SPID_H
+-
+-#include <linux/sfi.h>
+-/* size of SPID cmdline : androidboot.spid=vend:cust:manu:plat:prod:hard */
+-#define SPID_CMDLINE_SIZE 46
+-#define SPID_PARAM_NAME "androidboot.spid="
+-#define SPID_DEFAULT_VALUE "xxxx:xxxx:xxxx:xxxx:xxxx:xxxx"
+-
+-#define spid_attr(_name) \
+-static struct kobj_attribute _name##_attr = { \
+-	.attr = {                             \
+-		.name = __stringify(_name),   \
+-		.mode = 0444,                 \
+-	},                                    \
+-	.show   = _name##_show,               \
+-}
+-
+-
+-#define INTEL_PLATFORM_SSN_SIZE	32
+-extern struct soft_platform_id spid;
+-extern char intel_platform_ssn[INTEL_PLATFORM_SSN_SIZE + 1];
+-
+-int __init sfi_handle_spid(struct sfi_table_header *table);
+-
+-struct soft_platform_id {
+-	u16 customer_id; /*Defines the final customer for the product */
+-	u16 vendor_id; /* Defines who owns the final product delivery */
+-	u16 manufacturer_id; /* Defines who build the hardware. This can be
+-			      * different for the same product */
+-	u16 platform_family_id; /* Defined by vendor and defines the family of
+-				 * the product with the same root components */
+-	u16 product_line_id; /* Defined by vendor and defines the name of the
+-			      * product. This can be used to differentiate the
+-			      * feature set for the same product family (low
+-			      * cost vs full feature). */
+-	u16 hardware_id; /* Defined by vendor and defines the physical hardware
+-			  * component set present on the PCB/FAB */
+-	u8  fru[SPID_FRU_SIZE]; /* Field Replaceabl Unit */
+-} __packed;
+-
+-/* Customer_ID table */
+-enum {
+-	CUSTOMER_INTEL,
+-	CUSTOMER_INTEL_RSVD1,
+-	CUSTOMER_INTEL_RSVD2,
+-	CUSTOMER_INTEL_RSVD3,
+-	CUSTOMER_INTEL_RSVD4,
+-	CUSTOMER_INTEL_RSVD5,
+-	CUSTOMER_INTEL_RSVD6,
+-	CUSTOMER_RSVD,
+-	CUSTOMER_UNKNOWN = 0xFFFF
+-};
+-
+-/* Vendor_ID table */
+-enum {
+-	VENDOR_INTEL,
+-	VENDOR_INTEL_RSVD1,
+-	VENDOR_INTEL_RSVD2,
+-	VENDOR_INTEL_RSVD3,
+-	VENDOR_INTEL_RSVD4,
+-	VENDOR_INTEL_RSVD5,
+-	VENDOR_INTEL_RSVD6,
+-	VENDOR_RSVD,
+-	VENDOR_UNKNOWN = 0xFFFF
+-};
+-
+-/* Manufacturer_ID table for Vendor_ID == VENDOR_INTEL */
+-enum {
+-	MANUFACTURER_FAB1,
+-	MANUFACTURER_FAB2,
+-	MANUFACTURER_FAB3,
+-	MANUFACTURER_FAB4,
+-	MANUFACTURER_FAB5,
+-	MANUFACTURER_FAB6,
+-	MANUFACTURER_FAB7,
+-	MANUFACTURER_FAB8,
+-	MANUFACTURER_FAB9,
+-	MANUFACTURER_RSVD,
+-	MANUFACTURER_UNKNOWN = 0xFFFF
+-};
+-
+-/* Platform_Family_ID table for Vendor_ID == VENDOR_INTEL */
+-enum {
+-	INTEL_MFLD_PHONE  = 0x0000,
+-	INTEL_MFLD_TABLET = 0x0001,
+-	INTEL_CLVTP_PHONE = 0x0002,
+-	INTEL_CLVT_TABLET = 0x0003,
+-	INTEL_MRFL_PHONE  = 0x0004,
+-	INTEL_MRFL_TABLET = 0x0005,
+-	INTEL_BYT_PHONE   = 0x0006,
+-	INTEL_BYT_TABLET  = 0x0007,
+-	INTEL_MOOR_PHONE  = 0x0008,
+-	INTEL_MOOR_TABLET = 0x0009,
+-	INTEL_PLATFORM_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_MFLD_PHONE */
+-enum {
+-	INTEL_MFLD_PHONE_BB15_PRO = 0x0000,
+-	INTEL_MFLD_PHONE_BB15_ENG = 0x8000,
+-	INTEL_MFLD_PHONE_BB20_PRO = 0x0001,
+-	INTEL_MFLD_PHONE_BB20_ENG = 0x8001,
+-	INTEL_MFLD_PHONE_OR_PRO   = 0x0002,
+-	INTEL_MFLD_PHONE_OR_ENG   = 0x8002,
+-	INTEL_MFLD_PHONE_AT_PRO   = 0x0003,
+-	INTEL_MFLD_PHONE_AT_ENG   = 0x8003,
+-	INTEL_MFLD_PHONE_LEX_PRO  = 0x0004,
+-	INTEL_MFLD_PHONE_LEX_ENG  = 0x8004,
+-	INTEL_MFLD_PHONE_UNKNOWN  = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_MFLD_TABLET */
+-enum {
+-	INTEL_MFLD_TABLET_RR_PRO  = 0x0000,
+-	INTEL_MFLD_TABLET_RR_ENG  = 0x8000,
+-	INTEL_MFLD_TABLET_FM_PRO  = 0x0001,
+-	INTEL_MFLD_TABLET_FM_ENG  = 0x8001,
+-	INTEL_MFLD_TABLET_FVA_PRO = 0x0002,
+-	INTEL_MFLD_TABLET_FVA_ENG = 0x8002,
+-	INTEL_MFLD_TABLET_SLP_PRO = 0x0003,
+-	INTEL_MFLD_TABLET_SLP_ENG = 0x8003,
+-	INTEL_MFLD_TABLET_YKB_PRO = 0x0004,
+-	INTEL_MFLD_TABLET_YKB_ENG = 0x8004,
+-	INTEL_MFLD_TABLET_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_CLVTP_PHONE */
+-enum {
+-	INTEL_CLVTP_PHONE_RHB_PRO = 0x0000,
+-	INTEL_CLVTP_PHONE_RHB_ENG = 0x8000,
+-	INTEL_CLVTP_PHONE_VB_PRO  = 0x0001,
+-	INTEL_CLVTP_PHONE_VB_ENG  = 0x8001,
+-	INTEL_CLVTP_PHONE_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_CLVT_TABLET */
+-enum {
+-	INTEL_CLVT_TABLET_TBD_PRO = 0x0000,
+-	INTEL_CLVT_TABLET_TBD_ENG = 0x8000,
+-	INTEL_CLVT_TABLET_SLP_PRO = 0x0001,
+-	INTEL_CLVT_TABLET_SLP_ENG = 0x8001,
+-	INTEL_CLVT_TABLET_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_MRFL_PHONE */
+-enum {
+-	INTEL_MRFL_PHONE_SB_PRO = 0x0000,
+-	INTEL_MRFL_PHONE_SB_ENG = 0x8000,
+-	INTEL_MRFL_PHONE_BB_PRO = 0x0001,
+-	INTEL_MRFL_PHONE_BB_ENG = 0x8001,
+-	INTEL_MRFL_PHONE_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_MRFL_TABLET */
+-enum {
+-	INTEL_MRFL_TABLET_TBD_PRO = 0x0000,
+-	INTEL_MRFL_TABLET_TBD_ENG = 0x8000,
+-	INTEL_MRFL_TABLET_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_BYT_PHONE */
+-enum {
+-	INTEL_BYT_PHONE_TBD_PRO = 0x0000,
+-	INTEL_BYT_PHONE_TBD_ENG = 0x8000,
+-	INTEL_BYT_PHONE_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_BYT_TABLET */
+-enum {
+-	INTEL_BYT_TABLET_BLK_PRO = 0x0000,
+-	INTEL_BYT_TABLET_BLK_ENG = 0x8000,
+-	INTEL_BYT_TABLET_BLB_PRO = 0x0001,
+-	INTEL_BYT_TABLET_BLB_ENG = 0x8001,
+-	INTEL_BYT_TABLET_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_MOOR_PHONE */
+-enum {
+-	INTEL_MOOR_PHONE_FRCB_PRO = 0x0000,
+-	INTEL_MOOR_PHONE_FRCB_ENG = 0x8000,
+-	INTEL_MOOR_PHONE_UNKNOWN = 0xFFFF
+-};
+-
+-/* Product_Line_ID table for Platform_Family_ID == INTEL_MOOR_TABLET */
+-enum {
+-	INTEL_MOOR_TABLET_TBD_PRO = 0x0000,
+-	INTEL_MOOR_TABLET_TBD_ENG = 0x8000,
+-	INTEL_MOOR_TABLET_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_PHONE_BB15 */
+-enum {
+-	MFLD_PHONE_BB15_PR20, /* CRAK C0 */
+-	MFLD_PHONE_BB15_PR31, /* CRAK D0 */
+-	MFLD_PHONE_BB15_PR32, /* CRAK D0 */
+-	MFLD_PHONE_BB15_PR33, /* CRAK D1 - 1.6GHz */
+-	MFLD_PHONE_BB15_PR34, /* CRAK D1 - 1.6GHz, alt eMMC, DDR2 */
+-	MFLD_PHONE_BB15_PR35, /* CRAK D1 - 1.6GHz, alt eMMC, DDR2 */
+-	MFLD_PHONE_BB15_PR36, /* CRAK D1 - 1.6GHz, alt eMMC, DDR2, MSIC C2 */
+-	MFLD_PHONE_BB15_PR40, /* CRAK D1 - 2.0GHz */
+-	MFLD_PHONE_BB15_PR2A,
+-	MFLD_PHONE_BB15_PR3A,
+-	MFLD_PHONE_BB15_PR3B,
+-	MFLD_PHONE_BB15_4MVV,
+-	MFLD_PHONE_BB15_4MSV,
+-	MFLD_PHONE_BB15_ICDK,
+-	MFLD_PHONE_BB15_4MVV3,
+-	MFLD_PHONE_BB15_RSVD,
+-	MFLD_PHONE_BB15_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_PHONE_BB20 */
+-enum {
+-	MFLD_PHONE_BB20_TBD,
+-	MFLD_PHONE_BB20_RSVD,
+-	MFLD_PHONE_BB20_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_PHONE_OR */
+-enum {
+-	MFLD_PHONE_OR_NHDV1,    /* CRAK D0 - 1.6G */
+-	MFLD_PHONE_OR_NHDV2,    /* CRAK D1 - 1.6G */
+-	MFLD_PHONE_OR_NHDV3,    /* CRAK D1 - 1.6G */
+-	MFLD_PHONE_OR_NHDV31R,  /* CRAK D1 - 1.6G */
+-	MFLD_PHONE_OR_NHDV31A,  /* CAAK D1 - 1.6G */
+-	MFLD_PHONE_OR_NHDV30F,  /* CRAK D1 - 2.0G */
+-	MFLD_PHONE_OR_NHDV31A1, /* CAAK D1 - 2.0G */
+-	MFLD_PHONE_OR_NHDV30D,  /* CRAK D2 - 1.6G */
+-	MFLD_PHONE_OR_NHDV30G,  /* CRAK D2 - 2.0G */
+-	MFLD_PHONE_OR_NHDV31A2, /* CAAK D2 - 1.6G */
+-	MFLD_PHONE_OR_NHDV31A3, /* CAAK D2 - 2.0G */
+-	MFLD_PHONE_OR_NHDV30E,  /* CRAK D1, Samsung eMMC for part quals */
+-	MFLD_PHONE_OR_RSVD,
+-	MFLD_PHONE_OR_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_PHONE_AT */
+-enum {
+-	MFLD_PHONE_AT_LA, /* CAAK D1 */
+-	MFLD_PHONE_AT_LA_RSVD,
+-	MFLD_PHONE_AT_LA_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_PHONE_LEX */
+-enum {
+-	MFLD_PHONE_LEX_PR11, /* RYS/PNW 1GHz CREK D1 */
+-	MFLD_PHONE_LEX_PR1M, /* RYS/PNW 1GHz CREK D1 */
+-	MFLD_PHONE_LEX_PR21, /* RYS/PNW 1GHz CSEK D1 */
+-	MFLD_PHONE_LEX_PR2M, /* BND/PNW 1GHz CSEK D1 */
+-	MFLD_PHONE_LEX_DV1,  /* BND/PNW 1.2GHz CSEK D1 */
+-	MFLD_PHONE_LEX_RSVD,
+-	MFLD_PHONE_LEX_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_TABLET_RR */
+-enum {
+-	MFLD_TABLET_RR_DV10, /* CRAK D0 */
+-	MFLD_TABLET_RR_DV15, /* CRAK D0/D1 */
+-	MFLD_TABLET_RR_DV20, /* CRAK D1 */
+-	MFLD_TABLET_RR_DV21, /* CRAK D1 */
+-	MFLD_TABLET_RR_RSVD,
+-	MFLD_TABLET_RR_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_TABLET_FM */
+-enum {
+-	MFLD_TABLET_FM_EV20, /* CRAK D0 */
+-	MFLD_TABLET_FM_DV10, /* CRAK D1 */
+-	MFLD_TABLET_FM_RSVD,
+-	MFLD_TABLET_FM_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_TABLET_FVA */
+-enum {
+-	MFLD_TABLET_FVA_EV10P, /* CRAK Dx */
+-	MFLD_TABLET_FVA_EV10,  /* CRAK Dx */
+-	MFLD_TABLET_FVA_EV20,  /* CRAK Dx */
+-	MFLD_TABLET_FVA_DV10,  /* CRAK Dx */
+-	MFLD_TABLET_FVA_RSVD,
+-	MFLD_TABLET_FVA_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_TABLET_SLP */
+-enum {
+-	MFLD_TABLET_SLP_EV05,  /* CRAK Dx */
+-	MFLD_TABLET_SLP_EV10,  /* CRAK Dx */
+-	MFLD_TABLET_SLP_EV20,  /* CRAK Dx */
+-	MFLD_TABLET_SLP_DV10,  /* CRAK Dx */
+-	MFLD_TABLET_SLP_EVL10, /* CRAK Dx */
+-	MFLD_TABLET_SLP_EVL20, /* CRAK Dx */
+-	MFLD_TABLET_SLP_DVL10, /* CRAK Dx */
+-	MFLD_TABLET_SLP_RSVD,
+-	MFLD_TABLET_SLP_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MFLD_TABLET_YKB */
+-enum {
+-	MFLD_TABLET_YKB_DV10, /* CRAK Dx */
+-	MFLD_TABLET_YKB_RSVD,
+-	MFLD_TABLET_YKB_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_CLVTP_PHONE_RHB */
+-enum {
+-	CLVTP_PHONE_RHB_CCVV0,  /* Clover City VV0 FAB A CLV/CLV+ A0*/
+-	CLVTP_PHONE_RHB_CCVV1,  /* Clover City VV1 FAB B CLV+ A0*/
+-	CLVTP_PHONE_RHB_CCVV2,  /* Clover City VV2 FAB C CLV+ A0*/
+-	CLVTP_PHONE_RHB_CLEV,   /* Clover Lake CRB EV */
+-	CLVTP_PHONE_RHB_PR01,   /* RHB PR0.1 CLV A0 C-CLASS */
+-	CLVTP_PHONE_RHB_PR02,   /* RHB PR0.2 CLV A0 C-CLASS */
+-	CLVTP_PHONE_RHB_PR10PM, /* CLV+ A0 */
+-	CLVTP_PHONE_RHB_CCVV1P, /* Clover City Pre-VV1 Fab B CLV+ A0 */
+-	CLVTP_PHONE_RHB_PR10P,  /* RHB Pre-PR1.0 CLV A0 C- CLASS */
+-	CLVTP_PHONE_RHB_PR10M,  /* RHB Macro PR1.0 CLV+ A0 */
+-	CLVTP_PHONE_RHB_PR10,   /* RHB PR1.0 CLV+ A0 C-CLASS */
+-	CLVTP_PHONE_RHB_PR15M,  /* RHB Macro PR1.5 CLV+ A0 */
+-	CLVTP_PHONE_RHB_PR15,   /* RHB PR1.5 CLV+ A0 C-CLASS */
+-	CLVTP_PHONE_RHB_PR20M,  /* RHB Macro PR2.0 CLV+ B0 */
+-	CLVTP_PHONE_RHB_PR20,   /* RHB PR2.0 CLV+ B0 C-CLASS */
+-	CLVTP_PHONE_RHB_PR30M,  /* RHB Macro PR3.0 CLV+ B0 */
+-	CLVTP_PHONE_RHB_CCVV3,  /* Clover City VV3 FAB D CLV+ A0 */
+-	CLVTP_PHONE_RHB_PR30,   /* RHB PR3.0 CLV+ B0 C-CLASS */
+-	CLVTP_PHONE_RHB_DV1,    /* RHB Dv1 */
+-	CLVTP_PHONE_RHB_PR20A,  /* CLV+ B0 C-Class-touch panel sensor GFF */
+-	CLVTP_PHONE_RHB_CCVV2VB, /* Clover City VV2-Victoria Bay FAB B CLV B0 */
+-	CLVTP_PHONE_RHB_PR19M,  /* Macro PR1.9 CLV+ B0 */
+-	CLVTP_PHONE_RHB_PR199M, /* Macro PR1.99 CLV+ B0 */
+-	CLVTP_PHONE_RSVD0,
+-	CLVTP_PHONE_RHB_PR20B,  /* CLV+ B0 C-Class-touch panel sensor
+-					GFF-LPDDR2 */
+-	CLVTP_PHONE_RHB_PR30A,  /* CLV+ B1 C-Class */
+-	CLVTP_PHONE_RHB_PR30AM, /* Macro CLV+ B1 C-Class */
+-	CLVTP_PHONE_RHB_PR31,   /* CLV+ B2 C-Class */
+-	CLVTP_PHONE_RHB_PR31M,  /* Macro CLV+ B2 C-Class */
+-	CLVTP_PHONE_RHB_CCVV3A, /* Clover City VV3 FAB B CLV+ B0 */
+-	CLVTP_PHONE_RHB_CCVV3B, /* Clover City VV3 FAB B CLV+ B1 */
+-	CLVTP_PHONE_RHB_CCVV3C, /* Clover City VV3 FAB B CLV+ B2 */
+-	CLVTP_PHONE_RSVD1,
+-	CLVTP_PHONE_RSVD2,
+-	CLVTP_PHONE_RSVD3,
+-	CLVTP_PHONE_RSVD4,
+-	CLVTP_PHONE_RHB_RDP,    /* Clovertrail RDP CLV+ B2 */
+-	CLVTP_PHONE_RHB_VVLITE = 0x29, /* VV-Lite CLV+ B2 */
+-	CLVTP_PHONE_RHB_RSVD,
+-	CLVTP_PHONE_RHB_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_CLVTP_PHONE_VB */
+-enum {
+-	CLVTP_PHONE_VB_PR1A = 0x17,    /* Victoria Bay PR1 CLV+ B1 */
+-	CLVTP_PHONE_VB_PR1B = 0x23,    /* Victoria Bay PR1 CLV+ B2 */
+-	CLVTP_PHONE_VB_PR20 = 0x25,    /* Victoria Bay PR2 CLV+ B2 */
+-	CLVTP_PHONE_VB_PR21,           /* Victoria Bay PR2.1 CLV+ B2 */
+-	CLVTP_PHONE_VB_PR30,           /* Victoria Bay PR3 B2 */
+-	CLVTP_PHONE_VB_PR21NA,         /* Victoria Bay PR2.1 NA CLV+ B2 */
+-	CLVTP_PHONE_VB_RSVD,
+-	CLVTP_PHONE_VB_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_CLVT_TABLET_TBD */
+-enum {
+-	CLVT_TABLET_TBD_CLEVA, /* Clover Lake EV - CRB - FAB A */
+-	CLVT_TABLET_TBD_CLEVB, /* Clover Lake EV - CRB - FAB B */
+-	CLVT_TABLET_TBD_CLEVC, /* Clover Lake EV - CRB - FAB C */
+-	CLVT_TABLET_TBD_CLEVD, /* Clover Lake EV - CRB - FAB D */
+-	CLVT_TABLET_TBD_VV2SS, /* Clover City VV2-Samtab-FAB B CLV+ B0 */
+-	CLVT_TABLET_TBD_RSVD,
+-	CLVT_TABLET_TBD_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_CLVT_TABLET_SLP */
+-enum {
+-	CLVT_TABLET_SLP_EV10, /* CRAK Bx */
+-	CLVT_TABLET_SLP_RSVD,
+-	CLVT_TABLET_SLP_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MRFL_PHONE_SB */
+-enum {
+-	MRFL_PHONE_SR_VVA,  /* SilverRidge VV FAB A */
+-	MRFL_PHONE_SR_VVB,  /* SilverRidge VV FAB B */
+-	MRFL_PHONE_SR_VVC,  /* SilverRidge VV FAB C */
+-	MRFL_PHONE_SR_VVD,  /* SilverRidge VV FAB D */
+-	MRFL_PHONE_SR_SVA,  /* SilverRidge SV FAB A */
+-	MRFL_PHONE_SR_SVB,  /* SilverRidge SV FAB B */
+-	MRFL_PHONE_SR_SVC,  /* SilverRidge SV FAB C */
+-	MRFL_PHONE_SR_SVD,  /* SilverRidge SV FAB D */
+-	MRFL_PHONE_SB_PR0M, /* Salt Bay PR0-Macro (A0) */
+-	MRFL_PHONE_SB_PR0,  /* Salt Bay PR0-FF (A0) */
+-	MRFL_PHONE_SB_PR1M, /* Salt Bay PR1-Macro (A0) */
+-	MRFL_PHONE_SB_PR1,  /* Salt Bay PR1-FF (A0) */
+-	MRFL_PHONE_SB_PR2M, /* Salt Bay PR2-Macro (B0) */
+-	MRFL_PHONE_SB_PR2,  /* Salt Bay PR2-FF (B0) */
+-	MRFL_PHONE_SB_PR3M, /* Salt Bay PR3-Macro (B0) */
+-	MRFL_PHONE_SB_PR3,  /* Salt Bay PR3-FF (B0) */
+-	MRFL_PHONE_SB_PR11,  /* Salt Bay PR1.1-FF (A0) */
+-	MRFL_PHONE_SB_PR11M,  /* Salt Bay PR1.1-Macro (A0) */
+-	MRFL_PHONE_SB_RSVD,
+-	MRFL_PHONE_SB_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MRFL_PHONE_BB */
+-enum {
+-	MRFL_PHONE_BB_PRH,  /* Bodega Bay PRh FAB A */
+-	MRFL_PHONE_BB_RSVD,
+-	MRFL_PHONE_BB_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MRFL_TABLET_TBD */
+-enum {
+-	MRFL_TABLET_TBD_TBD,
+-	MRFL_TABLET_TBD_RSVD,
+-	MRFL_TABLET_TBD_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_BYT_PHONE_TBD */
+-enum {
+-	BYT_PHONE_TBD_TBD,
+-	BYT_PHONE_TBD_RSVD,
+-	BYT_PHONE_TBD_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_BYT_TABLET_TBD */
+-enum {
+-	BYT_TABLET_BLK_VV1, /* Bay Lake CRB/RVP FAB 1 */
+-	BYT_TABLET_BLK_VV2, /* Bay Lake CRB/RVP FAB 2 */
+-	BYT_TABLET_BLK_VV3, /* Bay Lake CRB/RVP FAB 3 */
+-	BYT_TABLET_BLK_PR1_1, /* Bay Lake FFRD-10 PR1.1 */
+-	BYT_TABLET_BLB_VV3, /* Bayley Bay CRB FAB 3 Rev3 */
+-	BYT_TABLET_BLK_RSVD,
+-	BYT_TABLET_BLK_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MOOR_PHONE_FRCB */
+-enum {
+-	MOOR_PHONE_FRCB_VVA, /* Mountain Prairie VV FAB A */
+-	MOOR_PHONE_FRCB_VVB, /* Mountain Prairie VV FAB B */
+-	MOOR_PHONE_FRCB_VVC, /* Mountain Prairie VV FAB C */
+-	MOOR_PHONE_FRCB_VVD, /* Mountain Prairie VV FAB D */
+-	MOOR_PHONE_FRCB_PR0, /* Francis Bay FAB A */
+-	MOOR_PHONE_FRCB_PR1, /* Francis Bay FAB B */
+-	MOOR_PHONE_FRCB_PR2, /* Francis Bay FAB C */
+-	MOOR_PHONE_FRCB_PR3, /* Francis Bay FAB D */
+-	MOOR_PHONE_FRCB_RSVD,
+-	MOOR_PHONE_FRCB_UNKNOWN = 0xFFFF
+-};
+-
+-/* Hardware_ID table for Product_Line_ID == INTEL_MOOR_TABLET_TBD */
+-enum {
+-	MOOR_TABLET_TBD_TBD,
+-	MOOR_TABLET_TBD_RSVD,
+-	MOOR_TABLET_TBD_UNKNOWN = 0xFFFF
+-};
+-
+-/* Macros for SPID based checks */
+-
+-#define SPID_CUSTOMER_ID(customer) ( \
+-	(spid.customer_id == CUSTOMER_##customer))
+-#define SPID_VENDOR_ID(vendor) ( \
+-	(spid.vendor_id == VENDOR_##vendor))
+-#define SPID_PLATFORM_ID(vendor, platform, devtype) ( \
+-	(spid.platform_family_id == vendor##_##platform##_##devtype))
+-#define SPID_PRODUCT_ID(vendor, platform, devtype, product, type) (\
+-	(spid.product_line_id == \
+-	vendor##_##platform##_##devtype##_##product##_##type))
+-#define SPID_PRODUCT(vendor, platform, devtype, product) (\
+-	((spid.product_line_id & 0x7FFF) == \
+-	vendor##_##platform##_##devtype##_##product##_PRO))
+-#define SPID_HARDWARE_ID(platform, devtype, product, hardware) (\
+-	(spid.hardware_id == platform##_##devtype##_##product##_##hardware))
+-
+-#define INTEL_MID_BOARDV1(devtype, platform) ( \
+-	SPID_CUSTOMER_ID(INTEL) && \
+-	SPID_VENDOR_ID(INTEL) && \
+-	SPID_PLATFORM_ID(INTEL, platform, devtype))
+-
+-#define INTEL_MID_BOARDV2(devtype, platform, product, type) ( \
+-	INTEL_MID_BOARDV1(devtype, platform) && \
+-	SPID_PRODUCT_ID(INTEL, platform, devtype, product, type))
+-
+-#define INTEL_MID_BOARDV3(devtype, platform, product, type, hardware) ( \
+-	INTEL_MID_BOARDV2(devtype, platform, product, type) && \
+-	SPID_HARDWARE_ID(platform, devtype, product, hardware))
+-
+-
+-
+-/* INTEL_MID_BOARD - Returns true if arugments matches SPID contents
+- * @ level:	1, 2, 3
+-		- 1 for verifying platform_id,
+-		- 2 for verifying platform_type & product_id,
+-		- 3 for verifying platform_type, product_id & hardware_id.
+- * @ devtype:	PHONE or TABLET
+- * @ arg3:	platform_type - MFLD,CLVTP,CLVT,MRFL.
+- * @ arg4:	product ID - product id supported by
+-		platform_type passed in arg3.
+- * @ arg5:	PRO or ENG.
+- * @ arg6:	hardware_id -Hardware IDs supported by above
+-		platform_type & product_id.
+- *
+- * Example:	INTEL_MID_BOARD(1,PHONE,MFLD)
+- *		INTEL_MID_BOARD(2,PHONE,MFLD,BB15,PRO)
+- *		INTEL_MID_BOARD(3,PHONE,MFLD,BB15,PRO,PR20),
+- *
+- */
+-#define INTEL_MID_BOARD(level, devtype, ...) ( \
+-	INTEL_MID_BOARDV##level(devtype, __VA_ARGS__))
+-
+-#endif /* _ASM_X86_SPID_H */
+diff --git a/arch/x86/platform/intel-mid/Makefile b/arch/x86/platform/intel-mid/Makefile
+index c65d673ef82a..933fe8a6074b 100644
+--- a/arch/x86/platform/intel-mid/Makefile
++++ b/arch/x86/platform/intel-mid/Makefile
+@@ -2,9 +2,6 @@ obj-$(CONFIG_X86_INTEL_MID) += intel-mid.o
+ obj-$(CONFIG_X86_INTEL_MID)	+= intel_mid_vrtc.o
+ obj-$(CONFIG_EARLY_PRINTK_INTEL_MID)	+= early_printk_intel_mid.o
+ 
+-# SPID code
+-obj-y += spid.o
+-
+ # SFI specific code
+ obj-$(CONFIG_SFI) += intel_mid_sfi.o
+ 
+diff --git a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+index 6e656a86f9ae..4deead87cfea 100644
+--- a/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
++++ b/arch/x86/platform/intel-mid/device_libs/pci/platform_usb_otg.c
+@@ -13,7 +13,6 @@
+ #include <linux/pci.h>
+ #include <asm/intel-mid.h>
+ #include <asm/intel_scu_ipc.h>
+-#include <asm/spid.h>
+ #include <linux/dma-mapping.h>
+ 
+ #ifdef CONFIG_USB_DWC3_OTG
+@@ -38,23 +37,12 @@ static struct intel_dwc_otg_pdata *get_otg_platform_data(struct pci_dev *pdev)
+ {
+ 	switch (pdev->device) {
+ 	case PCI_DEVICE_ID_INTEL_MRFL_DWC3_OTG:
+-		if (INTEL_MID_BOARD(1, PHONE, MOOR)) {
+-			dwc_otg_pdata.pmic_type = SHADY_COVE;
+-			dwc_otg_pdata.charger_detect_enable = 0;
+-
+-		} else if (INTEL_MID_BOARD(1, PHONE, MRFL)) {
+-			dwc_otg_pdata.pmic_type = BASIN_COVE;
+-			dwc_otg_pdata.charger_detect_enable = 1;
+-
+-			dwc_otg_pdata.charging_compliance =
+-				dwc_otg_get_usbspecoverride();
+-
+-		} else if (intel_mid_identify_sim() ==
+-				INTEL_MID_CPU_SIMULATION_HVP) {
+-			dwc_otg_pdata.pmic_type = NO_PMIC;
+-			dwc_otg_pdata.is_hvp = 1;
+-			dwc_otg_pdata.charger_detect_enable = 0;
+-		}
++		dwc_otg_pdata.pmic_type = BASIN_COVE;
++		dwc_otg_pdata.charger_detect_enable = 1;
++
++		dwc_otg_pdata.charging_compliance =
++			dwc_otg_get_usbspecoverride();
++
+ 		return &dwc_otg_pdata;
+ 	default:
+ 		break;
+@@ -80,28 +68,13 @@ static struct intel_mid_otg_pdata *get_otg_platform_data(struct pci_dev *pdev)
+ 	struct intel_mid_otg_pdata *pdata = &otg_pdata;
+ 
+ 	switch (pdev->device) {
+-	case PCI_DEVICE_ID_INTEL_MFD_OTG:
+-		if (INTEL_MID_BOARD(2, TABLET, MFLD, SLP, PRO) ||
+-			INTEL_MID_BOARD(2, TABLET, MFLD, SLP, ENG))
+-			pdata->gpio_vbus = 54;
+-
+-		if (!INTEL_MID_BOARD(2, TABLET, MFLD, RR, PRO) &&
+-			!INTEL_MID_BOARD(2, TABLET, MFLD, RR, ENG))
+-			pdata->power_budget = 200;
+-		break;
++	case PCI_DEVICE_ID_INTEL_MRFL_DWC3_OTG:
++		dwc_otg_pdata.pmic_type = BASIN_COVE;
++		dwc_otg_pdata.charger_detect_enable = 1;
+ 
+-	case PCI_DEVICE_ID_INTEL_CLV_OTG:
+-		pdata->gpio_cs = get_gpio_by_name("usb_otg_phy_cs");
+-		if (pdata->gpio_cs == -1) {
+-			pr_err("%s: No gpio pin usb_otg_phy_cs\n", __func__);
+-			return NULL;
+-		}
+-		pdata->gpio_reset = get_gpio_by_name("usb_otg_phy_rst");
+-		if (pdata->gpio_reset == -1) {
+-			pr_err("%s: No gpio pin usb_otg_phy_rst\n", __func__);
+-			return NULL;
+-		}
+-		break;
++		dwc_otg_pdata.charging_compliance =
++			dwc_otg_get_usbspecoverride();
++		return &dwc_otg_pdata;
+ 
+ 	default:
+ 		break;
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+index 3dd2691d5783..be2091cec4e0 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_hsu.c
+@@ -815,35 +815,14 @@ static void hsu_platform_clk(enum intel_mid_cpu_type cpu_type)
+ static __init int hsu_dev_platform_data(void)
+ {
+ 	switch (intel_mid_identify_cpu()) {
+-	case INTEL_MID_CPU_CHIP_CLOVERVIEW:
+-		platform_hsu_info = &hsu_port_cfgs[hsu_clv][0];
+-		if (INTEL_MID_BOARD(2, PHONE, CLVTP, VB, PRO))
+-			hsu_port_gpio_mux =
+-				&hsu_port_pin_cfgs[hsu_clv][hsu_pid_vtb_pro][0];
+-		else if (INTEL_MID_BOARD(2, PHONE, CLVTP, VB, ENG))
+-			hsu_port_gpio_mux =
+-				&hsu_port_pin_cfgs[hsu_clv][hsu_pid_vtb_eng][0];
+-		else
+-			hsu_port_gpio_mux =
+-				&hsu_port_pin_cfgs[hsu_clv][hsu_pid_rhb][0];
+-		break;
+-
+ 	case INTEL_MID_CPU_CHIP_TANGIER:
+ 		platform_hsu_info = &hsu_port_cfgs[hsu_tng][0];
+ 		hsu_port_gpio_mux = &hsu_port_pin_cfgs[hsu_tng][hsu_pid_def][0];
+ 		break;
+ 
+-	case INTEL_MID_CPU_CHIP_PENWELL:
+ 	default:
+-		hsu_register_board_info(&hsu_port_cfgs[hsu_pnw][0]);
+-		platform_hsu_info = &hsu_port_cfgs[hsu_pnw][0];
+-		hsu_port_gpio_mux = &hsu_port_pin_cfgs[hsu_pnw][hsu_pid_def][0];
+-		break;
+-	default:
+-		/* FIXME: VALLEYVIEW2? */
+-		platform_hsu_info = &hsu_port_cfgs[hsu_vlv2][0];
+-		hsu_port_gpio_mux =
+-			&hsu_port_pin_cfgs[hsu_vlv2][hsu_pid_def][0];
++		platform_hsu_info = NULL; 
++		hsu_port_gpio_mux = NULL;
+ 		break;
+ 	}
+ 
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c b/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c
+index 4ea3fab5334c..c184fede4ad1 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mid_pwm.c
+@@ -88,14 +88,8 @@ static struct intel_mid_pwm_platform_data pdata[] = {
+ 
+ static void *get_pwm_platform_data(void)
+ {
+-	if (INTEL_MID_BOARD(1, PHONE, CLVTP) ||
+-		(INTEL_MID_BOARD(1, TABLET, CLVT))) {
+-		pr_info("%s, CLV board detected\n", __func__);
+-		return &pdata[ctp_pwm];
+-	} else {
+-		pr_info("%s, MFLD board detected\n", __func__);
+-		return &pdata[mfld_pwm];
+-	}
++	pr_info("%s, MFLD board detected\n", __func__);
++	return &pdata[mfld_pwm];
+ }
+ 
+ static int __init intel_mid_pwm_init(void)
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
+index 0b7c96d596d9..2e8b45d3dcec 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_mrfl_thermal.c
+@@ -125,11 +125,7 @@ void __init *mrfl_thermal_platform_data(void *info)
+ 		return NULL;
+ 	}
+ 
+-	if (INTEL_MID_BOARD(2, PHONE, MRFL, BB, ENG) ||
+-			(INTEL_MID_BOARD(2, PHONE, MRFL, BB, PRO)))
+-		pdev->dev.platform_data = &pdata[bdgb_thermal];
+-	else
+-		pdev->dev.platform_data = &pdata[mrfl_thermal];
++	pdev->dev.platform_data = &pdata[mrfl_thermal];
+ 
+ 	install_irq_resource(pdev, entry->irq);
+ 	register_rpmsg_service("rpmsg_mrfl_thermal", RPROC_SCU,
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_msic_gpio.c b/arch/x86/platform/intel-mid/device_libs/platform_msic_gpio.c
+index 79cf7200357c..1b1103875fab 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_msic_gpio.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_msic_gpio.c
+@@ -42,29 +42,19 @@ void __init *msic_gpio_platform_data(void *info)
+ 	if (gpio < 0)
+ 		return NULL;
+ 
+-	if (INTEL_MID_BOARD(1, PHONE, CLVTP) ||
+-		INTEL_MID_BOARD(1, TABLET, CLVT)) {
+-		msic_gpio_pdata.ngpio_lv = 1;
+-		msic_gpio_pdata.ngpio_hv = 8;
+-		msic_gpio_pdata.gpio0_lv_ctlo = 0x48;
+-		msic_gpio_pdata.gpio0_lv_ctli = 0x58;
+-		msic_gpio_pdata.gpio0_hv_ctlo = 0x6D;
+-		msic_gpio_pdata.gpio0_hv_ctli = 0x75;
+-	} else if (INTEL_MID_BOARD(1, PHONE, MRFL)) {
+-		/* Basincove PMIC GPIO has total 8 GPIO pins,
+-		 * GPIO[5:2,0] support 1.8V, GPIO[7:6,1] support 1.8V and 3.3V,
+-		 * We group GPIO[5:2] to low voltage and GPIO[7:6] to
+-		 * high voltage. Because the CTL registers are contiguous,
+-		 * this grouping method doesn't affect the driver usage but
+-		 * easy for the driver sharing among multiple platforms.
+-		 */
+-		msic_gpio_pdata.ngpio_lv = 6;
+-		msic_gpio_pdata.ngpio_hv = 2;
+-		msic_gpio_pdata.gpio0_lv_ctlo = 0x7E;
+-		msic_gpio_pdata.gpio0_lv_ctli = 0x8E;
+-		msic_gpio_pdata.gpio0_hv_ctlo = 0x84;
+-		msic_gpio_pdata.gpio0_hv_ctli = 0x94;
+-	}
++	/* Basincove PMIC GPIO has total 8 GPIO pins,
++	 * GPIO[5:2,0] support 1.8V, GPIO[7:6,1] support 1.8V and 3.3V,
++	 * We group GPIO[5:2] to low voltage and GPIO[7:6] to
++	 * high voltage. Because the CTL registers are contiguous,
++	 * this grouping method doesn't affect the driver usage but
++	 * easy for the driver sharing among multiple platforms.
++	 */
++	msic_gpio_pdata.ngpio_lv = 6;
++	msic_gpio_pdata.ngpio_hv = 2;
++	msic_gpio_pdata.gpio0_lv_ctlo = 0x7E;
++	msic_gpio_pdata.gpio0_lv_ctli = 0x8E;
++	msic_gpio_pdata.gpio0_hv_ctlo = 0x84;
++	msic_gpio_pdata.gpio0_hv_ctli = 0x94;
+ 
+ 	msic_gpio_pdata.can_sleep = 1;
+ 	msic_gpio_pdata.gpio_base = gpio;
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c b/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c
+index 9e7d9fbf69a9..f7457508dd86 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_msic_power_btn.c
+@@ -47,27 +47,10 @@ void __init *msic_power_btn_platform_data(void *info)
+ 		return NULL;
+ 	}
+ 
+-	if (INTEL_MID_BOARD(1, PHONE, MRFL)) {
+-		msic_power_btn_pdata.pbstat = 0xfffff61a;
+-		msic_power_btn_pdata.pb_level = (1 << 4);
+-		msic_power_btn_pdata.irq_lvl1_mask = 0x0c;
+-		msic_power_btn_pdata.irq_ack = mrfl_pb_irq_ack;
+-	} else if (INTEL_MID_BOARD(1, PHONE, CLVTP)) {
+-		msic_power_btn_pdata.pbstat = 0xffffefcb;
+-		msic_power_btn_pdata.pb_level = (1 << 3);
+-		msic_power_btn_pdata.irq_lvl1_mask = 0x21;
+-		msic_power_btn_pdata.irq_ack = NULL;
+-	} else if (INTEL_MID_BOARD(1, TABLET, CLVT)) {
+-		msic_power_btn_pdata.pbstat = 0xffff7fcb;
+-		msic_power_btn_pdata.pb_level = (1 << 3);
+-		msic_power_btn_pdata.irq_lvl1_mask = 0x21;
+-		msic_power_btn_pdata.irq_ack = NULL;
+-	} else {
+-		msic_power_btn_pdata.pbstat = 0xffff7fd0;
+-		msic_power_btn_pdata.pb_level = (1 << 3);
+-		msic_power_btn_pdata.irq_lvl1_mask = 0x21;
+-		msic_power_btn_pdata.irq_ack = NULL;
+-	}
++	msic_power_btn_pdata.pbstat = 0xfffff61a;
++	msic_power_btn_pdata.pb_level = (1 << 4);
++	msic_power_btn_pdata.irq_lvl1_mask = 0x0c;
++	msic_power_btn_pdata.irq_ack = mrfl_pb_irq_ack;
+ 
+ 	pdev->dev.platform_data = &msic_power_btn_pdata;
+ 
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_msic_thermal.c b/arch/x86/platform/intel-mid/device_libs/platform_msic_thermal.c
+index 38968b02ad8a..7c24a14aca51 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_msic_thermal.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_msic_thermal.c
+@@ -177,17 +177,7 @@ void __init *msic_thermal_platform_data(void *info)
+ 		return NULL;
+ 	}
+ 
+-	if (INTEL_MID_BOARD(2, PHONE, CLVTP, VB, PRO) ||
+-		INTEL_MID_BOARD(2, PHONE, CLVTP, VB, ENG))
+-		pdev->dev.platform_data = &pdata[vb_thermal];
+-	else if (INTEL_MID_BOARD(1, PHONE, CLVTP) ||
+-			(INTEL_MID_BOARD(1, TABLET, CLVT)))
+-		pdev->dev.platform_data = &pdata[ctp_thermal];
+-	else if (INTEL_MID_BOARD(2, PHONE, MFLD, LEX, ENG) ||
+-			(INTEL_MID_BOARD(2, PHONE, MFLD, LEX, PRO)))
+-		pdev->dev.platform_data = &pdata[lex_thermal];
+-	else
+-		pdev->dev.platform_data = &pdata[mfld_thermal];
++	pdev->dev.platform_data = &pdata[mfld_thermal];
+ 
+ 	register_rpmsg_service("rpmsg_mid_thermal", RPROC_SCU, RP_MSIC_THERMAL);
+ 
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_scu_flis.c b/arch/x86/platform/intel-mid/device_libs/platform_scu_flis.c
+index 7b640d0c752a..fe7e24994180 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_scu_flis.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_scu_flis.c
+@@ -481,21 +481,11 @@ static int __init intel_scu_flis_init(void)
+ 	struct platform_device *pdev = NULL;
+ 	static struct intel_scu_flis_platform_data flis_pdata;
+ 
+-	if (INTEL_MID_BOARD(1, PHONE, CLVTP) ||
+-		INTEL_MID_BOARD(1, TABLET, CLVT)) {
+-		flis_pdata.pin_t = ctp_pin_table;
+-		flis_pdata.pin_num = CTP_PIN_NUM;
+-		flis_pdata.mmio_flis_t = NULL;
+-	} else if (INTEL_MID_BOARD(1, PHONE, MRFL)) {
+-		flis_pdata.pin_t = NULL;
+-		flis_pdata.pin_num = TNG_PIN_NUM;
+-		flis_pdata.flis_base = 0xFF0C0000;
+-		flis_pdata.flis_len = 0x8000;
+-		flis_pdata.mmio_flis_t = tng_pin_mmio_flis_table;
+-	} else {
+-		/* Runtime flis config is supported on CLV & TNG only */
+-		return -EINVAL;
+-	}
++	flis_pdata.pin_t = NULL;
++	flis_pdata.pin_num = TNG_PIN_NUM;
++	flis_pdata.flis_base = 0xFF0C0000;
++	flis_pdata.flis_len = 0x8000;
++	flis_pdata.mmio_flis_t = tng_pin_mmio_flis_table;
+ 
+ 	pdev = platform_device_alloc(FLIS_DEVICE_NAME, -1);
+ 	if (!pdev) {
+diff --git a/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c b/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c
+index eba1a0b4c5e6..004784a6ffd3 100644
+--- a/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c
++++ b/arch/x86/platform/intel-mid/device_libs/platform_soc_thermal.c
+@@ -131,9 +131,6 @@ static int __init byt_soc_thermal_init(void)
+ 
+ static int __init platform_soc_thermal_init(void)
+ {
+-	if (INTEL_MID_BOARD(1, TABLET, BYT))
+-		return byt_soc_thermal_init();
+-
+ 	return 0;
+ }
+ device_initcall(platform_soc_thermal_init);
+diff --git a/arch/x86/platform/intel-mid/intel_mid_sfi.c b/arch/x86/platform/intel-mid/intel_mid_sfi.c
+index 8dc2369c9b29..41f98c4c3fc7 100644
+--- a/arch/x86/platform/intel-mid/intel_mid_sfi.c
++++ b/arch/x86/platform/intel-mid/intel_mid_sfi.c
+@@ -43,7 +43,6 @@
+ #include <asm/apb_timer.h>
+ #include <asm/reboot.h>
+ #include "intel_mid_weak_decls.h"
+-#include <asm/spid.h>
+ 
+ #define	SFI_SIG_OEM0	"OEM0"
+ #define MAX_IPCDEVS	24
+@@ -530,9 +529,6 @@ static int __init sfi_parse_oemb(struct sfi_table_header *table)
+ 	u8 oem_id[SFI_OEM_ID_SIZE + 1] = {'\0'};
+ 	u8 oem_table_id[SFI_OEM_TABLE_ID_SIZE + 1] = {'\0'};
+ 
+-	/* parse SPID and SSN out from OEMB table */
+-	sfi_handle_spid(table);
+-
+ 	oemb = (struct sfi_table_oemb *) table;
+ 	if (!oemb) {
+ 		pr_err("%s: fail to read SFI OEMB Layout\n",
+diff --git a/arch/x86/platform/intel-mid/intel_soc_mrfld.c b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+index 6a631ccceb93..af79953ebd1d 100644
+--- a/arch/x86/platform/intel-mid/intel_soc_mrfld.c
++++ b/arch/x86/platform/intel-mid/intel_soc_mrfld.c
+@@ -58,11 +58,9 @@ static int mrfld_pmu_init(void)
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_14)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_15));
+ 
+-	/* Put LSS8 as unused on PRh */
+-	if (INTEL_MID_BOARD(3, PHONE, MRFL, BB, PRO, PRHA)) {
+-		mid_pmu_cxt->os_sss[0] |= \
+-			SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08);
+-	}
++	/* Put LSS8 as unused on Tangier */
++	mid_pmu_cxt->os_sss[0] |= \
++				SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08);
+ 
+ 	mid_pmu_cxt->os_sss[1] = (SSMSK(D0I3_MASK, PMU_RESERVED_LSS_16-16)|
+ 				SSMSK(D0I3_MASK, PMU_SSP3_LSS_17-16)|
+@@ -242,11 +240,9 @@ void platform_update_all_lss_states(struct pmu_ss_states *pmu_config,
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_14)	|
+ 				SSMSK(D0I3_MASK, PMU_RESERVED_LSS_15));
+ 
+-	/* Put LSS8 as unused on PRh */
+-	if (INTEL_MID_BOARD(3, PHONE, MRFL, BB, PRO, PRHA)) {
+-		pmu_config->pmu2_states[0] |= \
+-			SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08);
+-	}
++	/* Put LSS8 as unused on Tangier */
++	pmu_config->pmu2_states[0] |= \
++				SSMSK(D0I3_MASK, PMU_USB_MPH_LSS_08);
+ 
+ 	pmu_config->pmu2_states[1] =
+ 				(SSMSK(D0I3_MASK, PMU_RESERVED_LSS_16-16)|
+diff --git a/arch/x86/platform/intel-mid/spid.c b/arch/x86/platform/intel-mid/spid.c
+deleted file mode 100644
+index f89282409d21..000000000000
+--- a/arch/x86/platform/intel-mid/spid.c
++++ /dev/null
+@@ -1,372 +0,0 @@
+-/*
+- * spid.c: Soft Platform ID parsing and init code
+- *
+- * (C) Copyright 2012 Intel Corporation
+- * Author:
+- *
+- * This program is free software; you can redistribute it and/or
+- * modify it under the terms of the GNU General Public License
+- * as published by the Free Software Foundation; version 2
+- * of the License.
+- */
+-
+-#include <linux/init.h>
+-#include <linux/kernel.h>
+-#include <linux/interrupt.h>
+-#include <linux/scatterlist.h>
+-#include <linux/sfi.h>
+-#include <linux/intel_pmic_gpio.h>
+-#include <linux/spi/spi.h>
+-#include <linux/i2c.h>
+-#include <linux/skbuff.h>
+-#include <linux/gpio.h>
+-#include <linux/gpio_keys.h>
+-#include <linux/input.h>
+-#include <linux/platform_device.h>
+-#include <linux/irq.h>
+-#include <linux/module.h>
+-#include <linux/notifier.h>
+-#include <linux/intel_mid_pm.h>
+-#include <linux/hsi/hsi.h>
+-#include <linux/spinlock.h>
+-#include <linux/mmc/core.h>
+-#include <linux/mmc/card.h>
+-#include <linux/blkdev.h>
+-#include <linux/acpi.h>
+-#include <linux/intel_pidv_acpi.h>
+-
+-#include <asm/setup.h>
+-#include <asm/mpspec_def.h>
+-#include <asm/hw_irq.h>
+-#include <asm/apic.h>
+-#include <asm/io_apic.h>
+-#include <asm/intel-mid.h>
+-#include <asm/io.h>
+-#include <asm/i8259.h>
+-#include <asm/intel_scu_ipc.h>
+-#include <asm/intel_mid_rpmsg.h>
+-#include <asm/apb_timer.h>
+-#include <asm/reboot.h>
+-#include "intel_mid_weak_decls.h"
+-
+-char intel_platform_ssn[INTEL_PLATFORM_SSN_SIZE + 1];
+-struct soft_platform_id spid;
+-EXPORT_SYMBOL(spid);
+-
+-#ifdef CONFIG_ACPI
+-struct platform_id pidv;
+-struct kobject *pidv_kobj;
+-#endif
+-
+-struct kobject *spid_kobj;
+-
+-/*
+- *
+- */
+-static void populate_spid_cmdline(void)
+-{
+-	char *spid_param, *spid_default_value;
+-	char spid_cmdline[SPID_CMDLINE_SIZE+1];
+-
+-	/* parameter format : cust:vend:manu:plat:prod:hard */
+-	snprintf(spid_cmdline, sizeof(spid_cmdline),
+-		 "%04x:%04x:%04x:%04x:%04x:%04x",
+-		 spid.vendor_id,
+-		 spid.customer_id,
+-		 spid.manufacturer_id,
+-		 spid.platform_family_id,
+-		 spid.product_line_id,
+-		 spid.hardware_id);
+-
+-	/* is there a spid param ? */
+-	spid_param = strstr(saved_command_line, SPID_PARAM_NAME);
+-	if (spid_param) {
+-		/* is the param set to default value ? */
+-		spid_default_value = strstr(saved_command_line,
+-					    SPID_DEFAULT_VALUE);
+-		if (spid_default_value) {
+-			spid_param += strlen(SPID_PARAM_NAME);
+-			if (strlen(spid_param) > strlen(spid_cmdline))
+-				memcpy(spid_param, spid_cmdline,
+-						strlen(spid_cmdline));
+-			else
+-				pr_err("Not enough free space for SPID in command line.\n");
+-		} else
+-			pr_warn("SPID already populated. Don't overwrite.\n");
+-	} else
+-		pr_err("SPID not found in kernel command line.\n");
+-}
+-
+-static ssize_t customer_id_show(struct kobject *kobj,
+-				struct kobj_attribute *attr, char *buf)
+-{
+-	return sprintf(buf, "%04x\n", spid.customer_id);
+-}
+-spid_attr(customer_id);
+-
+-static ssize_t vendor_id_show(struct kobject *kobj, struct kobj_attribute *attr,
+-			      char *buf)
+-{
+-	return sprintf(buf, "%04x\n", spid.vendor_id);
+-}
+-spid_attr(vendor_id);
+-
+-static ssize_t manufacturer_id_show(struct kobject *kobj,
+-				    struct kobj_attribute *attr, char *buf)
+-{
+-	return sprintf(buf, "%04x\n", spid.manufacturer_id);
+-}
+-spid_attr(manufacturer_id);
+-
+-static ssize_t platform_family_id_show(struct kobject *kobj,
+-				       struct kobj_attribute *attr, char *buf)
+-{
+-	return sprintf(buf, "%04x\n", spid.platform_family_id);
+-}
+-spid_attr(platform_family_id);
+-
+-static ssize_t product_line_id_show(struct kobject *kobj,
+-				    struct kobj_attribute *attr, char *buf)
+-{
+-	return sprintf(buf, "%04x\n", spid.product_line_id);
+-}
+-spid_attr(product_line_id);
+-
+-static ssize_t hardware_id_show(struct kobject *kobj,
+-				struct kobj_attribute *attr, char *buf)
+-{
+-	return sprintf(buf, "%04x\n", spid.hardware_id);
+-}
+-spid_attr(hardware_id);
+-
+-static ssize_t fru_show(struct kobject *kobj, struct kobj_attribute *attr,
+-			char *buf)
+-{
+-	return sprintf(buf, "%02x\n%02x\n%02x\n%02x\n%02x\n"
+-			    "%02x\n%02x\n%02x\n%02x\n%02x\n",
+-			spid.fru[0], spid.fru[1], spid.fru[2], spid.fru[3],
+-			spid.fru[4], spid.fru[5], spid.fru[6], spid.fru[7],
+-			spid.fru[8], spid.fru[9]);
+-}
+-spid_attr(fru);
+-
+-static struct attribute *spid_attrs[] = {
+-	&customer_id_attr.attr,
+-	&vendor_id_attr.attr,
+-	&manufacturer_id_attr.attr,
+-	&platform_family_id_attr.attr,
+-	&product_line_id_attr.attr,
+-	&hardware_id_attr.attr,
+-	&fru_attr.attr,
+-	NULL,
+-};
+-
+-static struct attribute_group spid_attr_group = {
+-	.attrs = spid_attrs,
+-};
+-
+-#ifdef CONFIG_ACPI
+-static ssize_t iafw_version_show(struct kobject *kobj,
+-		struct kobj_attribute *attr, char *buf)
+-{
+-	return sprintf(buf, "%04X.%04X\n", pidv.iafwrevvalues[iarevmajor],
+-		pidv.iafwrevvalues[iarevminor]);
+-}
+-pidv_attr(iafw_version);
+-
+-static ssize_t secfw_version_show(struct kobject *kobj,
+-		struct kobj_attribute *attr, char *buf)
+-{
+-	return sprintf(buf, "%02d.%02d\n",
+-		(pidv.secrevvalues[secrev] / 100),
+-		(pidv.secrevvalues[secrev] % 100));
+-}
+-pidv_attr(secfw_version);
+-
+-static struct attribute *pidv_attrs[] = {
+-	&iafw_version_attr.attr,
+-	&secfw_version_attr.attr,
+-	NULL,
+-};
+-
+-static struct attribute_group pidv_attr_group = {
+-	.attrs = pidv_attrs,
+-};
+-
+-static int __init acpi_parse_pidv(struct acpi_table_header *table)
+-{
+-	struct acpi_table_pidv *pidv_tbl;
+-
+-	pidv_tbl = (struct acpi_table_pidv *)table;
+-	if (!pidv_tbl) {
+-		pr_warn("Unable to map PIDV\n");
+-		return -ENODEV;
+-	}
+-
+-	memcpy(&pidv, &(pidv_tbl->pidv), sizeof(struct platform_id));
+-	/*
+-	 * FIXME: add spid accessor, instead of memcpy
+-	 */
+-	memcpy(&spid, &(pidv_tbl->pidv.ext_id_1),
+-			sizeof(struct soft_platform_id));
+-	/*
+-	 * FIXME: add ssn accessor, instead of memcpy
+-	 */
+-	memcpy(intel_platform_ssn, &(pidv_tbl->pidv.part_number),
+-			INTEL_PLATFORM_SSN_SIZE);
+-	intel_platform_ssn[INTEL_PLATFORM_SSN_SIZE] = '\0';
+-
+-	pr_info("SPID updated according to ACPI Table:\n");
+-	pr_info("\tspid customer id : %04x\n"
+-			"\tspid vendor id : %04x\n"
+-			"\tspid manufacturer id : %04x\n"
+-			"\tspid platform family id : %04x\n"
+-			"\tspid product line id : %04x\n"
+-			"\tspid hardware id : %04x\n"
+-			"\tspid fru[4..0] : %02x %02x %02x %02x %02x\n"
+-			"\tspid fru[9..5] : %02x %02x %02x %02x %02x\n"
+-			"\tssn : %s\n",
+-			spid.customer_id,
+-			spid.vendor_id,
+-			spid.manufacturer_id,
+-			spid.platform_family_id,
+-			spid.product_line_id,
+-			spid.hardware_id,
+-			spid.fru[4], spid.fru[3], spid.fru[2], spid.fru[1],
+-			spid.fru[0], spid.fru[9], spid.fru[8], spid.fru[7],
+-			spid.fru[6], spid.fru[5],
+-			intel_platform_ssn);
+-	return 0;
+-}
+-
+-static int __init acpi_spid_init(void)
+-{
+-	int ret = 0;
+-
+-	/* create sysfs entries for soft platform id */
+-	spid_kobj = kobject_create_and_add("spid", NULL);
+-	if (!spid_kobj) {
+-		pr_err("SPID: ENOMEM for spid_kobj\n");
+-		return -ENOMEM;
+-	}
+-
+-	ret = sysfs_create_group(spid_kobj, &spid_attr_group);
+-	if (ret) {
+-		pr_err("SPID: failed to create /sys/spid\n");
+-		goto err_sysfs_spid;
+-	}
+-
+-	/* parse SPID table from firmware/bios */
+-	ret = acpi_table_parse(ACPI_SIG_PIDV, acpi_parse_pidv);
+-	if (ret) {
+-		pr_err("SPID: PIDV ACPI table not found\n");
+-		ret = -EINVAL;
+-		goto err_acpi_parse;
+-	}
+-
+-	pidv_kobj = kobject_create_and_add("pidv", firmware_kobj);
+-	if (!pidv_kobj) {
+-		pr_err("pidv: ENOMEM for pidv_kobj\n");
+-		ret = -ENOMEM;
+-		goto err_kobj_create_pidv;
+-	}
+-
+-	ret = sysfs_create_group(pidv_kobj, &pidv_attr_group);
+-	if (ret) {
+-		pr_err("SPID: failed to create /sys/spid\n");
+-		goto err_sysfs_pidv;
+-	}
+-
+-	/* Populate command line with SPID values */
+-	populate_spid_cmdline();
+-
+-	return 0;
+-
+-err_sysfs_pidv:
+-	kobject_put(firmware_kobj);
+-err_kobj_create_pidv:
+-err_acpi_parse:
+-	sysfs_remove_group(spid_kobj, &spid_attr_group);
+-err_sysfs_spid:
+-	kobject_put(spid_kobj);
+-
+-	return ret;
+-
+-}
+-arch_initcall(acpi_spid_init);
+-#endif
+-
+-/**
+- * Check if buffer contains printable character, from SPACE(0x20) to
+- * TILDE (0x7E), until \0 or maxlen characters occur.
+- * param char *str_buf buffer of characters to look for
+- * param int maxlen max number of characters to look for
+- * return true if valid, otherwise false
+- * */
+-static bool chk_prt_validity(char *strbuf, int max_len)
+-{
+-	int idx = 0;
+-	while ((idx < max_len) && (strbuf[idx] != '\0')) {
+-		if ((strbuf[idx] < 0x20) || (strbuf[idx] > 0x7E))
+-			return false;
+-		idx++;
+-	}
+-	return true;
+-}
+-
+-int __init sfi_handle_spid(struct sfi_table_header *table)
+-{
+-	struct sfi_table_oemb *oemb;
+-	int ret = 0;
+-
+-	/* create sysfs entries for soft platform id */
+-	spid_kobj = kobject_create_and_add("spid", NULL);
+-	if (!spid_kobj) {
+-		pr_err("SPID: ENOMEM for spid_kobj\n");
+-		return -ENOMEM;
+-	}
+-
+-	ret = sysfs_create_group(spid_kobj, &spid_attr_group);
+-	if (ret) {
+-		pr_err("SPID: failed to create /sys/spid\n");
+-		goto err_sfi_sysfs_spid;
+-	}
+-
+-	oemb = (struct sfi_table_oemb *) table;
+-	if (!oemb) {
+-		pr_err("%s: fail to read MFD Validation SFI OEMB Layout\n",
+-			__func__);
+-		ret = -ENODEV;
+-		goto err_sfi_oemb_tbl;
+-	}
+-
+-	memcpy(&spid, &oemb->spid, sizeof(struct soft_platform_id));
+-
+-	if (oemb->header.len <
+-			(char *)oemb->ssn + INTEL_PLATFORM_SSN_SIZE -
+-			(char *)oemb) {
+-		pr_err("SFI OEMB does not contains SSN\n");
+-		intel_platform_ssn[0] = '\0';
+-	} else {
+-		if (!chk_prt_validity(oemb->ssn, INTEL_PLATFORM_SSN_SIZE)) {
+-			pr_err("SSN contains non printable character\n");
+-			intel_platform_ssn[0] = '\0';
+-		} else {
+-			memcpy(intel_platform_ssn, oemb->ssn,
+-				INTEL_PLATFORM_SSN_SIZE);
+-			intel_platform_ssn[INTEL_PLATFORM_SSN_SIZE] = '\0';
+-		}
+-	}
+-
+-	/* Populate command line with SPID values */
+-	populate_spid_cmdline();
+-
+-	return 0;
+-
+-err_sfi_oemb_tbl:
+-	sysfs_remove_group(spid_kobj, &spid_attr_group);
+-err_sfi_sysfs_spid:
+-	kobject_put(spid_kobj);
+-
+-	return ret;
+-}
+-- 
+2.37.3
+

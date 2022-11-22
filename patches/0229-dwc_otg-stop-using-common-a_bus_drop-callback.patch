@@ -1,0 +1,52 @@
+From 6a8fd5c689f250a4b3be4b999ed674481da786bb Mon Sep 17 00:00:00 2001
+From: "Wu, Hao" <hao.wu@intel.com>
+Date: Wed, 9 Oct 2013 20:20:23 +0800
+Subject: [PATCH 229/429] dwc_otg: stop using common a_bus_drop callback
+
+This patch disables the common support for handling A bus drop
+events in dwc_otg3 driver. Add leave it to each platform.
+For Merr, needs to init the callback in dwc3-intel-mrfl.c
+For BYT, leaves it to FSA driver to register the callback.
+
+Signed-off-by: Ramakrishna Pallala <ramakrishna.pallala@intel.com>
+Signed-off-by: Wu, Hao <hao.wu@intel.com>
+---
+ drivers/usb/dwc3/otg.c | 15 ---------------
+ 1 file changed, 15 deletions(-)
+
+diff --git a/drivers/usb/dwc3/otg.c b/drivers/usb/dwc3/otg.c
+index 8546aad41f92..32866da5104e 100644
+--- a/drivers/usb/dwc3/otg.c
++++ b/drivers/usb/dwc3/otg.c
+@@ -1055,19 +1055,6 @@ static struct usb_phy_io_ops dwc_otg_io_ops = {
+ 	.write = ulpi_write,
+ };
+ 
+-static void dwc_a_bus_drop(struct usb_phy *x)
+-{
+-	struct dwc_otg2 *otg = the_transceiver;
+-	unsigned long flags;
+-
+-	if (otg->usb2_phy.vbus_state == VBUS_DISABLED) {
+-		spin_lock_irqsave(&otg->lock, flags);
+-		otg->user_events |= USER_A_BUS_DROP;
+-		dwc3_wakeup_otg_thread(otg);
+-		spin_unlock_irqrestore(&otg->lock, flags);
+-	}
+-}
+-
+ static struct dwc_otg2 *dwc3_otg_alloc(struct device *dev)
+ {
+ 	struct dwc_otg2 *otg = NULL;
+@@ -1107,8 +1094,6 @@ static struct dwc_otg2 *dwc3_otg_alloc(struct device *dev)
+ 	otg->state = DWC_STATE_B_IDLE;
+ 	spin_lock_init(&otg->lock);
+ 	init_waitqueue_head(&otg->main_wq);
+-	otg->usb2_phy.a_bus_drop = dwc_a_bus_drop;
+-	otg->usb2_phy.vbus_state = VBUS_ENABLED;
+ 
+ 	/* Register otg notifier to monitor ID and VBus change events */
+ 	otg->nb.notifier_call = dwc_otg_handle_notification;
+-- 
+2.37.3
+
